@@ -1,4 +1,4 @@
-# MarketingAI Project Instructions
+# StockAI Project Instructions
 
 ## Project purpose
 
