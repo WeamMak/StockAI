@@ -1,11 +1,29 @@
 .venv/
 __pycache__/
 *.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+reports/
+.uv-cache/
+
 .env
+.env.*
+!.env.example
+
 .vscode/
+.idea/
+dist/
+build/
+*.egg-info/
 
 # Keep course source material ignored when untracked, but allow mandatory
 # planning artifacts to be reviewed and committed.
 docs/*
 !docs/spec.md
 !docs/plan.md
+!docs/implementation-status.md
