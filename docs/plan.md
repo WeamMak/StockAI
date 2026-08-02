@@ -8,23 +8,26 @@
 
 **Tech Stack:** Python 3.12, FastAPI, LangGraph, Python MCP SDK, React, TypeScript, Vite, Odoo 19 Community, PostgreSQL, Terraform, AWS EC2/Auto Scaling/SSM/EventBridge/Lambda/EBS/ALB/ACM/Route 53, kubeadm Kubernetes, Kustomize, Argo CD, Prometheus, Grafana, Loki, Alertmanager, GitHub Actions.
 
-**Status:** Draft for user review
+**Status:** Approved by user and course staff; implementation in progress
 
 **Date:** 2026-08-02
 
 **Source design:** User- and course-staff-approved `docs/spec.md` dated 2026-08-02
 
-**Current gate:** This synchronized plan requires user and course-staff approval;
-implementation is not authorized
+**Current gate:** User and course-staff approval are complete. The user
+authorized implementation on 2026-08-02; work proceeds one approved task at a
+time.
 
 ## 1. Approval status and purpose
 
 User and course-staff approval of the revised `docs/spec.md` dated 2026-08-02
-were confirmed by the user on 2026-08-02. This synchronized implementation plan
-now requires its own user review and course-staff pull-request approval.
+were confirmed by the user on 2026-08-02. User and course-staff approval of this
+synchronized implementation plan were subsequently completed through the
+required pull-request workflow.
 
-This plan does not authorize application code, tests, containers, Terraform,
-Kubernetes manifests, or CI/CD work. Before Task T01 begins:
+The user explicitly authorized implementation on 2026-08-02. Implementation
+therefore proceeds under this plan's one-task-at-a-time workflow. The completed
+planning gate required:
 
 1. The user must review and explicitly approve this synchronized plan.
 2. Course staff must approve this plan through a pull request.
@@ -318,12 +321,12 @@ integration test, and one representative failure test.
 
 **Work and tests**
 
-- [ ] **Step 1:** Add an initially failing import-boundary test.
-- [ ] **Step 2:** Configure pinned runtime and development dependencies for FastAPI,
+- [x] **Step 1:** Add an initially failing import-boundary test.
+- [x] **Step 2:** Configure pinned runtime and development dependencies for FastAPI,
    LangGraph, the Python MCP SDK, Pydantic, boto3, HTTP clients, pytest,
    Ruff, and mypy.
-- [ ] **Step 3:** Define stable Make targets without adding application behavior.
-- [ ] **Step 4:** Make the boundary test pass with the empty deep-module structure.
+- [x] **Step 3:** Define stable Make targets without adding application behavior.
+- [x] **Step 4:** Make the boundary test pass with the empty deep-module structure.
 
 **Verification**
 
@@ -353,11 +356,11 @@ empty quality suite through documented commands.
 
 **Work and tests**
 
-- [ ] **Step 1:** Test bounded identifiers, amounts, currencies, dates, quantities, evidence
+- [x] **Step 1:** Test bounded identifiers, amounts, currencies, dates, quantities, evidence
    references, revisions, and case-state transitions.
-- [ ] **Step 2:** Implement the states in specification section 7.2 without business policy.
-- [ ] **Step 3:** Define the stable error envelope and retryability classification.
-- [ ] **Step 4:** Reject unknown states, invalid transitions, unbounded text, negative money,
+- [x] **Step 2:** Implement the states in specification section 7.2 without business policy.
+- [x] **Step 3:** Define the stable error envelope and retryability classification.
+- [x] **Step 4:** Reject unknown states, invalid transitions, unbounded text, negative money,
    invalid quantities, and mismatched environments.
 
 **Verification:** Run domain unit tests, type checking, and import-boundary
@@ -2465,7 +2468,7 @@ The user and course staff should confirm:
 
 ## 15. Next approval gate
 
-The revised `docs/spec.md` has user and course-staff approval. The next action
-is user review of this synchronized plan, followed by course-staff approval
-through a pull request. Even after both plan approvals, implementation must
-wait for a separate, explicit user instruction to begin.
+Planning gate G0 is complete: the specification and this plan have user and
+course-staff approval, and the user explicitly authorized implementation on
+2026-08-02. T01 and T02 are complete. Later tasks remain subject to the
+one-task-at-a-time workflow and their stated dependencies.

@@ -4,7 +4,7 @@
 
 **Date:** 2026-08-02
 
-**Planning stage:** Specification approved; synchronized implementation plan pending approval
+**Planning stage:** Specification and implementation plan approved; implementation in progress
 
 **Approval record:** The previous specification was approved by the user and
 course staff on 2026-07-25. The company/category/product preference,
@@ -1388,6 +1388,6 @@ flowchart LR
 
 [Project decision] User and course-staff approval of the previous specification were confirmed by the user on 2026-07-25. The user approved the preference-management plus ALB/ACM, environment-ASG lifecycle, HPA-capacity, and observability/storage revisions on 2026-08-02; course-staff approval was confirmed by the user on 2026-08-02.
 
-[Explicit course requirement] This revised specification and the synchronized `docs/plan.md` do not authorize implementation until both receive the required new approvals.
+[Explicit course requirement] This revised specification and the synchronized `docs/plan.md` did not authorize implementation until both received the required new approvals.
 
-[Explicit course requirement] User and course-staff review of this revised specification are complete. The synchronized implementation plan must now be reviewed and approved separately, and implementation may begin only after both approvals plus a separate explicit user instruction.
+[Explicit course requirement] User and course-staff review of this revised specification and the synchronized implementation plan are complete. The user separately authorized implementation on 2026-08-02, and work now proceeds one approved plan task at a time.

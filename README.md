@@ -4,9 +4,9 @@ StockAI is an approval-gated AI procurement agent for a fictional, self-hosted
 Odoo business. The approved design and implementation sequence live in
 [`docs/spec.md`](docs/spec.md) and [`docs/plan.md`](docs/plan.md).
 
-The repository is currently establishing the Python quality and package
-foundation described by Task T01. It does not contain runnable application
-behavior yet.
+Tasks T01 and T02 established the Python foundation and framework-independent
+procurement domain contracts. The repository does not contain runnable
+application behavior yet; that begins with later approved plan tasks.
 
 ## Prerequisites
 
@@ -35,7 +35,7 @@ make lint
 make test-unit
 ```
 
-Run the complete T01 suite with:
+Run the complete quality and unit-test suite with:
 
 ```bash
 make check
