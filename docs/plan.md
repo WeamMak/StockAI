@@ -1,28 +1,34 @@
 # AI Procurement Agent — Implementation Plan
 
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Build, validate, deploy, and demonstrate the approved AI procurement agent on a self-managed Kubernetes cluster with isolated dev/prod worker ASGs and automated worker termination cleanup.
+
+**Architecture:** One fixed kubeadm control plane coordinates separate single-AZ dev and prod worker ASGs. Required Kubernetes HPAs scale pods; Phase 1 node capacity remains an explicit Terraform input, while EventBridge, Lambda, and SSM automate bounded worker drain and stale-node cleanup.
+
+**Tech Stack:** Python 3.12, FastAPI, LangGraph, Python MCP SDK, React, TypeScript, Vite, Odoo 19 Community, PostgreSQL, Terraform, AWS EC2/Auto Scaling/SSM/EventBridge/Lambda/EBS/ALB/ACM/Route 53, kubeadm Kubernetes, Kustomize, Argo CD, Prometheus, Grafana, Loki, Alertmanager, GitHub Actions.
+
 **Status:** Draft for user review
 
-**Date:** 2026-07-28
+**Date:** 2026-08-02
 
-**Source design:** Revised `docs/spec.md` dated 2026-07-28
+**Source design:** User- and course-staff-approved `docs/spec.md` dated 2026-08-02
 
-**Current gate:** Revised specification and plan require user and course-staff
-re-approval; implementation is not authorized
+**Current gate:** This synchronized plan requires user and course-staff approval;
+implementation is not authorized
 
 ## 1. Approval status and purpose
 
-User and course-staff approval of the previous `docs/spec.md` were confirmed by
-the user on 2026-07-25. The material preference-management revision dated
-2026-07-28 reopens the approval gate. The revised specification must be
-approved before this synchronized plan can receive its separate approval.
+User and course-staff approval of the revised `docs/spec.md` dated 2026-08-02
+were confirmed by the user on 2026-08-02. This synchronized implementation plan
+now requires its own user review and course-staff pull-request approval.
 
 This plan does not authorize application code, tests, containers, Terraform,
 Kubernetes manifests, or CI/CD work. Before Task T01 begins:
 
-1. The user and course staff must approve the revised specification.
-2. The user must then review and explicitly approve this synchronized plan.
-3. Course staff must approve this plan through a pull request.
-4. The user must then separately and explicitly authorize implementation.
+1. The user must review and explicitly approve this synchronized plan.
+2. Course staff must approve this plan through a pull request.
+3. The user must then separately and explicitly authorize implementation.
 
 If an implementation discovery conflicts with the approved specification, work
 must stop, the affected design and plan sections must be revised, and the
@@ -30,8 +36,8 @@ required approval must be obtained before work resumes.
 
 ## 2. Planning approach
 
-The dedicated `writing-plans` skill was not available in this workspace. This
-document uses the required equivalent workflow:
+This revision uses the dedicated `writing-plans` skill and preserves the
+project-required `docs/plan.md` location:
 
 - derive every task from an approved specification requirement;
 - keep tasks small and independently reviewable;
@@ -46,7 +52,7 @@ document uses the required equivalent workflow:
 - preserve the required branch, immutable-artifact, GitHub Actions, and Argo CD
   workflow.
 
-## 3. Fixed implementation constraints
+## 3. Global constraints
 
 The following decisions come from the revised specification. They become fixed
 after the required new approval and must not then be silently changed:
@@ -59,9 +65,30 @@ after the required new approval and must not then be silently changed:
 - DynamoDB stores checkpoints and application state; S3 stores Loki objects.
 - Cognito provides identity; backend-managed opaque sessions protect the UI.
 - AWS resources are provisioned with Terraform in `us-east-1`.
-- Kubernetes is self-managed with kubeadm on three `t3.medium` EC2 instances,
-  each with no more than 30 GB root EBS.
-- Dev and prod run complete, separate stacks on hard-pinned worker nodes.
+- Kubernetes is self-managed with kubeadm on one fixed `t3.medium` control
+  plane and separate dev/prod `t3.medium` worker ASGs; every instance has an
+  encrypted root EBS volume no larger than 30 GB.
+- Active worker defaults are `min = 1`, `desired = 1`, and `max = 3` for each
+  single-AZ environment ASG. Phase 1 has no ASG scaling policy, Cluster
+  Autoscaler, Karpenter, or other automatic node scaling.
+- One internet-facing ALB terminates an ACM certificate and sends traffic to a
+  fixed NGINX Ingress NodePort through environment-specific ASG target groups.
+- Odoo filestore, PostgreSQL, and Prometheus each use one Terraform-created,
+  encrypted, static, retained EBS volume per environment through the pinned EBS
+  CSI driver; initial volume size is 5 GiB each.
+- Grafana has no EBS volume: Git-managed provisioning defines supported data
+  sources, dashboards, folders, and alerts, while runtime state is disposable.
+- Frontend, Agent API, and Procurement MCP each use a CPU HPA with minimum one,
+  maximum three, and a 50% average utilization target.
+- Dev and prod run complete, separate stacks on hard-labeled and tainted worker
+  ASGs with separate launch templates, instance roles, Availability Zones, and
+  ALB target groups.
+- A finite 24-hour kubeadm token rotates every 12 hours into one Terraform-
+  created SSM `SecureString`; workers validate and use it without logging it.
+- An ASG termination lifecycle hook routes through EventBridge to one shared
+  Lambda, which heartbeats and uses SSM on the control plane for bounded,
+  idempotent node cleanup. Non-clean outcomes fail open, alert, and follow a
+  recovery runbook.
 - Kustomize defines application desired state.
 - GitHub Actions builds and validates; Argo CD deploys. Actions never deploy
   workloads with `kubectl`.
@@ -80,6 +107,8 @@ digests. The intended baseline is Python 3.12, a current supported Node LTS,
 `uv` for Python locking, and `npm` lock files for the frontend. A compatibility
 failure is resolved in the plan or specification rather than by an unrecorded
 toolchain change.
+
+---
 
 ## 4. Planned repository layout
 
@@ -112,10 +141,21 @@ and MCP security boundaries.
 │   └── tests/
 ├── infra/
 │   ├── cluster/
+│   │   ├── install-node.sh
+│   │   ├── init-control-plane.sh
+│   │   ├── join-worker.sh
+│   │   └── rotate-join-token.sh
 │   └── terraform/
 │       ├── bootstrap/
 │       ├── modules/
+│       │   ├── app-environment/
+│       │   ├── compute/
+│       │   ├── edge/
+│       │   ├── network/
+│       │   ├── node-iam/
+│       │   └── worker-lifecycle/
 │       ├── platform/
+│       ├── edge/
 │       └── environments/
 │           ├── dev/
 │           └── prod/
@@ -136,7 +176,9 @@ and MCP security boundaries.
 │       ├── observability/
 │       └── ports/
 ├── tests/
+│   ├── infra/
 │   ├── integration/
+│   ├── kubernetes/
 │   ├── smoke/
 │   ├── support/
 │   └── unit/
@@ -235,11 +277,12 @@ capabilities and Make targets must remain stable.
 | `make test-e2e` | Local browser/API happy path and one representative safe failure |
 | `make build` | Frontend build and three OCI image builds |
 | `make compose-validate` | Render Compose configuration and verify service health |
-| `make terraform-validate` | Format, initialize without apply, validate, lint, and run static checks for every root |
+| `make terraform-validate` | Format, initialize without apply, validate, lint, plan-test every root, and package/unit-test lifecycle Lambda code |
 | `make kubernetes-validate` | Render both Kustomize overlays and run schema/policy checks |
 | `make security-scan` | Dependency, secret, filesystem, configuration, and image checks; Docker Scout remains required in CI |
 | `make smoke-dev` | Public HTTPS, auth, real Bedrock, real MCP, real Odoo, DynamoDB, audit, metrics, and logs |
 | `make smoke-prod` | Same critical path against prod with prod-only fictional seed data |
+| `make test-resilience` | HPA/manual ASG capacity, clean/fail-open termination, retained-volume reattachment, inactive/startup warming, and recovery drills |
 | `make verify-release` | Verify source revision, image digests, attestations, dev evidence, and prod promotion identity |
 
 The full pull-request suite invokes all offline deterministic checks. Live
@@ -275,12 +318,12 @@ integration test, and one representative failure test.
 
 **Work and tests**
 
-1. Add an initially failing import-boundary test.
-2. Configure pinned runtime and development dependencies for FastAPI,
+- [ ] **Step 1:** Add an initially failing import-boundary test.
+- [ ] **Step 2:** Configure pinned runtime and development dependencies for FastAPI,
    LangGraph, the Python MCP SDK, Pydantic, boto3, HTTP clients, pytest,
    Ruff, and mypy.
-3. Define stable Make targets without adding application behavior.
-4. Make the boundary test pass with the empty deep-module structure.
+- [ ] **Step 3:** Define stable Make targets without adding application behavior.
+- [ ] **Step 4:** Make the boundary test pass with the empty deep-module structure.
 
 **Verification**
 
@@ -310,11 +353,11 @@ empty quality suite through documented commands.
 
 **Work and tests**
 
-1. Test bounded identifiers, amounts, currencies, dates, quantities, evidence
+- [ ] **Step 1:** Test bounded identifiers, amounts, currencies, dates, quantities, evidence
    references, revisions, and case-state transitions.
-2. Implement the states in specification section 7.2 without business policy.
-3. Define the stable error envelope and retryability classification.
-4. Reject unknown states, invalid transitions, unbounded text, negative money,
+- [ ] **Step 2:** Implement the states in specification section 7.2 without business policy.
+- [ ] **Step 3:** Define the stable error envelope and retryability classification.
+- [ ] **Step 4:** Reject unknown states, invalid transitions, unbounded text, negative money,
    invalid quantities, and mismatched environments.
 
 **Verification:** Run domain unit tests, type checking, and import-boundary
@@ -344,12 +387,12 @@ environment crossings, or illegal case transitions.
 
 **Work and tests**
 
-1. Test `/health/live`, `/health/ready`, `/health/dependencies`, and `/metrics`.
-2. Test the safe error envelope and correlation-ID propagation.
-3. Test JSON log fields and redaction of secrets, prompts, model output,
+- [ ] **Step 1:** Test `/health/live`, `/health/ready`, `/health/dependencies`, and `/metrics`.
+- [ ] **Step 2:** Test the safe error envelope and correlation-ID propagation.
+- [ ] **Step 3:** Test JSON log fields and redaction of secrets, prompts, model output,
    prices, budgets, manager notes, and upstream errors.
-4. Implement process liveness separately from dependency readiness.
-5. Expose request count, error count, and latency without high-cardinality
+- [ ] **Step 4:** Implement process liveness separately from dependency readiness.
+- [ ] **Step 5:** Expose request count, error count, and latency without high-cardinality
    labels.
 
 **Verification:** Run API and observability unit tests; start the API locally
@@ -377,13 +420,13 @@ contracts without depending on Odoo, Bedrock, or AWS.
 
 **Work and tests**
 
-1. Test `list_replenishment_candidates` in isolation with strict inputs and
+- [ ] **Step 1:** Test `list_replenishment_candidates` in isolation with strict inputs and
    bounded typed outputs.
-2. Test missing/wrong bearer credentials, malformed requests, response schema
+- [ ] **Step 2:** Test missing/wrong bearer credentials, malformed requests, response schema
    validation, timeout mapping, and safe errors.
-3. Start the actual MCP server and call it through the Python MCP client using
+- [ ] **Step 3:** Start the actual MCP server and call it through the Python MCP client using
    Streamable HTTP; no direct function-call substitute is accepted.
-4. Add MCP call count, duration, failures, timeouts, and retries to metrics and
+- [ ] **Step 4:** Add MCP call count, duration, failures, timeouts, and retries to metrics and
    structured logs.
 
 **Verification:** Run the MCP unit suite and the real-transport integration
@@ -415,15 +458,15 @@ authenticated Streamable HTTP and receives a validated fictional candidate.
 
 **Work and tests**
 
-1. Test a coded LangGraph that calls MCP, invokes a fake structured LLM port,
+- [ ] **Step 1:** Test a coded LangGraph that calls MCP, invokes a fake structured LLM port,
    and returns one approval-ready read-only result.
-2. Test one MCP timeout path that produces a safe unresolved result.
-3. Implement `POST /api/v1/scans` as `202 Accepted`, plus scan list/detail
+- [ ] **Step 2:** Test one MCP timeout path that produces a safe unresolved result.
+- [ ] **Step 3:** Implement `POST /api/v1/scans` as `202 Accepted`, plus scan list/detail
    polling endpoints.
-4. Implement `POST /internal/v1/scans` with a separate narrow Cron credential;
+- [ ] **Step 4:** Implement `POST /internal/v1/scans` with a separate narrow Cron credential;
    do not reuse a human session.
-5. Enforce one local scan lock and a 120-second non-human workflow deadline.
-6. Add scan, LLM, MCP, retry, and result metrics.
+- [ ] **Step 5:** Enforce one local scan lock and a 120-second non-human workflow deadline.
+- [ ] **Step 6:** Add scan, LLM, MCP, retry, and result metrics.
 
 **Verification:** Run unit tests and the API → graph → real MCP transport
 integration test.
@@ -450,11 +493,11 @@ shows either a safe approval-ready fictional result or an explicit failure.
 
 **Work and tests**
 
-1. Test loading, empty, success, manual-review, and safe-error states.
-2. Implement a manual scan button, 202 handling, bounded polling with cleanup,
+- [ ] **Step 1:** Test loading, empty, success, manual-review, and safe-error states.
+- [ ] **Step 2:** Implement a manual scan button, 202 handling, bounded polling with cleanup,
    and scan result display.
-3. Avoid embedding configuration or tokens in the browser bundle.
-4. Meet basic keyboard, label, focus, and contrast checks.
+- [ ] **Step 3:** Avoid embedding configuration or tokens in the browser bundle.
+- [ ] **Step 4:** Meet basic keyboard, label, focus, and contrast checks.
 
 **Verification:** Run frontend lint, type checks, unit tests, and production
 build.
@@ -477,12 +520,12 @@ scan from a production-built React application.
 
 **Work and tests**
 
-1. Test the full local happy path across actual API and MCP processes.
-2. Test a representative MCP timeout, including retry count, final error,
+- [ ] **Step 1:** Test the full local happy path across actual API and MCP processes.
+- [ ] **Step 2:** Test a representative MCP timeout, including retry count, final error,
    logs, and metrics.
-3. Verify the interaction contains a LangGraph run and a real MCP transport
+- [ ] **Step 3:** Verify the interaction contains a LangGraph run and a real MCP transport
    call.
-4. Document one command to run and one command to verify the skeleton.
+- [ ] **Step 4:** Document one command to run and one command to verify the skeleton.
 
 **Verification:** Run `make test-unit`, `make test-integration`, and a manual
 browser check.
@@ -506,11 +549,11 @@ live AWS or Odoo.
 
 **Work and tests**
 
-1. Add configuration tests for non-root execution, fixed entry points, health
+- [ ] **Step 1:** Add configuration tests for non-root execution, fixed entry points, health
    checks, no development server, minimal build context, and no copied secret.
-2. Use multi-stage builds and pinned base-image digests.
-3. Ensure the frontend proxies `/api` and `/auth` to FastAPI on the same origin.
-4. Define writable paths explicitly so later read-only root filesystems work.
+- [ ] **Step 2:** Use multi-stage builds and pinned base-image digests.
+- [ ] **Step 3:** Ensure the frontend proxies `/api` and `/auth` to FastAPI on the same origin.
+- [ ] **Step 4:** Define writable paths explicitly so later read-only root filesystems work.
 
 **Verification:** Build all three images, run image configuration tests, start
 each image, and inspect health.
@@ -532,12 +575,12 @@ skeleton.
 
 **Work and tests**
 
-1. Run frontend, API, MCP, and deterministic fake Odoo as separate services.
-2. Add explicit networks, health checks, bounded resources, and disposable test
+- [ ] **Step 1:** Run frontend, API, MCP, and deterministic fake Odoo as separate services.
+- [ ] **Step 2:** Add explicit networks, health checks, bounded resources, and disposable test
    volumes.
-3. Test happy path, no-valid-response failure, malformed fake Odoo response,
+- [ ] **Step 3:** Test happy path, no-valid-response failure, malformed fake Odoo response,
    and service timeout.
-4. Keep credentials fictional and injected from ignored local environment
+- [ ] **Step 4:** Keep credentials fictional and injected from ignored local environment
    files.
 
 **Verification:** Run `docker compose config`, `make compose-validate`, and
@@ -559,16 +602,16 @@ with one documented command.
 
 **Work and tests**
 
-1. Start pinned Odoo 19 Community and PostgreSQL images locally.
-2. Probe authentication, the required Purchase/Inventory/Contacts/accounting
+- [ ] **Step 1:** Start pinned Odoo 19 Community and PostgreSQL images locally.
+- [ ] **Step 2:** Probe authentication, the required Purchase/Inventory/Contacts/accounting
    models, reordering rules, vendor pricelists, receipts, returns, analytic
    budgets, PO origin/reference, revision detection, and PO state actions.
-3. Record exact model names, fields, methods, permissions, and representative
+- [ ] **Step 3:** Record exact model names, fields, methods, permissions, and representative
    sanitized payloads.
-4. Verify whether an integration API key and fictional identities can be
+- [ ] **Step 4:** Verify whether an integration API key and fictional identities can be
    bootstrapped idempotently without manual production-console resource
    creation.
-5. Convert every verified contract into an executable contract test.
+- [ ] **Step 5:** Convert every verified contract into an executable contract test.
 
 **Stop condition**
 
@@ -602,14 +645,14 @@ contract or has triggered the stop condition.
 
 **Work and tests**
 
-1. Test JSON-2 authentication, 10-second read timeout, transient retry, no
+- [ ] **Step 1:** Test JSON-2 authentication, 10-second read timeout, transient retry, no
    retry on permanent errors, strict mapping, and untrusted-output rejection.
-2. Implement idempotent fictional dev/prod seed profiles for the happy path,
+- [ ] **Step 2:** Implement idempotent fictional dev/prod seed profiles for the happy path,
    over-budget path, no-valid-offer path, history, returns, and open-PO
    coverage.
-3. Bootstrap the least-privilege integration user and rotating key without
+- [ ] **Step 3:** Bootstrap the least-privilege integration user and rotating key without
    logging credentials; remove temporary bootstrap authority after success.
-4. Replace the fixture implementation of
+- [ ] **Step 4:** Replace the fixture implementation of
    `list_replenishment_candidates` with the real adapter while retaining the
    fake for deterministic tests.
 
@@ -638,14 +681,14 @@ real, validated Odoo-backed MCP read.
 
 **Work and tests**
 
-1. Test that only `openai.gpt-oss-20b-1:0` can be invoked.
-2. Test the 30-second attempt timeout, at most two transient retries with
+- [ ] **Step 1:** Test that only `openai.gpt-oss-20b-1:0` can be invoked.
+- [ ] **Step 2:** Test the 30-second attempt timeout, at most two transient retries with
    exponential backoff/jitter, one schema-repair attempt, and final safe
    fallback.
-3. Test ineligible identifiers, changed arithmetic, missing budget
+- [ ] **Step 3:** Test ineligible identifiers, changed arithmetic, missing budget
    acknowledgement, oversized text, injection-like business data, and token
    metric extraction.
-4. Implement the system-prompt sections defined in specification 9.4 without
+- [ ] **Step 4:** Implement the system-prompt sections defined in specification 9.4 without
    requesting or exposing hidden chain-of-thought.
 
 **Verification:** Run all tests with a mocked boto3 Bedrock client. A real model
@@ -674,12 +717,12 @@ incapable of authorizing writes or altering deterministic values.
 
 **Work and tests**
 
-1. Test environment-prefixed keys, conditional case creation, idempotency,
+- [ ] **Step 1:** Test environment-prefixed keys, conditional case creation, idempotency,
    optimistic revisions, strongly consistent approval reads, audit
    immutability, TTL fields, and pagination.
-2. Implement separate checkpoint and application repositories behind ports.
-3. Persist sanitized graph state without duplicating Odoo master data.
-4. Verify graph resume after API process restart using DynamoDB Local.
+- [ ] **Step 2:** Implement separate checkpoint and application repositories behind ports.
+- [ ] **Step 3:** Persist sanitized graph state without duplicating Odoo master data.
+- [ ] **Step 4:** Verify graph resume after API process restart using DynamoDB Local.
 
 **Verification:** Run mocked unit tests and the real DynamoDB Local integration
 test.
@@ -711,15 +754,15 @@ writes prevent duplicate case creation.
 
 **Work and tests**
 
-1. Test authorization-code state/nonce validation, callback errors, secure
+- [ ] **Step 1:** Test authorization-code state/nonce validation, callback errors, secure
    cookies, session rotation/expiry/logout, CSRF, disabled self-signup
    assumptions, and officer/manager roles.
-2. Store only opaque browser cookies; store session records in DynamoDB.
-3. Keep a test-only local identity adapter that cannot be enabled in dev or
+- [ ] **Step 2:** Store only opaque browser cookies; store session records in DynamoDB.
+- [ ] **Step 3:** Keep a test-only local identity adapter that cannot be enabled in dev or
    prod configuration.
-4. Protect manual scan and dependency-health endpoints and add
+- [ ] **Step 4:** Protect manual scan and dependency-health endpoints and add
    `/api/v1/session`.
-5. Add an idempotent bootstrap command for fictional officer and manager users
+- [ ] **Step 5:** Add an idempotent bootstrap command for fictional officer and manager users
    and groups without emitting temporary credentials.
 
 **Verification:** Run API and frontend auth tests and inspect the production
@@ -748,12 +791,12 @@ and only authorized roles can invoke protected routes.
 
 **Work and tests**
 
-1. Validate encrypted versioned state storage, public-access blocking,
+- [ ] **Step 1:** Validate encrypted versioned state storage, public-access blocking,
    locking, retention protection, and narrowly scoped GitHub OIDC trust.
-2. Keep bootstrap state separate from application log storage.
-3. Parameterize account, repository, administrator CIDR, and state names;
+- [ ] **Step 2:** Keep bootstrap state separate from application log storage.
+- [ ] **Step 3:** Parameterize account, repository, administrator CIDR, and state names;
    never commit account-specific values.
-4. Document the reproducible CLI bootstrap without AWS Console creation.
+- [ ] **Step 4:** Document the reproducible CLI bootstrap without AWS Console creation.
 
 **Verification:** Run format, init, validate, static checks, and a reviewed plan
 before any apply. After authorized apply, verify encryption, versioning,
@@ -767,27 +810,112 @@ is executed.
 **Complete when:** All later Terraform roots can use protected remote state and
 keyless GitHub authentication.
 
-#### T16 — Provision network, EC2, EBS, security groups, and node IAM
+#### T16 — Provision the network, control plane, worker ASGs, and node IAM
 
 **Files**
 
-- Create modules under `infra/terraform/modules/network/`,
-  `infra/terraform/modules/compute/`, and
-  `infra/terraform/modules/node-iam/`.
-- Create the `infra/terraform/platform/` root and
-  `tests/infra/test_platform_plan.py`.
+- Create `infra/terraform/modules/network/{main,variables,outputs}.tf`.
+- Create `infra/terraform/modules/compute/{main,variables,outputs}.tf` and
+  `infra/terraform/modules/compute/worker-user-data.sh.tftpl`.
+- Create `infra/terraform/modules/node-iam/{main,variables,outputs}.tf`.
+- Create `infra/terraform/platform/{main,variables,outputs,versions}.tf` and
+  `infra/terraform/platform/terraform.tfvars.example`.
+- Create `tests/infra/plan.py` and `tests/infra/test_platform_plan.py`.
+
+**Interfaces**
+
+- Consumes: T15 remote-state bucket/lock identifiers, administrator CIDR,
+  cluster name, AMI ID, and the approved `us-east-1` region.
+- Produces: Terraform outputs `control_plane_instance_id`,
+  `control_plane_private_ip`, `dev_worker_asg_name`, `prod_worker_asg_name`,
+  `dev_worker_az`, `prod_worker_az`, `dev_worker_role_name`,
+  `prod_worker_role_name`, `control_plane_role_name`, `alb_subnet_ids`, and
+  `worker_security_group_id`.
 
 **Work and tests**
 
-1. Test one VPC, two public subnets, routing, Internet Gateway, stable
-   addresses, and exactly three `t3.medium` instances with root volumes no
-   larger than 30 GB.
-2. Test one control-plane role without application-data permissions and
-   separate, least-privilege dev/prod worker roles.
-3. Test security groups: restricted SSH/control-plane access, public HTTPS
-   only, and no public MCP or database ports.
-4. Add explicit labels/tags used by cluster bootstrap, local PVs, DLM, cost
-   reporting, and environment scheduling.
+- [ ] **Step 1: Add failing Terraform-plan assertions**
+
+  Parse `terraform show -json` through
+  `tests.infra.plan.resources(plan: dict, resource_type: str) -> list[dict]`.
+  Assert one `aws_instance` control plane, two `aws_launch_template` resources,
+  and two `aws_autoscaling_group` resources whose effective settings are:
+
+  ```python
+  assert {(r["values"]["min_size"], r["values"]["desired_capacity"], r["values"]["max_size"])
+          for r in resources(plan, "aws_autoscaling_group")} == {(1, 1, 3)}
+  assert len(resources(plan, "aws_autoscaling_policy")) == 0
+  assert len(resources(plan, "aws_eks_cluster")) == 0
+  assert len(resources(plan, "aws_nat_gateway")) == 0
+  ```
+
+- [ ] **Step 2: Run the focused test and confirm the missing resources fail**
+
+  Run: `pytest tests/infra/test_platform_plan.py -v`
+
+  Expected: FAIL because the platform root and ASG resources do not exist.
+
+- [ ] **Step 3: Implement the minimum network and compute resources**
+
+  Create one VPC, two public subnets in different Availability Zones, routing,
+  Internet Gateway, restricted control-plane administration, one fixed
+  `t3.medium` control plane, and separate single-AZ dev/prod worker launch
+  templates and ASGs. Use this exact capacity contract in the compute module:
+
+  ```hcl
+  variable "worker_capacity" {
+    type = object({ min = number, desired = number, max = number })
+    default = { min = 1, desired = 1, max = 3 }
+    validation {
+      condition = (
+        (var.worker_capacity.min == 0 && var.worker_capacity.desired == 0 && var.worker_capacity.max == 3) ||
+        (var.worker_capacity.min == 1 && var.worker_capacity.desired >= 1 && var.worker_capacity.desired <= 3 && var.worker_capacity.max == 3)
+      )
+      error_message = "use inactive 0/0/3 or active 1/<1..3>/3 capacity"
+    }
+  }
+  ```
+
+  Encrypt every root volume, cap it at 30 GB, use EC2 health checks, attach no
+  scaling policy, and place each ASG only in the subnet/AZ selected for its
+  environment. Configure planned instance refresh for launch-before-terminate
+  overlap where capacity permits, while documenting that EC2 `InService` does
+  not itself prove Kubernetes Ready or zero downtime.
+
+- [ ] **Step 4: Implement separate least-privilege node roles and network rules**
+
+  Give the control plane no procurement-data permissions. Create distinct
+  dev/prod worker roles and instance profiles, SSM managed-instance channels,
+  environment tags, and no `AmazonEKSClusterPolicy`. Restrict SSH and the API
+  server to the configured administrator CIDR and required node traffic; do
+  not expose NodePort, MCP, or database ports publicly.
+
+- [ ] **Step 5: Add inactive-capacity and quota validations**
+
+  Permit only the documented inactive `{ min = 0, desired = 0, max = 3 }`
+  state, reject `desired < min`, and document that an apply must verify six
+  vCPUs for the normal baseline plus the exact temporary dev capacity being
+  tested.
+
+- [ ] **Step 6: Run Terraform and policy checks**
+
+  Run: `terraform -chdir=infra/terraform/platform fmt -check`
+
+  Run: `terraform -chdir=infra/terraform/platform init -backend=false`
+
+  Run: `terraform -chdir=infra/terraform/platform validate`
+
+  Run: `pytest tests/infra/test_platform_plan.py -v`
+
+  Expected: PASS with one fixed control plane, two isolated worker ASGs, no
+  scaling policies, no EKS, and no NAT Gateway.
+
+- [ ] **Step 7: Commit the independently reviewable foundation**
+
+  ```bash
+  git add infra/terraform/modules/network infra/terraform/modules/compute infra/terraform/modules/node-iam infra/terraform/platform tests/infra
+  git commit -m "feat(infra): provision isolated worker ASGs"
+  ```
 
 **Verification:** Run Terraform checks and inspect the reviewed plan for count,
 instance type, volume size, ingress, IAM actions, and monthly-cost assumptions.
@@ -796,43 +924,120 @@ instance type, volume size, ingress, IAM actions, and monthly-cost assumptions.
 
 **Requirements:** CR-07, CR-10, CR-15, CR-16; spec sections 16.1, 17.1, and 23.
 
-**Complete when:** Terraform reproducibly creates the constrained three-node
-foundation without EKS, NAT Gateway, or managed load balancer.
+**Complete when:** Terraform reproducibly creates the normal three-instance
+foundation with one fixed control plane and isolated dev/prod worker ASGs,
+without EKS, automatic node scaling, or NAT Gateway.
 
-#### T17 — Provision environment AWS services, DNS, recovery, and budgets
+#### T17 — Provision the ALB/ACM edge, environment AWS services, recovery, and budgets
 
 **Files**
 
-- Create `infra/terraform/modules/app-environment/`,
-  `infra/terraform/environments/dev/`, and
-  `infra/terraform/environments/prod/`.
-- Create `tests/infra/test_environment_plans.py` and
+- Create `infra/terraform/modules/app-environment/{main,variables,outputs}.tf`.
+- Create `infra/terraform/modules/edge/{main,variables,outputs}.tf` and
+  `infra/terraform/edge/{main,variables,outputs,versions}.tf`.
+- Create `infra/terraform/environments/dev/{main,variables,outputs,versions}.tf`
+  and the matching files under `infra/terraform/environments/prod/`.
+- Create `tests/infra/test_environment_plans.py`,
+  `tests/infra/test_ingress_contract.py`, and
   `docs/runbooks/cost-and-shutdown.md`.
+
+**Interfaces**
+
+- Consumes: T16 VPC/subnet/security-group outputs, both ASG names and
+  Availability Zones, six approved hostnames, Route 53 zone ID, and the fixed
+  NGINX NodePort.
+- Produces: `dev_target_group_arn`, `prod_target_group_arn`, ACM/ALB/DNS
+  outputs, and an environment-keyed `data_volumes` object containing exact
+  `odoo`, `postgresql`, and `prometheus` volume IDs and Availability Zones.
 
 **Work and tests**
 
-1. Test separate DynamoDB checkpoint/application tables, PITR/TTL/retention,
-   Secrets Manager entries, Cognito pools/clients/groups, and IAM resource
-   scopes for each environment.
-2. Test encrypted S3 Loki prefixes/lifecycle, no public access, and separation
-   from Terraform state.
-3. Reference the existing Route 53 zone and create only approved dev/prod
-   records without managing or destroying domain registration.
-4. Add prod DLM snapshots with seven daily recovery points.
-5. Add AWS Budget target/ceiling notifications at $50/$75. Treat email
-   confirmation as an external human verification, not a console-created
-   resource.
-6. Scope Bedrock permission to the selected model only.
+- [ ] **Step 1: Write failing environment, edge, and volume plan tests**
+
+  Assert separate DynamoDB, Secrets Manager, Cognito, Loki prefixes, and IAM
+  resource scopes. Assert six encrypted `gp3` data volumes keyed exactly as:
+
+  ```python
+  expected = {
+      ("dev", "odoo"), ("dev", "postgresql"), ("dev", "prometheus"),
+      ("prod", "odoo"), ("prod", "postgresql"), ("prod", "prometheus"),
+  }
+  actual = {(r["values"]["tags"]["Environment"], r["values"]["tags"]["Workload"])
+            for r in resources(plan, "aws_ebs_volume")}
+  assert actual == expected
+  assert all(r["values"]["encrypted"] for r in resources(plan, "aws_ebs_volume"))
+  ```
+
+  Assert each volume is 5 GiB and uses its matching ASG Availability Zone.
+
+- [ ] **Step 2: Run the focused tests and confirm they fail**
+
+  Run: `pytest tests/infra/test_environment_plans.py tests/infra/test_ingress_contract.py -v`
+
+  Expected: FAIL because environment, edge, and retained-volume resources do
+  not exist.
+
+- [ ] **Step 3: Provision environment application services**
+
+  Add separate checkpoint/application tables, PITR/TTL/retention, Secrets
+  Manager entries, Cognito pools/clients/groups, encrypted Loki S3 prefixes,
+  public-access blocking, and environment/resource-scoped IAM. Scope Bedrock
+  invocation to `openai.gpt-oss-20b-1:0` only.
+
+- [ ] **Step 4: Provision the ALB, ACM, DNS, and ASG target membership**
+
+  Create one internet-facing ALB across both public subnets, HTTP-to-HTTPS
+  redirect, HTTPS host rules, and separate dev/prod instance target groups for
+  the fixed NGINX NodePort. Attach each target group to only its environment
+  ASG using `aws_autoscaling_attachment`; never enumerate worker instance IDs.
+  Permit the NodePort and health check only from the ALB security group.
+
+- [ ] **Step 5: Provision retained data volumes and recovery**
+
+  Create the six encrypted 5 GiB `gp3` volumes with `Environment`, `Workload`,
+  `Cluster`, and `ManagedBy=Terraform` tags. Place each volume in its
+  environment ASG's AZ. Configure DLM for seven daily crash-consistent
+  snapshots of only the prod Odoo and PostgreSQL volumes; Prometheus and dev
+  recovery use retained volumes without snapshot claims.
+
+- [ ] **Step 6: Provision budget and CloudWatch read contracts**
+
+  Add $70 target and $90 review-ceiling notifications. Grant Grafana only the
+  read-only CloudWatch metric-query actions needed for ALB, ASG, and later
+  Lambda panels; application logs remain in Loki.
+
+- [ ] **Step 7: Validate both environment plans**
+
+  Run Terraform format/init/validate/plan for `edge`, `environments/dev`, and
+  `environments/prod`, then run:
+
+  `pytest tests/infra/test_environment_plans.py tests/infra/test_ingress_contract.py -v`
+
+  Expected: PASS for environment isolation, exact ASG target membership,
+  certificate/DNS contracts, six retained volumes, snapshots, and excluded
+  services.
+
+- [ ] **Step 8: Commit the independently reviewable services and edge**
+
+  ```bash
+  git add infra/terraform/modules/app-environment infra/terraform/modules/edge infra/terraform/edge infra/terraform/environments tests/infra docs/runbooks/cost-and-shutdown.md
+  git commit -m "feat(infra): add edge services and retained data volumes"
+  ```
 
 **Verification:** Run plans for dev and prod and assert isolation, encryption,
-retention, model ARN, DNS names, and absence of excluded AWS services.
+retention, model ARN, ACM validation, DNS aliases, ALB listener/rules/ASG
+attachments, all six volume placements, and absence of excluded AWS services.
+After an authorized apply, verify the listener redirect and certificate
+hostname; target health becomes an acceptance check after NGINX Ingress is
+installed.
 
 **Dependencies:** T16.
 
 **Requirements:** CR-08, CR-10, CR-15, CR-16; spec sections 15, 16, and 23.
 
-**Complete when:** Every selected AWS application service is reproducible,
-environment-scoped, and justified by the specification.
+**Complete when:** Every selected AWS application and edge service is
+reproducible, environment-scoped where applicable, and justified by the
+specification; public traffic has no direct worker path.
 
 #### T18A — Automate the kubeadm node and cluster bootstrap
 
@@ -841,23 +1046,93 @@ environment-scoped, and justified by the specification.
 - Create `infra/cluster/install-node.sh`,
   `infra/cluster/init-control-plane.sh`,
   `infra/cluster/join-worker.sh`,
-  `infra/cluster/bootstrap-cluster.sh`, and
+  `infra/cluster/rotate-join-token.sh`,
+  `infra/cluster/kubeadm-token-rotation.service`,
+  `infra/cluster/kubeadm-token-rotation.timer`, and
   `docs/runbooks/cluster-bootstrap.md`.
+- Create `infra/terraform/modules/cluster-bootstrap/{main,variables,outputs}.tf`
+  and connect it from `infra/terraform/platform/main.tf`.
+- Modify `infra/terraform/modules/compute/worker-user-data.sh.tftpl` to invoke
+  the environment-aware join script.
 - Create the pinned CNI resources under
   `deploy/kubernetes/cluster/network/`.
 - Create `tests/infra/test_cluster_bootstrap.py`.
 
+**Interfaces**
+
+- Consumes: T16 control-plane instance/role, environment worker roles and ASG
+  launch templates, cluster name, region, and private API endpoint.
+- Produces: SSM parameter
+  `/stockai/<cluster-name>/kubeadm/join-command`, finite-token rotation service,
+  and workers whose kubelet node name equals EC2 private DNS and whose labels
+  include `stockai.io/environment=dev|prod`.
+
 **Work and tests**
 
-1. Pin Kubernetes, containerd, and CNI versions.
-2. Make bootstrap idempotent and non-interactive after Terraform outputs are
-   supplied; do not use the AWS Console.
-3. Restrict kubeconfig, SSH, API server, and join-token handling.
-4. Label and taint dev/prod workers; keep business workloads off the control
-   plane.
-5. Install the NetworkPolicy-capable CNI and verify all three nodes become
-   ready.
-6. Verify cluster stop/start and document the warming transition.
+- [ ] **Step 1: Write failing bootstrap contract tests**
+
+  Assert a Terraform-created SSM `SecureString`, exact control-plane
+  `ssm:PutParameter`, exact worker `ssm:GetParameter`, no
+  `AmazonEKSClusterPolicy`, `kubeadm token create --ttl 24h`, a 12-hour timer,
+  strict join-command validation, private-DNS node naming, and environment
+  labels/taints.
+
+- [ ] **Step 2: Run the tests and confirm the bootstrap contracts fail**
+
+  Run: `pytest tests/infra/test_cluster_bootstrap.py -v`
+
+  Expected: FAIL because the SSM parameter, rotation unit, and ASG join path do
+  not exist.
+
+- [ ] **Step 3: Create the encrypted join-parameter and IAM boundary**
+
+  Terraform creates the parameter with a non-secret placeholder and ignores
+  only runtime value drift. The control plane may overwrite that exact ARN;
+  both worker roles may decrypt/read that exact ARN. No plan, output, or log
+  contains a live token.
+
+- [ ] **Step 4: Implement finite token rotation without shell evaluation**
+
+  `rotate-join-token.sh` executes:
+
+  ```bash
+  join_command="$(kubeadm token create --ttl 24h --print-join-command)"
+  aws ssm put-parameter --name "$parameter_name" --type SecureString --overwrite --value "$join_command"
+  ```
+
+  The systemd timer runs it after control-plane initialization and every 12
+  hours. The script never enables command tracing and never prints
+  `join_command`.
+
+- [ ] **Step 5: Implement environment-aware ASG worker join**
+
+  Poll SSM with bounded backoff. Accept only a command matching the exact
+  kubeadm endpoint/token/CA-hash grammar, split it into a Bash array, and append
+  `--node-name "$private_dns"`; do not use `eval`. Configure kubelet labels and
+  taints from the launch-template environment and reject any other value.
+
+- [ ] **Step 6: Pin and initialize the cluster and CNI**
+
+  Pin Kubernetes, containerd, and the NetworkPolicy-capable CNI; keep
+  kubeconfig restricted, business workloads off the control plane, and all
+  steps idempotent after Terraform supplies outputs.
+
+- [ ] **Step 7: Validate scripts and a real replacement join**
+
+  Run: `shellcheck infra/cluster/*.sh`
+
+  Run: `pytest tests/infra/test_cluster_bootstrap.py -v`
+
+  After authorized apply, replace one dev ASG instance and verify the new node
+  uses private DNS, has only dev labels/taints and the dev role, reaches Ready,
+  and never exposes the token in user-data, journal, or Terraform output.
+
+- [ ] **Step 8: Commit bootstrap automation**
+
+  ```bash
+  git add infra/cluster infra/terraform/modules/cluster-bootstrap infra/terraform/modules/compute infra/terraform/platform deploy/kubernetes/cluster/network tests/infra docs/runbooks/cluster-bootstrap.md
+  git commit -m "feat(infra): automate secure ASG worker joins"
+  ```
 
 **Verification:** Run shell lint and CNI manifest checks, bootstrap the
 authorized test cluster, inspect node roles/labels/taints, and run node/network
@@ -867,71 +1142,319 @@ and restart checks.
 
 **Requirements:** CR-07, CR-08, CR-09, CR-10, CR-15; spec section 17.
 
-**Complete when:** The self-managed cluster is reproducible and each worker is
+**Complete when:** The self-managed cluster is reproducible, a replacement ASG
+worker joins from a finite rotating SSM credential, and every worker is
 hard-bound to its environment.
 
-#### T18B — Install and validate shared cluster controllers
+#### T18B — Automate bounded ASG worker termination cleanup
 
 **Files**
 
-- Create pinned resources under `deploy/kubernetes/cluster/` for NGINX Ingress,
-  cert-manager, metrics-server, kube-state-metrics, Argo CD, cluster RBAC, and
-  namespace definitions.
-- Create `tests/kubernetes/test_cluster_resources.py`.
+- Create `infra/terraform/modules/worker-lifecycle/main.tf`,
+  `infra/terraform/modules/worker-lifecycle/variables.tf`, and
+  `infra/terraform/modules/worker-lifecycle/outputs.tf`.
+- Create `infra/terraform/modules/worker-lifecycle/lambda/node_cleanup.py` and
+  `infra/terraform/modules/worker-lifecycle/lambda/requirements.txt`.
+- Connect the module from `infra/terraform/platform/main.tf`.
+- Create `tests/infra/test_node_cleanup.py`,
+  `tests/infra/test_worker_lifecycle_plan.py`, and
+  `docs/runbooks/worker-termination.md`.
+
+**Interfaces**
+
+- Consumes: T16 dev/prod ASG names, T16 control-plane instance ID, T18A's
+  private-DNS kubelet naming contract, fixed region, and cluster name.
+- Produces: `CleanupOutcome = clean | forced | failed`, CloudWatch metrics
+  `StockAI/WorkerLifecycle:WorkerCleanupOutcome` and
+  `StockAI/WorkerLifecycle:WorkerCleanupDuration`, and one termination hook per
+  ASG with EventBridge-to-Lambda cleanup.
+- Python functions:
+  `parse_event(event: Mapping[str, Any]) -> TerminationEvent`,
+  `cleanup_node(event: TerminationEvent, clients: AwsClients) -> CleanupResult`,
+  and `handler(event: Mapping[str, Any], context: LambdaContext) -> dict[str, str]`.
 
 **Work and tests**
 
-1. Schedule only lightweight shared controllers on the control plane and
-   retain the business-workload taint.
-2. Configure ingress, HTTP-01 certificate issuance, metrics APIs, and Argo CD
-   without granting application data permissions to the control-plane role.
-3. Apply narrow cluster RBAC and pin every upstream controller image.
-4. Verify controller health, certificate test issuance, metrics visibility,
-   and the absence of business pods on the control plane.
+- [ ] **Step 1: Write failing Lambda unit tests**
+
+  Cover valid dev/prod events, unknown ASG, malformed detail, EC2 private-DNS
+  mapping, clean drain, drain timeout with forced deletion, SSM/control-plane
+  failure, duplicate delivery, already-absent Node, heartbeats, and lifecycle
+  completion. The core assertion is:
+
+  ```python
+  result = cleanup_node(event, fake_clients)
+  assert result.outcome is CleanupOutcome.CLEAN
+  fake_clients.autoscaling.complete_lifecycle_action.assert_called_once_with(
+      AutoScalingGroupName="stockai-dev-workers",
+      LifecycleHookName="stockai-worker-terminate",
+      LifecycleActionResult="CONTINUE",
+      InstanceId="i-0123456789abcdef0",
+  )
+  ```
+
+- [ ] **Step 2: Run Lambda tests and confirm they fail**
+
+  Run: `pytest tests/infra/test_node_cleanup.py -v`
+
+  Expected: FAIL because `node_cleanup.py` and its result types do not exist.
+
+- [ ] **Step 3: Implement strict event parsing and identity validation**
+
+  Accept only `EC2 Instance-terminate Lifecycle Action` events from
+  `aws.autoscaling`, require one of the two exact ASG names, resolve the EC2
+  private DNS name, reject node names outside `[a-z0-9.-]+`, and verify the
+  ASG/instance/environment contract before sending any command. A missing
+  already-terminated instance is idempotent only after the signed event's ASG
+  and instance fields pass validation.
+
+- [ ] **Step 4: Implement bounded SSM cleanup and heartbeat polling**
+
+  Send `AWS-RunShellScript` only to the control plane with a script equivalent
+  to:
+
+  ```bash
+  export KUBECONFIG=/etc/kubernetes/admin.conf
+  provider_id="$(kubectl get node "$node_name" -o jsonpath='{.spec.providerID}')"
+  environment="$(kubectl get node "$node_name" -o jsonpath='{.metadata.labels.stockai\.io/environment}')"
+  case "$provider_id" in *"/$instance_id") ;; *) exit 42 ;; esac
+  [ "$environment" = "$expected_environment" ] || exit 43
+  drain_rc=0
+  kubectl cordon "$node_name" || true
+  kubectl drain "$node_name" --ignore-daemonsets --delete-emptydir-data --force --timeout=120s || drain_rc=$?
+  kubectl delete node "$node_name" --ignore-not-found=true
+  printf 'CLEANUP_OUTCOME=%s\n' "$([ "$drain_rc" -eq 0 ] && printf clean || printf forced)"
+  ```
+
+  Preserve the drain status, sanitize returned output, poll SSM while sending
+  lifecycle heartbeats, and attempt `CONTINUE` in `finally`. Never call
+  `ABANDON`; the lifecycle hook itself supplies the ultimate fail-open bound.
+
+- [ ] **Step 5: Make duplicate delivery and timeout behavior deterministic**
+
+  Treat an absent Node as already clean, emit `forced` when drain fails but
+  Node deletion is attempted, and emit `failed` when SSM cannot run. Configure
+  Lambda timeout 240 seconds inside a 300-second lifecycle heartbeat timeout
+  with default result `CONTINUE`.
+
+- [ ] **Step 6: Write failing Terraform lifecycle/IAM assertions**
+
+  Assert two lifecycle hooks, one EventBridge rule filtered to both ASGs, one
+  Lambda target/permission, a pre-created 14-day log group, Lambda alarms, and
+  least privilege. `ssm:SendCommand` must name the control plane and
+  `AWS-RunShellScript`; lifecycle heartbeat/completion must name only the two
+  ASGs; `cloudwatch:PutMetricData` must use only the
+  `StockAI/WorkerLifecycle` namespace. `ec2:DescribeInstances` is read-only `*`
+  because AWS does not support a resource ARN for that action; application
+  resources remain absent.
+
+- [ ] **Step 7: Run unit, package, and Terraform tests**
+
+  Run: `pytest tests/infra/test_node_cleanup.py tests/infra/test_worker_lifecycle_plan.py -v`
+
+  Run Terraform format/init/validate/plan for the platform root.
+
+  Expected: PASS for clean/forced/failed/idempotent behavior, bounded lifecycle
+  completion, EventBridge filtering, alarms, and IAM scope.
+
+- [ ] **Step 8: Run a controlled dev termination acceptance test**
+
+  Before application workloads exist, terminate the dev worker through its ASG
+  and verify heartbeats, `clean`, old Node removal, replacement join, and
+  correct labels/role. Then block control-plane SSM in a controlled test and
+  verify bounded `failed` completion and the alert. Retained-volume and
+  application recovery are deferred to T23 after the full dev stack exists.
+
+- [ ] **Step 9: Commit lifecycle automation**
+
+  ```bash
+  git add infra/terraform/modules/worker-lifecycle infra/terraform/platform tests/infra docs/runbooks/worker-termination.md
+  git commit -m "feat(infra): automate worker termination cleanup"
+  ```
+
+**Verification:** Run Lambda unit tests, Terraform plan assertions, and the
+controlled dev clean/fail-open drills. Inspect only sanitized Lambda/SSM logs.
+
+**Dependencies:** T18A.
+
+**Requirements:** CR-05, CR-07, CR-10, CR-12, CR-13, CR-15, CR-16; spec
+sections 16.2, 17.10, 19, 20, 21, and 22.
+
+**Complete when:** Both ASGs have tested, idempotent, bounded termination
+cleanup; non-clean outcomes release the instance, alert, and have a verified
+runbook without granting Lambda Kubernetes credentials.
+
+#### T18C — Install and validate shared cluster controllers
+
+**Files**
+
+- Create pinned resources under `deploy/kubernetes/cluster/ingress/`,
+  `deploy/kubernetes/cluster/ebs-csi/`,
+  `deploy/kubernetes/cluster/metrics/`, and
+  `deploy/kubernetes/cluster/argocd/` for NGINX Ingress, the AWS EBS CSI driver,
+  metrics-server, kube-state-metrics, Argo CD, cluster RBAC, and namespaces.
+- Modify `infra/terraform/modules/node-iam/main.tf` and
+  `tests/infra/test_platform_plan.py` for the control-plane EBS CSI policy.
+- Create `tests/kubernetes/test_cluster_resources.py`.
+
+**Interfaces**
+
+- Consumes: T17 fixed NGINX NodePort/target groups, T18A worker labels/taints,
+  and T16 control-plane infrastructure role.
+- Produces: NGINX on every worker, EBS CSI topology key
+  `topology.kubernetes.io/zone`, Kubernetes resource metrics for HPA, and Argo
+  CD reconciliation without direct GitHub Actions deployment.
+
+**Work and tests**
+
+- [ ] **Step 1: Write failing cluster-controller render tests**
+
+  Assert pinned images, NGINX worker DaemonSet placement and exact NodePort,
+  no cert-manager, EBS CSI controller placement on the control plane, no
+  default dynamic StorageClass, metrics API availability, narrow RBAC, and no
+  business workload toleration for the control-plane taint.
+
+- [ ] **Step 2: Run the focused test and confirm resources are absent**
+
+  Run: `pytest tests/kubernetes/test_cluster_resources.py -v`
+
+  Expected: FAIL because cluster-controller resources do not exist.
+
+- [ ] **Step 3: Install NGINX, metrics, and Argo CD resources**
+
+  Run NGINX on every worker so each ASG target can pass the same NodePort
+  health check. Install metrics-server and kube-state-metrics for HPA and
+  observability. Install Argo CD with no GitHub Actions `kubectl` path. ACM
+  terminates public TLS, so do not install cert-manager.
+
+- [ ] **Step 4: Install the pinned self-managed EBS CSI driver**
+
+  Run the controller on the control plane with infrastructure-only,
+  tag/resource-scoped EC2 volume operations; run the node DaemonSet on workers.
+  Enable attach/detach/mount for the six pre-created volumes but create no
+  dynamic provisioning path.
+
+- [ ] **Step 5: Render and validate controller health and boundaries**
+
+  Run Kustomize rendering, Kubernetes schema checks, and:
+
+  `pytest tests/kubernetes/test_cluster_resources.py -v`
+
+  After authorized apply, verify EBS CSI registration/topology labels, metrics
+  visibility, both ASG target groups healthy through NGINX, and no business pod
+  on the control plane.
+
+- [ ] **Step 6: Commit shared controllers**
+
+  ```bash
+  git add deploy/kubernetes/cluster infra/terraform/modules/node-iam tests/infra/test_platform_plan.py tests/kubernetes/test_cluster_resources.py
+  git commit -m "feat(k8s): install ingress metrics and EBS CSI controllers"
+  ```
 
 **Verification:** Render and validate all controller resources, install them on
 the authorized cluster, and run controller health/RBAC tests.
 
-**Dependencies:** T18A.
+**Dependencies:** T18B.
 
 **Requirements:** CR-07, CR-08, CR-09, CR-11, CR-15; spec sections 17.2 and
 17.8.
 
 **Complete when:** Shared controllers are healthy and ready for environment
-desired state without possessing application secrets.
+desired state without possessing application secrets, and both ASG-maintained
+ALB target groups have healthy ingress targets.
 
 #### T19A — Define environment configuration, secrets, storage, and isolation
 
 **Files**
 
 - Create shared namespaces, ConfigMaps, service accounts, ExternalSecret
-  contracts, static local PV/PVC templates, and default-deny NetworkPolicies
-  under `deploy/kubernetes/base/`.
+  contracts, static EBS CSI PV/PVC templates, and default-deny
+  NetworkPolicies under `deploy/kubernetes/base/`.
 - Create initial `deploy/kubernetes/overlays/dev/` and
   `deploy/kubernetes/overlays/prod/`.
+- Create `scripts/config/sync_terraform_outputs.py` to place the six non-secret
+  Terraform volume IDs and their Availability Zones into the matching reviewed
+  overlay.
 - Create `tests/kubernetes/test_environment_foundations.py`.
+
+**Interfaces**
+
+- Consumes: T17 `data_volumes` output, T18A environment labels/taints, and T18C
+  EBS CSI driver/topology labels.
+- Produces: PVC names `odoo-filestore`, `postgresql-data`, and
+  `prometheus-data` in each namespace; every claim binds one exact retained
+  Terraform volume and no StorageClass dynamically provisions storage.
 
 **Work and tests**
 
-1. Render two namespaces with different hosts, non-secret configuration, seed
-   profile, secret references, storage paths, and hard node placement.
-2. Configure static local PVs with `Retain` and environment worker affinity.
-3. Materialize only namespace-scoped Secrets Manager values; never render
-   plaintext secret values.
-4. Establish default-deny ingress/egress before adding documented workload
-   flows.
-5. Calculate reserved storage and initial namespace resource budgets against
-   one `t3.medium`/30 GB worker.
+- [ ] **Step 1: Write failing storage and isolation render tests**
+
+  For each environment, assert three static PVs with exact `volumeHandle`,
+  `ReadWriteOnce`, `persistentVolumeReclaimPolicy: Retain`, matching
+  `topology.kubernetes.io/zone`, and PVC `volumeName`. Assert Grafana has no PVC
+  and no rendered StorageClass has a dynamic provisioner.
+
+- [ ] **Step 2: Run the focused render test and confirm it fails**
+
+  Run: `pytest tests/kubernetes/test_environment_foundations.py -v`
+
+  Expected: FAIL because the six static PV/PVC bindings do not exist.
+
+- [ ] **Step 3: Implement deterministic Terraform-output synchronization**
+
+  `sync_terraform_outputs.py` accepts one JSON object with this exact shape:
+
+  ```json
+  {
+    "dev": {"az": "us-east-1a", "odoo": "vol-dev-odoo", "postgresql": "vol-dev-pg", "prometheus": "vol-dev-prom"},
+    "prod": {"az": "us-east-1b", "odoo": "vol-prod-odoo", "postgresql": "vol-prod-pg", "prometheus": "vol-prod-prom"}
+  }
+  ```
+
+  It updates only the six `volumeHandle` fields and two zone patches, rejects
+  missing/extra environments or workloads, and never reads secret outputs.
+
+- [ ] **Step 4: Bind all stateful data to retained EBS**
+
+  Create static CSI PV/PVC pairs for Odoo filestore, PostgreSQL, and Prometheus
+  in both environments. Use the ASG Availability Zone rather than a hostname,
+  so a replacement worker in the same ASG can mount the volume. Keep Grafana
+  on `emptyDir` and Loki retained objects in S3.
+
+- [ ] **Step 5: Add namespace configuration, secrets, policies, and budgets**
+
+  Render distinct hosts/configuration/seed profile/secret references, hard
+  environment placement, namespace-scoped External Secrets, and default-deny
+  policies before documented allows. Budget the 30 GB root only for OS,
+  Kubernetes, images, bounded Loki WAL/cache, and headroom; budget each initial
+  state volume at 5 GiB.
+
+- [ ] **Step 6: Run rendering, schema, and mutation-scope checks**
+
+  Run Kustomize/schema validation and:
+
+  `pytest tests/kubernetes/test_environment_foundations.py -v`
+
+  Expected: PASS with six exact retained bindings, no plaintext secrets, no
+  cross-environment reference, no hostname-bound state, and no dynamic volume.
+
+- [ ] **Step 7: Commit the environment foundations**
+
+  ```bash
+  git add deploy/kubernetes/base deploy/kubernetes/overlays scripts/config/sync_terraform_outputs.py tests/kubernetes/test_environment_foundations.py
+  git commit -m "feat(k8s): bind environment state to retained EBS"
+  ```
 
 **Verification:** Render both foundations, run schema/policy tests, assert no
 plaintext secrets or cross-environment references, and inspect PV affinity.
 
-**Dependencies:** T18B.
+**Dependencies:** T18C.
 
 **Requirements:** CR-08, CR-09, CR-15; spec sections 15, 17.1, 17.5, and 17.7.
 
 **Complete when:** Dev and prod have isolated, schedulable foundations but no
-application workload has been deployed yet.
+application workload has been deployed yet, and each stateful claim is bound
+to the intended pre-provisioned EBS volume.
 
 #### T19B — Define the complete non-observability application workloads
 
@@ -945,17 +1468,22 @@ application workload has been deployed yet.
 
 **Work and tests**
 
-1. Add one Odoo/PostgreSQL pair per environment and the idempotent bootstrap
-   Job.
-2. Add the daily `concurrencyPolicy: Forbid` CronJob with its private
+- [ ] **Step 1:** Add one Odoo/PostgreSQL pair per environment and the idempotent bootstrap
+   Job. Mount only `odoo-filestore` into Odoo and only `postgresql-data` into
+   PostgreSQL; neither service writes durable data to worker root EBS.
+- [ ] **Step 2:** Add the daily `concurrencyPolicy: Forbid` CronJob with its private
    credential and source-restricted internal route.
-3. Add liveness/readiness/startup behavior, initial measured hypotheses for
+- [ ] **Step 3:** Add liveness/readiness/startup behavior, initial measured hypotheses for
    requests/limits, termination grace, rolling updates for stateless services,
    and single replicas for specified stateful services.
-4. Add FastAPI HPA min 1/max 2 only.
-5. Expose only frontend/API and Odoo UI at this stage; Grafana is wired
+- [ ] **Step 4:** Add CPU HPAs for frontend, FastAPI, and Procurement MCP, each with minimum
+   one, maximum three, and a 50% average-utilization target. Add no node
+   autoscaler or ASG scaling policy; insufficient capacity must produce
+   visible pending pods until Terraform changes desired capacity.
+- [ ] **Step 5:** Expose only frontend/API and Odoo UI at this stage; Grafana is wired
    in T20A. Keep MCP, PostgreSQL, metrics, and internal dependencies private.
-6. Assert hard scheduling to the matching worker for every business workload.
+- [ ] **Step 6:** Assert hard scheduling to any correctly labeled worker in the matching
+   environment ASG for every business workload.
 
 **Verification:** Render both overlays, run schema/policy tests, assert no
 plaintext secrets, and calculate total requests against one `t3.medium`
@@ -966,7 +1494,8 @@ worker.
 **Requirements:** CR-08, CR-09, CR-15; spec sections 12, 13, 14, and 17.
 
 **Complete when:** Both overlays contain the complete non-observability
-application stack with separate configuration and safe placement.
+application stack with separate configuration, safe placement, and bounded pod
+autoscaling on the environment workers.
 
 #### T20A — Add environment-scoped metrics and S3-backed log collection
 
@@ -981,20 +1510,33 @@ application stack with separate configuration and safe placement.
 
 **Work and tests**
 
-1. Deploy Prometheus, Grafana, Loki, Alertmanager, and namespace-filtered Fluent
-   Bit separately for dev and prod.
-2. Configure Loki to write retained objects to only its environment’s S3
+- [ ] **Step 1:** Deploy Prometheus, Grafana, Loki, Alertmanager, a lightweight blackbox
+   exporter, and namespace-filtered Fluent Bit separately for dev and prod.
+- [ ] **Step 2:** Mount the environment’s statically bound EBS CSI claim into Prometheus,
+   configure bounded retention to fit 5 GiB, and verify metric history survives
+   Prometheus pod replacement.
+- [ ] **Step 3:** Provision Grafana data sources, folders, dashboards, and alerts from
+   version-controlled ConfigMaps. Include Prometheus, Loki, and read-only
+   CloudWatch metric data sources for ALB, ASG, and cleanup-Lambda metrics
+   without embedding credentials. Use `emptyDir` for `/var/lib/grafana`; make
+   manual UI edits unsupported and verify a replacement pod reconstructs the
+   approved configuration.
+- [ ] **Step 4:** Configure Loki to write retained objects to only its environment’s S3
    prefix, with bounded WAL/cache and no sensitive audit data.
-3. Run any External Secrets controller that needs node-role credentials in a
+- [ ] **Step 5:** Run any External Secrets controller that needs node-role credentials in a
    namespace-scoped, controller-class-limited mode on the matching environment
    worker; do not give the control-plane role application-secret access.
-4. Keep Prometheus/Loki retention and cardinality within the worker budget.
-5. Expose Grafana through the approved authenticated HTTPS hostname while
+- [ ] **Step 6:** Keep Prometheus/Loki retention and cardinality within the worker and volume
+   budgets.
+- [ ] **Step 7:** Probe each public HTTPS hostname for status, latency, and certificate
+   lifetime; keep probe labels bounded to environment and service.
+- [ ] **Step 8:** Expose Grafana through the approved ALB/ACM/NGINX HTTPS hostname while
    keeping Prometheus, Loki, and Alertmanager private.
 
-**Verification:** Render resource totals, confirm environment isolation, scrape
-one application metric, and send a sanitized test log through Fluent Bit →
-Loki → S3.
+**Verification:** Render resource totals, confirm environment isolation,
+scrape one application metric, replace Prometheus and Grafana pods to verify
+their different persistence contracts, and send a sanitized test log through
+Fluent Bit → Loki → S3.
 
 **Dependencies:** T19B.
 
@@ -1016,13 +1558,20 @@ without CloudWatch application logs.
 
 **Work and tests**
 
-1. Provision agent-health, LLM/MCP, Kubernetes, and dependency dashboards with
-   low-cardinality queries.
-2. Provision initial pod failure, disk pressure, certificate expiry,
-   dependency failure, and Odoo-key-expiry alerts.
-3. Give every alert an owner-facing description, severity, evidence link, and
+- [ ] **Step 1:** Provision agent-health, LLM/MCP, Kubernetes/capacity, and dependency/edge
+   dashboards with low-cardinality queries. The required panels include
+   requests per minute split by success/error, request error rate,
+   p50/p95/p99 latency, separate LLM input/output token counts, HPA replicas,
+   pending pods, ASG desired/in-service capacity, correctly labeled Ready
+   workers, replacement duration, volume attach errors, and clean/forced/failed
+   cleanup outcomes.
+- [ ] **Step 2:** Provision initial pod failure, root/PV pressure, unhealthy ALB target or
+   elevated ALB 5xx, ASG-versus-Ready-node mismatch beyond the replacement
+   window, forced/failed cleanup, Lambda error/lifecycle timeout, public
+   HTTPS/certificate-expiry, dependency failure, and Odoo-key-expiry alerts.
+- [ ] **Step 3:** Give every alert an owner-facing description, severity, evidence link, and
    concrete runbook action.
-4. Keep delivery internal to Grafana/Alertmanager for the MVP.
+- [ ] **Step 4:** Keep delivery internal to Grafana/Alertmanager for the MVP.
 
 **Verification:** Validate dashboard and rule syntax, load every dashboard,
 fire one safe test alert from each alert category, and follow its runbook.
@@ -1032,7 +1581,8 @@ fire one safe test alert from each alert category, and follow its runbook.
 **Requirements:** CR-12, CR-15; spec sections 21.4–21.6.
 
 **Complete when:** The baseline platform is observable before the first cloud
-walking-skeleton deployment.
+walking-skeleton deployment and all supported Grafana content can be recreated
+from Git without a Grafana data volume.
 
 #### T21 — Implement deterministic CI checks and immutable release metadata
 
@@ -1048,19 +1598,19 @@ walking-skeleton deployment.
 
 **Work and tests**
 
-1. Test release metadata that binds source commit/tree, the complete named map
+- [ ] **Step 1:** Test release metadata that binds source commit/tree, the complete named map
    of required project-image digests, build provenance, Scout result, dev
    validation status, and creation time. The schema must reject a missing
    required image as the project grows from three walking-skeleton images to
    the four-image final system.
-2. Run Python and React tests with JUnit/coverage summaries, builds, Compose
+- [ ] **Step 2:** Run Python and React tests with JUnit/coverage summaries, builds, Compose
    validation, Terraform checks/plans, Kustomize/schema checks, secret scans,
    and action lint on every pull request.
-3. Run Docker Scout on pull requests targeting `main`.
-4. Authenticate AWS plan jobs through read-only GitHub OIDC.
-5. Make path-filtered Terraform applies use protected GitHub environments and
+- [ ] **Step 3:** Run Docker Scout on pull requests targeting `main`.
+- [ ] **Step 4:** Authenticate AWS plan jobs through read-only GitHub OIDC.
+- [ ] **Step 5:** Make path-filtered Terraform applies use protected GitHub environments and
    apply roles; never auto-apply an unreviewed plan.
-6. Retain reports as artifacts and make each failed stage clear in the job
+- [ ] **Step 6:** Retain reports as artifacts and make each failed stage clear in the job
    summary.
 
 **Verification:** Exercise the workflows on a test pull request, including one
@@ -1084,14 +1634,14 @@ offline validation and release manifests reject changed artifacts.
 
 **Work and tests**
 
-1. On relevant `dev` pushes, build only changed project images, publish
+- [ ] **Step 1:** On relevant `dev` pushes, build only changed project images, publish
    immutable Docker Hub digests, create provenance, run Docker Scout, and
    update the dev overlay and release manifest.
-2. Prevent workflow loops on bot-only desired-state commits.
-3. Configure dev Argo CD to track the `dev` revision and dev overlay.
-4. Query Argo CD through its authenticated API for sync/health status; do not
+- [ ] **Step 2:** Prevent workflow loops on bot-only desired-state commits.
+- [ ] **Step 3:** Configure dev Argo CD to track the `dev` revision and dev overlay.
+- [ ] **Step 4:** Query Argo CD through its authenticated API for sync/health status; do not
    use `kubectl` in GitHub Actions.
-5. Define how the generated release manifest is copied or cherry-picked back
+- [ ] **Step 5:** Define how the generated release manifest is copied or cherry-picked back
    to the originating feature branch before its main pull request.
 
 **Verification:** Run a no-change path, one-image path, three-image path,
@@ -1115,15 +1665,20 @@ Actions, performs deployment.
 
 **Work and tests**
 
-1. Apply approved Terraform and bootstrap the cluster through reproducible CLI
+- [ ] **Step 1:** Apply approved Terraform and bootstrap the cluster through reproducible CLI
    automation.
-2. Reconcile the complete dev stack through Argo CD.
-3. Seed fictional dev Odoo and bootstrap fictional Cognito users.
-4. Exercise real Cognito login, real Bedrock GPT-OSS, real MCP transport, real
+- [ ] **Step 2:** Reconcile the complete dev stack through Argo CD.
+- [ ] **Step 3:** Seed fictional dev Odoo and bootstrap fictional Cognito users.
+- [ ] **Step 4:** Exercise real Cognito login, real Bedrock GPT-OSS, real MCP transport, real
    Odoo candidate read, DynamoDB persistence, frontend polling, metrics, logs,
    and S3 Loki objects.
-5. Record image digests, Argo status, smoke evidence, resource use, and cost
+- [ ] **Step 5:** Record image digests, Argo status, smoke evidence, resource use, and cost
    observations in the release manifest.
+- [ ] **Step 6:** Record fictional Odoo/PostgreSQL data and a Prometheus sample, terminate the
+   dev worker through its ASG, and verify clean lifecycle completion, old Node
+   removal, automatic replacement/join, dev labels/taint/role, reattachment of
+   all three dev EBS volumes, application readiness, retained data, and restored
+   ALB target health. Verify Grafana reconstructs from Git rather than EBS.
 
 **Verification:** Run `make smoke-dev`; inspect the same correlation ID in UI,
 API/MCP logs, metrics, DynamoDB audit, and Odoo.
@@ -1149,15 +1704,16 @@ with no unapproved write behavior.
 
 **Work and tests**
 
-1. Make the merge to protected `main` the explicit production decision.
-2. Verify the release manifest and promote the exact dev-tested digests without
+- [ ] **Step 1:** Make the merge to protected `main` the explicit production decision.
+- [ ] **Step 2:** Verify the release manifest and promote the exact dev-tested digests without
    rebuilding.
-3. Update prod desired state in Git and let prod Argo CD reconcile `main`.
-4. Use separate prod Cognito, tables, secrets, Odoo/PostgreSQL, seed,
-   observability, hostnames, local PVs, and worker placement.
-5. Query Argo CD through its API and run public prod smoke tests without
+- [ ] **Step 3:** Update prod desired state in Git and let prod Argo CD reconcile `main`.
+- [ ] **Step 4:** Use separate prod Cognito, tables, secrets, Odoo/PostgreSQL, seed,
+   observability, hostnames, retained EBS volumes, ASG, role, labels/taint, and
+   Availability Zone placement.
+- [ ] **Step 5:** Query Argo CD through its API and run public prod smoke tests without
    `kubectl` in Actions.
-6. Document rollback as a Git revert to a previously verified release manifest.
+- [ ] **Step 6:** Document rollback as a Git revert to a previously verified release manifest.
 
 **Verification:** Prove digest identity across dev and prod, prod namespace
 isolation, prod smoke success, and rollback of a deliberately bad health-check
@@ -1196,12 +1752,12 @@ before the next dependent task begins.
 
 **Behavior**
 
-1. Implement 14-day projection from known stock movements only.
-2. Distinguish reorder trigger date from need-by/stockout date.
-3. Check pending cases, drafts, and confirmed incoming POs.
-4. Handle full coverage, partial coverage, residual quantities, pagination,
+- [ ] **Step 1:** Implement 14-day projection from known stock movements only.
+- [ ] **Step 2:** Distinguish reorder trigger date from need-by/stockout date.
+- [ ] **Step 3:** Check pending cases, drafts, and confirmed incoming POs.
+- [ ] **Step 4:** Handle full coverage, partial coverage, residual quantities, pagination,
    a 50-candidate limit, and at most three concurrent product workflows.
-5. Audit skipped and duplicate-blocked cases.
+- [ ] **Step 5:** Audit skipped and duplicate-blocked cases.
 
 **Verification:** Test date/timezone edges, missing movements, concurrency,
 partial coverage, duplicate conditional writes, Odoo mapping, UI display,
@@ -1227,15 +1783,15 @@ create two active cases for one shortage.
 
 **Behavior**
 
-1. Enforce approved/unblocked vendor tags, offer validity, required price and
+- [ ] **Step 1:** Enforce approved/unblocked vendor tags, offer validity, required price and
    currency, lead time, and delivery by need-by date.
-2. Calculate quantity separately per offer using arrival projection, reorder
+- [ ] **Step 2:** Calculate quantity separately per offer using arrival projection, reorder
    maximum, MOQ, and packaging/UoM rounding.
-3. Return normalized current order cost, projected inventory, and excess
+- [ ] **Step 3:** Return normalized current order cost, projected inventory, and excess
    inventory without claiming landed cost.
-4. Compute 365-day on-time rate, average positive lateness, return proxy,
+- [ ] **Step 4:** Compute 365-day on-time rate, average positive lateness, return proxy,
    evidence counts, and insufficient-history status below three orders.
-5. Display rejected offers with safe deterministic reasons.
+- [ ] **Step 5:** Display rejected offers with safe deterministic reasons.
 
 **Verification:** Cover all eligibility branches, currency/decimal precision,
 MOQ/packaging edges, missing data, history window edges, prompt injection-like
@@ -1261,12 +1817,12 @@ every excluded offer has a deterministic reason.
 
 **Behavior**
 
-1. Map product category to the approved analytic account and monthly period.
-2. Calculate budget, current confirmed commitments, remaining before/after,
+- [ ] **Step 1:** Map product category to the approved analytic account and monthly period.
+- [ ] **Step 2:** Calculate budget, current confirmed commitments, remaining before/after,
    and exact overage in authoritative code.
-3. Keep an over-budget offer eligible but mark it as requiring explicit
+- [ ] **Step 3:** Keep an over-budget offer eligible but mark it as requiring explicit
    manager exception and justification.
-4. Reject malformed, mismatched-period, or mismatched-currency budget data.
+- [ ] **Step 4:** Reject malformed, mismatched-period, or mismatched-currency budget data.
 
 **Verification:** Test month boundaries, no budget record, exact budget,
 overage, currency errors, UI warning prominence, sanitized logs, and the real
@@ -1295,19 +1851,19 @@ an overage cannot be visually or structurally hidden.
 
 **Behavior**
 
-1. Require one active company profile and resolve optional overrides in strict
+- [ ] **Step 1:** Require one active company profile and resolve optional overrides in strict
    product → category → company order for the single-company MVP.
-2. Store immutable versions containing effective dates, required change
+- [ ] **Step 2:** Store immutable versions containing effective dates, required change
    reason, every supported criterion exactly once in a unique order, a 0–100%
    maximum price premium, non-overlapping scope periods, and `advisory` or
    `hard` enforcement.
-3. Give only the Odoo Procurement configuration administrator permission to
+- [ ] **Step 3:** Give only the Odoo Procurement configuration administrator permission to
    activate versions. Do not grant that role case approval, raw system-prompt
    editing, or PO automation, and keep the seeded configuration administrator
    and Procurement manager as separate identities.
-4. Provide a structured inheritance preview and activate new immutable
+- [ ] **Step 4:** Provide a structured inheritance preview and activate new immutable
    versions without deleting or mutating historical versions.
-5. Seed a reliability-first company profile, delivery-first category
+- [ ] **Step 5:** Seed a reliability-first company profile, delivery-first category
    override, and price-first product override in both fictional environments.
 
 **Verification:** Test scope precedence, inheritance preview, effective-date
@@ -1338,16 +1894,16 @@ required project images follow the tested GitOps promotion contract.
 
 **Behavior**
 
-1. Implement `get_procurement_preferences` with company, category, product,
+- [ ] **Step 1:** Implement `get_procurement_preferences` with company, category, product,
    and as-of inputs and a typed inheritance trace and immutable version output.
-2. Independently validate scope precedence, effective dates, unique supported
+- [ ] **Step 2:** Independently validate scope precedence, effective dates, unique supported
    criteria, 0–100% premium, enforcement enum, and authorization metadata.
-3. Calculate premium against the cheapest otherwise-eligible normalized total
+- [ ] **Step 3:** Calculate premium against the cheapest otherwise-eligible normalized total
    cost with explicit decimal handling; reject any zero/non-positive offer
    that escaped the earlier offer boundary.
-4. Return advisory exceedance as evidence; remove above-cap offers
+- [ ] **Step 4:** Return advisory exceedance as evidence; remove above-cap offers
    deterministically in hard mode before any LLM comparison.
-5. Return a safe preference-configuration error for missing, overlapping,
+- [ ] **Step 5:** Return a safe preference-configuration error for missing, overlapping,
    expired, malformed, or unauthorized data; never guess a default.
 
 **Verification:** Test every inheritance branch, boundary and decimal case,
@@ -1376,18 +1932,18 @@ reach LLM reasoning.
 
 **Behavior**
 
-1. Call the real preference MCP tool before reasoning and route any safe
+- [ ] **Step 1:** Call the real preference MCP tool before reasoning and route any safe
    configuration error to manual review without creating a draft.
-2. Pass only typed enums, numbers, identifiers, and version metadata to the
+- [ ] **Step 2:** Pass only typed enums, numbers, identifiers, and version metadata to the
    application-owned system-prompt renderer; never interpolate Odoo free text
    or change reasons.
-3. Snapshot profile ID, scope, version, ordered criteria, premium result, and
+- [ ] **Step 3:** Snapshot profile ID, scope, version, ordered criteria, premium result, and
    enforcement mode into the case and evidence hash.
-4. Retain that snapshot for in-flight manager change requests and reapproval;
+- [ ] **Step 4:** Retain that snapshot for in-flight manager change requests and reapproval;
    newly activated versions affect only later scans.
-5. Show the applied snapshot and inheritance source read-only in the React
+- [ ] **Step 5:** Show the applied snapshot and inheritance source read-only in the React
    recommendation view and immutable audit trail.
-6. Emit preference-resolution failure and advisory-premium-exceedance metrics
+- [ ] **Step 6:** Emit preference-resolution failure and advisory-premium-exceedance metrics
    without profile IDs or versions as metric labels.
 
 **Verification:** Test malformed profile manual review, injection-like change
@@ -1418,16 +1974,16 @@ the safe action space.
 
 **Behavior**
 
-1. Give Bedrock only eligible, bounded, sanitized alternatives, authoritative
+- [ ] **Step 1:** Give Bedrock only eligible, bounded, sanitized alternatives, authoritative
    calculations, and the machine-generated validated preference section.
-2. Allow `recommend` or `manual_review`; validate the selected offer and every
+- [ ] **Step 2:** Allow `recommend` or `manual_review`; validate the selected offer and every
    copied number against evidence.
-3. Apply the effective advisory priority order and surface contextual
+- [ ] **Step 3:** Apply the effective advisory priority order and surface contextual
    cost/delivery/reliability/quality/order/payment/evidence trade-offs without
    fixed-score overclaiming.
-4. On repeated Bedrock failure or invalid output, show deterministic comparison
+- [ ] **Step 4:** On repeated Bedrock failure or invalid output, show deterministic comparison
    and create no draft.
-5. Emit token, latency, retry, invalid-output, and fallback metrics.
+- [ ] **Step 5:** Emit token, latency, retry, invalid-output, and fallback metrics.
 
 **Verification:** Test valid recommendation, manual review, ineligible
 identifier, altered arithmetic, omitted warning, applied-profile
@@ -1456,15 +2012,15 @@ expand the eligible set, change facts, or cause a write.
 
 **Behavior**
 
-1. Create one draft PO per product using only a validated eligible offer and
+- [ ] **Step 1:** Create one draft PO per product using only a validated eligible offer and
    deterministic quantity.
-2. Store case ID in Odoo origin/reference and use DynamoDB conditional
+- [ ] **Step 2:** Store case ID in Odoo origin/reference and use DynamoDB conditional
    idempotency records.
-3. On a write timeout, reconcile DynamoDB and Odoo before any retry.
-4. Bind the evidence hash—including the immutable applied-preference
+- [ ] **Step 3:** On a write timeout, reconcile DynamoDB and Odoo before any retry.
+- [ ] **Step 4:** Bind the evidence hash—including the immutable applied-preference
    snapshot—and PO revision, checkpoint, and interrupt without holding an HTTP
    request open.
-5. Enter `RECONCILIATION_REQUIRED` on ambiguous results.
+- [ ] **Step 5:** Enter `RECONCILIATION_REQUIRED` on ambiguous results.
 
 **Verification:** Test repeated requests, concurrent scans, response loss after
 Odoo commit, process termination after write, revision changes, checkpoint
@@ -1491,15 +2047,15 @@ safely for a human.
 
 **Behavior**
 
-1. Allow only authenticated managers to approve the exact current case,
+- [ ] **Step 1:** Allow only authenticated managers to approve the exact current case,
    vendor, quantity, amount, budget state, evidence hash, and PO revision.
-2. Require an explicit exception flag and non-empty bounded justification for
+- [ ] **Step 2:** Require an explicit exception flag and non-empty bounded justification for
    every over-budget approval.
-3. Have MCP perform a strongly consistent approval read and independent exact
+- [ ] **Step 3:** Have MCP perform a strongly consistent approval read and independent exact
    match before Odoo confirmation.
-4. Reject wrong role, stale/expired/replayed approval, changed draft, missing
+- [ ] **Step 4:** Reject wrong role, stale/expired/replayed approval, changed draft, missing
    exception, or environment mismatch.
-5. Confirm only a fictional Odoo PO; do not contact a supplier or move money.
+- [ ] **Step 5:** Confirm only a fictional Odoo PO; do not contact a supplier or move money.
 
 **Verification:** Run the happy path and over-budget path end to end, plus
 every approval-safety failure, concurrency/replay tests, ambiguous confirm
@@ -1525,16 +2081,16 @@ strongly revalidated manager approval.
 
 **Behavior**
 
-1. Reject with a bounded reason, preserve the decision, and idempotently cancel
+- [ ] **Step 1:** Reject with a bounded reason, preserve the decision, and idempotently cancel
    the draft.
-2. Accept only supported structured change fields plus an untrusted bounded
+- [ ] **Step 2:** Accept only supported structured change fields plus an untrusted bounded
    note.
-3. Invalidate prior recommendation/approval, recompute all policy, safely
+- [ ] **Step 3:** Invalidate prior recommendation/approval, recompute all policy, safely
    update the same draft, increment revision, retain the case’s snapshotted
    preference version, and require reapproval.
-4. Route unsupported or ambiguous requests to manual review.
-5. Reconcile create/update/cancel/confirm results before any write retry.
-6. Expose a chronological immutable audit timeline.
+- [ ] **Step 4:** Route unsupported or ambiguous requests to manual review.
+- [ ] **Step 5:** Reconcile create/update/cancel/confirm results before any write retry.
+- [ ] **Step 6:** Expose a chronological immutable audit timeline.
 
 **Verification:** Test stale change requests, unsafe vendor selection,
 quantity/date changes, invalidated approval, update conflict, ambiguous
@@ -1562,15 +2118,15 @@ and visible in the UI and audit.
 
 **Work and tests**
 
-1. Verify default-deny network flows and only documented allow paths.
-2. Verify containers run non-root, drop capabilities, use seccomp, and use
+- [ ] **Step 1:** Verify default-deny network flows and only documented allow paths.
+- [ ] **Step 2:** Verify containers run non-root, drop capabilities, use seccomp, and use
    read-only roots with explicit writable volumes where supported.
-3. Rotate Odoo key, MCP/Cron tokens, session secret, database credentials, and
+- [ ] **Step 3:** Rotate Odoo key, MCP/Cron tokens, session secret, database credentials, and
    Grafana credentials without logging old/new values.
-4. Test browser security headers, CSRF, session fixation, role escalation,
+- [ ] **Step 4:** Test browser security headers, CSRF, session fixation, role escalation,
    preference-configuration authorization, input limits, untrusted MCP output,
    prompt injection-like profile text/business data, and error leakage.
-5. Inspect image/dependency/secret/configuration scans and record accepted
+- [ ] **Step 5:** Inspect image/dependency/secret/configuration scans and record accepted
    residual risks.
 
 **Verification:** Run `make security-scan`, authorization suites, NetworkPolicy
@@ -1594,29 +2150,54 @@ unresolved security finding remains.
 
 **Work and tests**
 
-1. Verify exact read/write/LLM timeouts and retries, permanent-error
+- [ ] **Step 1:** Verify exact read/write/LLM timeouts and retries, permanent-error
    no-retry behavior, 120-second case limit, and reconciliation before write
    retry.
-2. Send SIGTERM during reads, reasoning, draft creation, human wait, and
+- [ ] **Step 2:** Send SIGTERM during reads, reasoning, draft creation, human wait, and
    confirmation; verify immediate readiness failure, checkpoint/reconciliation,
    and completion within the 45-second grace period.
-3. Load the seeded scenario, confirm p95 approval-ready time, and verify a
-   second API replica can schedule through HPA.
-4. Measure every pod’s CPU/memory/disk use on one `t3.medium` worker; adjust
-   hypotheses without removing required services.
-5. Exercise EC2 stop/start warming behavior, prod snapshot recovery, retained
-   local PVs, and reproducible seed fallback.
-6. Record actual active-hour cost and confirm the $50 target/$75 review ceiling
-   alerts.
+- [ ] **Step 3:** Load the seeded scenario, confirm p95 approval-ready time, and separately
+   drive frontend, API, and MCP CPU above 50%. Verify each HPA scales from one
+   toward its maximum of three and scales down after load. First capture
+   pending pods at insufficient one-worker capacity; then change only the dev
+   ASG desired-capacity input through a reviewed Terraform apply, verify the
+   additional worker joins and pending pods schedule, and restore desired one.
+   Record this as manual capacity, never automatic node scaling.
+- [ ] **Step 4:** Measure every pod’s CPU/memory/disk use on one `t3.medium` worker; adjust
+   hypotheses without removing required services. Verify pending-pod
+   visibility and alerts if the normal ASG capacity cannot schedule a requested
+   replica.
+- [ ] **Step 5:** Exercise inactive operation by applying worker `min = 0` and `desired = 0`,
+   then stopping the fixed control plane. Restart the control plane, verify
+   finite token rotation, restore worker desired one through Terraform, and
+   confirm the warming transition. Do not stop an ASG-managed worker directly.
+- [ ] **Step 6:** Exercise prod Odoo/PostgreSQL snapshot recovery, retained EBS
+   reattachment after worker replacement, Prometheus history across pod
+   restart, Grafana reconstruction from Git after pod deletion, and
+   reproducible seed fallback.
+- [ ] **Step 7:** Verify public DNS aliases, HTTP-to-HTTPS redirect, ACM hostname validation,
+   ALB target health/host routing, and the absence of direct public worker
+   application access.
+- [ ] **Step 8:** Verify clean, forced, failed, timeout, and duplicate termination-cleanup
+   outcomes; lifecycle release remains bounded, non-clean outcomes alert, and
+   the stale-node/EBS-detach runbook is executable.
+- [ ] **Step 9:** Record normal desired-one cost, temporary test-capacity cost, and retained
+   ALB/storage cost; confirm the $70 target/$90 review-ceiling alerts.
 
 **Stop condition**
 
-If a complete environment cannot fit safely below 85% memory or the required
-second API replica cannot schedule, stop stretch work and revise resource
-values or the approved architecture before production promotion.
+If a complete environment cannot fit safely below 85% memory, the three
+stateless HPAs cannot demonstrate safe scale-up/scale-down under the documented
+normal/manual capacity sequence, any worker cannot join with the correct
+environment identity, lifecycle cleanup can remain stuck beyond 300 seconds,
+retained state cannot reattach to a replacement, or Prometheus exceeds its
+5 GiB volume budget, stop stretch work and revise resource values or the
+approved architecture before production promotion. Do not add Cluster
+Autoscaler or an ASG scaling policy as an unapproved workaround.
 
-**Verification:** Run resilience/load suites, inspect Kubernetes events and
-dashboards, perform a controlled recovery drill, and update evidence.
+**Verification:** Run `make test-resilience`, inspect Kubernetes events and
+dashboards, perform the controlled recovery/capacity/termination drills, and
+update evidence.
 
 **Dependencies:** T32.
 
@@ -1637,16 +2218,22 @@ shutdown, resource, recovery, and cost constraints.
 
 **Work and tests**
 
-1. Verify metrics for requests, errors, latency, LLM/MCP failures/timeouts,
+- [ ] **Step 1:** Verify metrics for requests, errors, latency, LLM/MCP failures/timeouts,
    retries, tokens, scan/case outcomes, approval latency, duplicates, safety
    attempts, preference-resolution failures, advisory-premium exceedances, pod
-   restarts, CPU/memory, disk, and dependencies.
-2. Verify log fields and redaction from every service, Loki queryability, S3
+   restarts, CPU/memory, disk, dependencies, ASG desired/in-service capacity,
+   Ready workers, replacement duration, volume attach errors, and worker
+   cleanup outcomes.
+   Specifically verify requests per minute split by success/error, error rate,
+   p50/p95/p99 request latency, and separate LLM input/output token panels.
+- [ ] **Step 2:** Verify log fields and redaction from every service, Loki queryability, S3
    objects, and dev 14-day/prod 90-day lifecycle configuration.
-3. Fire every actionable alert safely and confirm its runbook action.
-4. Run the complete unit, integration, UI, Compose, infrastructure, security,
+- [ ] **Step 3:** Fire every actionable alert safely, including ASG/Ready-node mismatch,
+   forced/failed cleanup, Lambda error/lifecycle timeout, ALB target/5xx, and
+   EBS/PV failures, and confirm its runbook action.
+- [ ] **Step 4:** Run the complete unit, integration, UI, Compose, infrastructure, security,
    resilience, dev smoke, prod smoke, and immutable-release verification.
-5. Walk CR-01 through CR-16 and attach actual evidence; do not mark a
+- [ ] **Step 5:** Walk CR-01 through CR-16 and attach actual evidence; do not mark a
    requirement complete based only on planned files.
 
 **Verification:** Run all Make targets and archive real JUnit, coverage, scan,
@@ -1669,20 +2256,20 @@ actionable, and no required check is merely asserted.
 
 **Work and tests**
 
-1. Time the documented manual replenishment workflow at least three times and
+- [ ] **Step 1:** Time the documented manual replenishment workflow at least three times and
    record the baseline method and result.
-2. Rehearse the happy path, preference-override path, and over-budget
+- [ ] **Step 2:** Rehearse the happy path, preference-override path, and over-budget
    exception path from clean, environment-specific fictional seed data.
-3. Show Odoo preference administration, applied preference/version, draft and
+- [ ] **Step 3:** Show Odoo preference administration, applied preference/version, draft and
    confirmation, UI evidence, immutable audit, Grafana metrics/logs/alerts,
    GitHub Actions, Argo CD, and immutable digest promotion.
-4. Fit introduction, value, architecture, agent/MCP, live demo,
+- [ ] **Step 4:** Fit introduction, value, architecture, agent/MCP, live demo,
    infrastructure/observability/testing, pipeline, and AI-agent reflection into
    15 minutes.
-5. Prepare a truthful failure fallback using pre-recorded screenshots or
+- [ ] **Step 5:** Prepare a truthful failure fallback using pre-recorded screenshots or
    exported evidence; do not use generated video and do not present fallback
    evidence as live.
-6. Perform one cold-start rehearsal after the cluster was intentionally
+- [ ] **Step 6:** Perform one cold-start rehearsal after the cluster was intentionally
    stopped and verify warming/scan behavior.
 
 **Verification:** Conduct at least two timed rehearsals, one with an injected
@@ -1703,8 +2290,8 @@ full presentation and live interaction within 15 minutes.
 | G1 — Local skeleton | Unit/integration reports and manual browser check | Local API → LangGraph → real MCP transport → result works |
 | G2 — Odoo boundary | Executable Odoo contract, repeatable seed, live MCP read | No unresolved Odoo contract assumption |
 | G3 — Container | Image builds, Compose E2E, image contract checks | Local system runs from pinned containers |
-| G4 — Platform | Terraform/cluster/Kustomize/CI validation | Reproducible AWS and full dev/prod desired state |
-| G5 — Dev skeleton | Real Bedrock/Odoo/MCP/DynamoDB/Cognito smoke and observability evidence | Full walking skeleton healthy in dev |
+| G4 — Platform | Terraform/cluster/Kustomize/CI validation plus bounded clean/fail-open node-replacement drills | Reproducible AWS, isolated worker ASGs, and full dev/prod desired state |
+| G5 — Dev skeleton | Real Bedrock/Odoo/MCP/DynamoDB/Cognito smoke, retained-volume replacement, and observability evidence | Full walking skeleton healthy and replacement-safe in dev |
 | G6 — Prod skeleton | Same-digest proof, Argo health, prod smoke | Promotion workflow proven |
 | G7 — Functional MVP | All Phase 5 tasks, including the three small preference tasks T27A–T27C, and safety tests | Preference-aware, approval-gated fictional PO workflow works end to end |
 | G8 — Release candidate | Security, resilience, resource, cost, observability, and CR-01–CR-16 evidence | MVP is submission-ready |
@@ -1720,18 +2307,18 @@ No stretch work may begin before G9.
 | CR-02 Business problem/value | T11, T25–T27, T27A–T27C, T28–T31, T35 | Timed baseline, preference-aware approval-ready latency, live workflow |
 | CR-03 Coded LLM framework | T05, T12, T27C, T28–T31 | LangGraph tests, deployed graph, real model evidence |
 | CR-04 HTTP API/UI | T03, T05, T06, T14, T25–T27, T27A–T27C, T28–T31 | API/UI tests, live dashboard, Odoo preference UI |
-| CR-05 Reliability contracts | T02–T05, T12, T27B–T27C, T28–T33 | Errors, preference validation, retries, fallback, reconciliation, shutdown tests |
+| CR-05 Reliability contracts | T02–T05, T12, T18B, T27B–T27C, T28–T33 | Errors, preference validation, retries, fallback, lifecycle bounds, reconciliation, shutdown tests |
 | CR-06 Real MCP interaction | T04, T07, T11, T25–T27, T27A–T27C, T28–T31 | Streamable HTTP tests and demo traces |
-| CR-07 Self-managed EC2 Kubernetes | T16, T18A–T18B | Terraform state, node inventory, no EKS |
+| CR-07 Self-managed EC2 Kubernetes | T16, T18A–T18C | Terraform state, ASG/node inventory, finite join, controlled replacement, no EKS |
 | CR-08 Complete dev/prod | T17, T19A–T24 | Separate full-stack overlays, namespaces, Argo apps, smoke |
-| CR-09 Workload quality | T18A–T20B, T32, T33 | Probes, resources, HPA, secrets, graceful shutdown evidence |
-| CR-10 Terraform | T15–T17 | Validated/applied state and reproducible runbooks |
+| CR-09 Workload quality | T18A–T20B, T32, T33 | Probes, resources, HPA, retained CSI volumes, secrets, graceful shutdown/drain evidence |
+| CR-10 Terraform | T15–T18B | Validated/applied ASG, lifecycle, storage, edge, service state and reproducible runbooks |
 | CR-11 CI/CD/GitOps | T21–T24, T27A | Four-image PR/dev/main flows, Argo reconciliation, digest identity |
-| CR-12 Observability | T03–T05, T20A–T20B, T25–T27, T27A–T27C, T28–T34 | Metrics, logs, S3 objects, dashboards, fired alerts |
+| CR-12 Observability | T03–T05, T18B, T20A–T20B, T25–T27, T27A–T27C, T28–T34 | Application/ASG/cleanup metrics, logs, S3 objects, dashboards, fired alerts |
 | CR-13 Automated testing | Every behavior task; T34 audit | Unit/integration/UI/smoke/JUnit/coverage evidence |
 | CR-14 Presentation | T06, T23, T30, T34, T35 | Timed live demo, dashboard, pipeline, reflection |
 | CR-15 Security | T02–T04, T11–T24, T25–T27, T27A–T27C, T28–T33 | IAM/RBAC/CSRF/idempotency/redaction/network/preference/approval tests |
-| CR-16 Decision/AWS justification | T15–T17, T23, T33–T35 | Plans, cost evidence, implementation status, explanation |
+| CR-16 Decision/AWS justification | T15–T18B, T23, T33–T35 | Plans, lifecycle/cost evidence, implementation status, explanation |
 
 ## 11. Test coverage map
 
@@ -1753,7 +2340,8 @@ No stretch work may begin before G9.
 | React states/actions | T06/T14/T25–T27/T27C/T28–T31 | Local browser E2E | Dev/prod browser smoke |
 | MCP tools | T04/T11/T25–T27/T27B/T28–T31 | All eleven over Streamable HTTP | Real Odoo demo traces |
 | AWS repositories | T12–T14 mocked | DynamoDB Local | Dev/prod AWS smoke |
-| Kubernetes/config | T18A–T20B static | Render/policy/resource tests | Argo health/recovery |
+| Worker bootstrap and termination | T18A/T18B mocks | Terraform/event/IAM/SSM integration checks | Clean and fail-open dev replacement drills |
+| Kubernetes/config, ingress, and storage | T17–T20B static | Terraform/render/policy/resource tests | ASG/ACM/ALB/NGINX health, six EBS bindings/reattachment, Grafana reconstruction, Argo recovery |
 | Security/shutdown/load | T32/T33 | Fault injection | Dev drills and prod-safe checks |
 
 ## 12. Risk-driven stop conditions
@@ -1768,6 +2356,19 @@ Implementation stops for review when any of these occurs:
   violates the expected IAM invocation contract.
 - The complete stack cannot fit safely on each `t3.medium`/30 GB worker after
   reducing nonessential retention/cardinality/caches.
+- The frontend, API, or MCP HPA cannot demonstrate safe 50% CPU scale-up and
+  scale-down through the documented normal/manual capacity sequence without
+  unacceptable pending/OOM behavior.
+- A worker cannot join with the correct environment identity from the finite
+  rotating SSM credential, or dev/prod roles/labels/taints can cross.
+- A termination can remain stuck beyond the 300-second bound, skip lifecycle
+  completion without default release, or execute cleanup for an unapproved
+  ASG/node identity.
+- ACM validation, ALB hostname routing, ASG target registration, or
+  ALB-source-only NodePort access cannot be proven without broader exposure.
+- Odoo/PostgreSQL/Prometheus state cannot reattach to a same-AZ replacement,
+  Prometheus cannot retain the agreed bounded history within 5 GiB, or Grafana
+  cannot be fully reconstructed from Git after pod loss.
 - Environment-specific node roles or scheduling do not prevent a prod workload
   from using dev permissions, or vice versa.
 - External Secrets cannot access only the intended environment secrets without
@@ -1813,6 +2414,10 @@ The order is:
    tenant-aware administration only after the single-company profile,
    category/product inheritance, audit, and authorization boundaries are
    proven.
+7. **S07 — Real node autoscaling.** If Phase 1 and G9 are complete with time
+   remaining, revise and re-approve the specification and plan before adding
+   Cluster Autoscaler to manage the existing dev/prod ASGs. Keep all HPAs and
+   validate scale-up, scale-down, drain, cost, IAM, and retained-volume behavior.
 
 Supplier communication, payment, autonomous vendor approval, unbounded budget
 exceptions, and real legal ordering require a new safety design and are not
@@ -1831,7 +2436,19 @@ The user and course staff should confirm:
   read-only applied preference evidence visible to officers and managers.
 - Odoo feasibility is tested before broad dependence on its data model.
 - Every PO remains manager-approved and revision-bound.
-- Dev and prod are complete, isolated, and constrained to the approved nodes.
+- Dev and prod are complete, isolated, and constrained to their approved
+  single-AZ worker ASGs, labels/taints, roles, and target groups.
+- Normal active capacity is one fixed control plane plus one desired worker in
+  each ASG; Phase 1 has no ASG scaling policy or node autoscaler.
+- The Terraform-managed ALB/ACM/Route 53 path is reproducible, uses
+  environment-specific ASG target membership, and leaves no public worker
+  application port.
+- Odoo filestore, PostgreSQL, and Prometheus receive dedicated retained EBS in
+  each environment; Grafana is Git-provisioned and survives by reconstruction,
+  not by persisting `/var/lib/grafana`.
+- Finite kubeadm token rotation, private-DNS node identity, and termination
+  lifecycle cleanup are bounded, least-privilege, idempotent, observable, and
+  covered by clean/fail-open recovery drills.
 - All AWS services are justified and provisioned through Terraform.
 - GitHub Actions never deploys workloads directly.
 - The exact dev-tested image digests are promoted to prod.
@@ -1839,7 +2456,8 @@ The user and course staff should confirm:
   fallbacks, concurrency, and ambiguous writes.
 - Logs reach Loki and encrypted S3 without leaking sensitive procurement data.
 - Dashboards and alerts cover application, LLM, MCP, Kubernetes, dependencies,
-  and procurement safety.
+  ALB/HTTPS edge health, exact request/latency/error/token panels, and
+  procurement safety.
 - Cost, disk, memory, non-24/7 operation, and recovery limitations are tested
   and presented honestly.
 - Stretch integrations remain blocked until the submission-ready MVP is
@@ -1847,10 +2465,7 @@ The user and course staff should confirm:
 
 ## 15. Next approval gate
 
-The next action is user review of the revised `docs/spec.md`. Requested changes
-must be made and that specification must receive course-staff approval before
-this synchronized plan is considered for its separate approval.
-
-After specification approval, the user must review this plan and course staff
-must approve it through a pull request. Even after that approval,
-implementation must wait for a separate, explicit user instruction to begin.
+The revised `docs/spec.md` has user and course-staff approval. The next action
+is user review of this synchronized plan, followed by course-staff approval
+through a pull request. Even after both plan approvals, implementation must
+wait for a separate, explicit user instruction to begin.

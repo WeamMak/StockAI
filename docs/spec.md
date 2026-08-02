@@ -1,14 +1,16 @@
 # AI Procurement Agent — Design Specification
 
-**Status:** Revised draft for user and course-staff review
+**Status:** Revised specification approved by user and course staff
 
-**Date:** 2026-07-28
+**Date:** 2026-08-02
 
-**Planning stage:** Preference-management revision pending re-approval
+**Planning stage:** Specification approved; synchronized implementation plan pending approval
 
 **Approval record:** The previous specification was approved by the user and
-course staff on 2026-07-25. The company/category/product preference revision
-dated 2026-07-28 requires new user and course-staff approval.
+course staff on 2026-07-25. The company/category/product preference,
+ALB/ACM, ASG worker lifecycle, and observability/storage revisions dated
+2026-08-02 were approved by the user on 2026-08-02. Course-staff approval of
+the same revision was confirmed by the user on 2026-08-02.
 
 ## 1. Document status and classification
 
@@ -18,7 +20,7 @@ dated 2026-07-28 requires new user and course-staff approval.
 
 [Project decision] This document resolves the remaining design questions using the smallest architecture that satisfies the assignment and the constraints confirmed during brainstorming.
 
-[Explicit course requirement] Because the preference-management design is a material revision, the earlier specification approval does not authorize its implementation. This revised specification and the synchronized implementation plan must be reviewed and approved again.
+[Explicit course requirement] Because the preference-management and infrastructure designs are material revisions, the earlier specification approval does not authorize their implementation. This revised specification and the synchronized implementation plan must be reviewed and approved again.
 
 The required classification labels are:
 
@@ -50,6 +52,9 @@ The required classification labels are:
 | `[Tutorial-supported approach]` | `docs/tutorials/34_ai_mcp.md` | Custom MCP tools and Streamable HTTP transport |
 | `[Tutorial-supported approach]` | `docs/tutorials/35_k8s_cluster_setup.md` through `39_k8s_pod_design.md` | Self-managed Kubernetes, namespaces, Services, persistent storage, Argo CD, probes, resources, HPA, and rolling updates |
 | `[Tutorial-supported approach]` | `docs/tutorials/40_tf_basics.md` through `42_tf_modules.md` | Terraform state, variables, reusable modules, validation, and AWS provisioning |
+| `[Tutorial-supported approach]` | `docs/tutorials/45_k8s_ingress_controller.md` | NGINX Ingress exposed through a NodePort behind an internet-facing Application Load Balancer |
+| `[Tutorial-supported approach]` | `docs/tutorials/t005_k8s_monitoring_mcp.md` | Prometheus persistence through the EBS CSI driver, explicit HPA validation, and concrete Grafana request/latency/error/token panels; the tutorial's older direct Fluent Bit-to-S3 and observability-MCP examples are not adopted |
+| `[Tutorial-supported approach]` | `docs/tutorials/t006_k8s_with_terraform (1).md` | Terraform-managed EC2, networking, per-environment worker Auto Scaling Groups, automatic kubeadm join, and lifecycle cleanup patterns; the project adds environment isolation, retained data volumes, bounded join-token rotation, and tested termination behavior |
 
 ### 2.2 Mandatory requirement inventory
 
@@ -461,8 +466,12 @@ stateDiagram-v2
 
 ```mermaid
 flowchart LR
-    User[Officer or Manager] --> R53[Route 53 and HTTPS]
-    R53 --> FE[React UI in NGINX]
+    User[Officer or Manager] --> R53[Route 53 aliases]
+    R53 --> ALB[Application Load Balancer and ACM HTTPS]
+    ALB -->|HTTP to restricted NodePort| Ingress[NGINX Ingress]
+    Ingress --> FE[React UI in NGINX]
+    Ingress --> Odoo
+    Ingress --> Grafana
     FE -->|/api and /auth| API[FastAPI]
     Cron[Kubernetes CronJob] -->|internal scan API| API
     API --> Graph[LangGraph workflow]
@@ -477,6 +486,14 @@ flowchart LR
     Prom[Prometheus] --> Grafana[Grafana]
     Loki --> Grafana
     Prom --> Alert[Alertmanager]
+    DevASG[Dev worker ASG] --> ALB
+    ProdASG[Prod worker ASG] --> ALB
+    DevASG -->|termination lifecycle event| EB[EventBridge]
+    ProdASG -->|termination lifecycle event| EB
+    EB --> Cleanup[Node-cleanup Lambda]
+    Cleanup -->|SSM Run Command| CP[Control plane]
+    CP -->|cordon, drain, delete Node| DevASG
+    CP -->|cordon, drain, delete Node| ProdASG
 ```
 
 ### 10.2 Components
@@ -484,6 +501,8 @@ flowchart LR
 | Component | Classification | Purpose | Dependency boundary |
 |---|---|---|---|
 | React frontend | `[Project decision]` | Human dashboard for scans, recommendations, approvals, exceptions, and audit | Uses only versioned FastAPI endpoints |
+| ALB, ACM, and Route 53 | `[Project decision]` | Public HTTPS entry point, certificate termination, health checks, and stable environment hostnames | Each environment ASG maintains membership in its environment target group |
+| NGINX Ingress controller | `[Tutorial-supported approach]` | Host-based routing from one restricted NodePort to frontend/API, Odoo, and Grafana | Receives traffic only from the ALB security group |
 | NGINX frontend container | `[Project decision]` | Serves compiled React assets and proxies same-origin `/api` and `/auth` requests | Does not contain Cognito or AWS secrets |
 | FastAPI service | `[Project decision]` | HTTP API, Cognito session handling, RBAC, scan orchestration, human decisions, and health/metrics | Calls LangGraph and DynamoDB |
 | LangGraph workflow | `[Project decision]` | Explicit procurement state machine, reasoning, checkpoints, and human interrupts | Uses Bedrock and MCP through ports |
@@ -491,6 +510,9 @@ flowchart LR
 | Odoo 19 Community plus preference add-on | `[Project decision]` | Business system of record, structured preference-administration UI, and fictional PO execution target | Persists to environment-local PostgreSQL |
 | DynamoDB | `[Project decision]` | Checkpoints, sessions, approvals, idempotency, and audit | Separate tables per environment |
 | Observability stack | `[Project decision]` | Metrics, log search, alerts, and health dashboards | Separate Prometheus, Grafana, Loki, and Alertmanager per environment |
+| EBS CSI driver | `[Tutorial-supported approach]` | Mounts the Terraform-created Odoo, PostgreSQL, and Prometheus EBS volumes on replacement workers | The controller runs on the control plane with tag- and resource-scoped volume permissions |
+| Environment worker ASGs | `[Tutorial-supported approach]` | Replace failed workers and permit explicit Terraform-managed capacity changes | Separate dev/prod launch templates, roles, labels, taints, Availability Zones, and ALB target groups; no scaling policy in the MVP |
+| EventBridge, cleanup Lambda, and SSM | `[Project decision]` | Remove terminating workers safely from Kubernetes before an ASG releases the instance | One allowlisted, idempotent cleanup path sends bounded drain commands through the control plane and always completes the lifecycle hook |
 
 ### 10.3 End-to-end data flow
 
@@ -706,15 +728,23 @@ flowchart LR
 
 | Store | Classification | Data | Retention and recovery |
 |---|---|---|---|
-| Odoo/PostgreSQL dev | `[Project decision]` | Fictional dev ERP records and versioned recommendation preferences | Reproducible seed; local PV; no recovery guarantee |
-| Odoo/PostgreSQL prod | `[Project decision]` | Fictional prod ERP records and versioned recommendation preferences | Local PV plus automated crash-consistent EBS root snapshots; seed remains recovery fallback |
+| Odoo filestore EBS per env | `[Project decision]` | Fictional ERP attachments and filestore data | Terraform-created encrypted `gp3` volume, static CSI binding, `ReadWriteOnce`, and `Retain`; dev seed is the recovery fallback and prod receives tagged snapshots |
+| PostgreSQL EBS per env | `[Project decision]` | Fictional ERP records and versioned recommendation preferences | Terraform-created encrypted `gp3` volume, static CSI binding, `ReadWriteOnce`, and `Retain`; dev seed is the recovery fallback and prod receives tagged snapshots |
 | DynamoDB checkpoint table per env | `[Project decision]` | LangGraph state | Dev 30 days; prod 1 year; prod PITR enabled |
 | DynamoDB application table per env | `[Project decision]` | Cases, revisions, sessions, approvals, idempotency, and audit events | Sessions expire by TTL; dev business records 30 days; prod audit and decision records 1 year; prod PITR enabled |
 | S3 operational-log bucket | `[Project decision]` | Loki objects under separate dev/prod prefixes | Dev 14 days; prod 90 days through lifecycle rules |
 | Terraform-state S3 bucket | `[Project decision]` | Encrypted versioned Terraform state | Separate from application logs; versioning and locking; no public access |
-| Worker root EBS | `[Project decision]` | Container layers and local PV directories | 30 GB per node; prod worker snapshots retain seven daily recovery points |
+| Prometheus EBS per env | `[Tutorial-supported approach]` | Prometheus time-series data | Terraform-created encrypted 5 GiB `gp3` volume, CSI-mounted, `ReadWriteOnce`, and `Retain`; AZ-bound to its environment ASG |
+| Grafana runtime volume per env | `[Project decision]` | Disposable plugin/cache/runtime state only | `emptyDir`; dashboards, data sources, and alerts are provisioned from Git and reconstructed after restart |
+| Worker root EBS | `[Project decision]` | Operating system, Kubernetes, container layers, and bounded transient data | 30 GB per instance; reproducible from its launch template rather than treated as durable application storage |
 
-[Project decision] Local PersistentVolumes use `Retain` reclaim behavior and node affinity. They survive pod and instance stop/start but are tied to the worker and do not provide automatic failover.
+[Project decision] Terraform creates a dedicated encrypted `gp3` data volume for Odoo filestore and another for PostgreSQL in each environment. Their initial sizes are 5 GiB each and remain Terraform variables that must be validated against seeded data before production promotion.
+
+[Project decision] Odoo, PostgreSQL, and Prometheus use static CSI PersistentVolumes with `Retain`. Each environment's three volumes and worker ASG reside in one Availability Zone, allowing Kubernetes to reattach the volumes to a replacement worker while retaining the accepted single-AZ and single-writer limitation.
+
+[Project decision] Prometheus requires EBS because collected time-series history cannot be reconstructed from Git. Terraform creates one encrypted volume in the same Availability Zone as its environment ASG; a static CSI PersistentVolume references that volume and uses `ReadWriteOnce` and `Retain`.
+
+[Project decision] Grafana does not receive an EBS volume in the MVP. Data sources, dashboards, folders, and alert definitions are provisioned from version-controlled files, credentials come from Secrets Manager, and manual UI changes are not a supported source of truth.
 
 [Project decision] Detailed recommendation evidence, applied preference snapshots, commercial amounts, and manager justifications are encrypted in DynamoDB and are not duplicated into operational logs.
 
@@ -724,29 +754,38 @@ flowchart LR
 
 [Project decision] The system runs in `us-east-1` because the selected Bedrock model and the user’s existing resources are available there.
 
-[Project decision] Terraform creates one VPC, public subnets across two Availability Zones, route tables, an Internet Gateway, security groups, three EC2 instances, and stable public addresses.
+[Project decision] Terraform creates one VPC, public subnets across two Availability Zones, route tables, an Internet Gateway, security groups, one fixed control-plane EC2 instance, separate dev and prod worker launch templates and ASGs, one internet-facing Application Load Balancer, and required stable administrative addressing.
 
-[Project decision] Private subnets with a managed NAT Gateway were rejected because the small three-node project does not justify the fixed cost. The residual exposure is reduced with narrow security groups, host firewalls, TLS, Kubernetes NetworkPolicy, and application authentication.
+[Project decision] Private subnets with a managed NAT Gateway were rejected because the small three-node project does not justify the fixed cost. The ALB is the only public application entry point; worker ingress is limited to the ALB security group and administrative access is restricted to a configured administrator CIDR.
 
-[Project decision] No EKS, managed load balancer, or NAT Gateway is used.
+[Project decision] The control plane remains an individually managed Terraform EC2 instance. Dev and prod workers are managed by separate single-AZ ASGs with active defaults `min = 1`, `desired = 1`, and `max = 3`. No scaling policy, Cluster Autoscaler, Karpenter, EKS, or NAT Gateway is used in the MVP.
+
+[Project decision] One ALB spans both public subnets. Its HTTP listener redirects to HTTPS; host rules on its HTTPS listener terminate TLS with ACM and forward dev or prod traffic to separate target groups using one fixed NGINX Ingress NodePort. Each environment ASG maintains only its own target-group membership.
 
 ### 16.2 AWS service justification
 
 | Service | Classification | Why required | Data and access | Permission/provisioning |
 |---|---|---|---|---|
-| EC2 | `[Explicit course requirement]` | Self-managed Kubernetes control plane and workers | Runtime compute only | Terraform; one `t3.medium` control plane and two `t3.medium` workers |
+| EC2 | `[Explicit course requirement]` | Self-managed Kubernetes control plane and workers | Runtime compute only | Terraform; one fixed `t3.medium` control plane and `t3.medium` worker launch templates |
+| EC2 Auto Scaling | `[Tutorial-supported approach]` | Replace failed workers and expose explicit environment capacity | Worker desired/in-service capacity and instance lifecycle metadata only | Terraform; separate dev/prod ASGs, normally one worker each and at most three each; no MVP scaling policy |
+| Elastic Load Balancing | `[Project decision]` | Single public HTTPS entry point and health-checked routing to NGINX Ingress | HTTP request metadata only; no procurement persistence | Terraform; one ALB, restricted dev/prod target groups, and environment-specific ASG attachments |
+| ACM | `[Project decision]` | Managed public TLS certificate and renewal | Domain names and validation records only | Terraform; DNS validation in the existing Route 53 zone |
 | VPC components | `[Explicit course requirement]` | Network routing and isolation | Network metadata | Terraform; least-open security groups |
-| IAM | `[Explicit course requirement]` | Keyless application access to AWS APIs | Temporary role credentials | Terraform; separate control-plane, dev-worker, prod-worker, GitHub OIDC, and bootstrap/apply policies |
+| IAM | `[Explicit course requirement]` | Keyless application and lifecycle-automation access to AWS APIs | Temporary role credentials | Terraform; separate control-plane, dev-worker, prod-worker, cleanup-Lambda, GitHub OIDC, and bootstrap/apply policies |
 | Bedrock | `[Project decision]` | Required LLM reasoning | Sanitized structured procurement evidence | Worker role may invoke only `openai.gpt-oss-20b-1:0` |
 | DynamoDB | `[Project decision]` | Persistent graph checkpoints, approval, session, idempotency, and audit state | Environment-specific encrypted records | Separate tables and IAM scopes per environment; Terraform |
 | S3 | `[Project decision]` | Loki object storage and secure Terraform state | Sanitized logs and separate state objects | Separate buckets, encryption, public-access block, prefix-scoped roles, versioning/lifecycle; Terraform |
 | Secrets Manager | `[Project decision]` | Source of runtime secrets | Odoo API key, DB credentials, MCP/Cron tokens, session secrets, and Grafana credentials | Environment-scoped secrets and worker read permissions; Terraform |
 | Cognito | `[Project decision]` | Procurement user login and role groups | User identity and group membership | Separate dev/prod pools, clients, and callback URLs; Terraform |
 | Route 53 | `[Project decision]` | Stable hostnames for ingress, TLS, and Cognito callbacks | DNS records only | Existing registered domain is referenced; project records are created by Terraform |
-| EBS snapshots/DLM | `[Project decision]` | Low-cost prod worker recovery | Encrypted crash-consistent root snapshots | Tagged prod volume and retention policy; Terraform |
+| Systems Manager Parameter Store and Run Command | `[Project decision]` | Distribute a bounded kubeadm join command securely and execute cleanup only through the control plane | One encrypted join parameter and sanitized command status; no procurement data | Exact-parameter read/write permissions and `SendCommand` limited to the control plane and `AWS-RunShellScript` |
+| EventBridge | `[Project decision]` | Route termination lifecycle events from either worker ASG to the cleanup Lambda | ASG and EC2 instance identifiers only | One Terraform-managed rule restricted to the two ASG names and one Lambda target |
+| Lambda | `[Project decision]` | Heartbeat the lifecycle hook and coordinate bounded Kubernetes node cleanup | Instance/node identifiers and cleanup status only | One Terraform-managed function with resource restrictions where AWS supports them, plus read-only EC2 description and access only to its log group and cleanup metric namespace |
+| CloudWatch metrics and logs | `[Project decision]` | Native ALB/ASG/Lambda evidence and retained lifecycle-cleanup diagnostics | AWS service metrics plus sanitized cleanup logs; no procurement bodies | Grafana receives read-only metric queries; the Lambda log group is pre-created with 14-day retention and Lambda emits only cleanup outcome metrics |
+| EBS and EBS snapshots/DLM | `[Project decision]` | Replacement-safe Odoo/PostgreSQL data and durable Prometheus history | Six encrypted environment volumes; tagged prod Odoo/PostgreSQL snapshots | Terraform-created `gp3` volumes, static CSI bindings, scoped controller permissions, and seven daily crash-consistent snapshots of the prod ERP volumes |
 | AWS Budgets | `[Project decision]` | Keep the course environment within the agreed operating ceiling | AWS account cost totals only | Terraform; notifications at the target and ceiling to a configured operator address |
 
-[Project decision] SQS, SNS, SES, RDS, EFS, CloudWatch application logging, EKS, and additional databases are omitted because no MVP requirement justifies them.
+[Project decision] SQS, SNS, SES, RDS, EFS, EKS, Cluster Autoscaler, Karpenter, and additional databases are omitted because no MVP requirement justifies them. Application logs remain in Loki; CloudWatch Logs is used only for the operational cleanup Lambda.
 
 ### 16.3 DNS
 
@@ -759,9 +798,9 @@ flowchart LR
 - `odoo.prod.<domain>`
 - `grafana.prod.<domain>`
 
-[Project decision] Terraform manages the DNS records. The pre-existing domain registration is an external user-owned prerequisite and is not destroyed with the project.
+[Project decision] Terraform manages ACM DNS-validation records and Route 53 alias records from all six hostnames to the shared ALB. The pre-existing domain registration is an external user-owned prerequisite and is not destroyed with the project.
 
-[Project decision] cert-manager obtains individual Let’s Encrypt certificates through HTTP-01 validation.
+[Project decision] One ACM certificate covers the six exact project hostnames and is attached to the ALB HTTPS listener after DNS validation. cert-manager and in-cluster public certificate keys are not required.
 
 ## 17. Kubernetes deployment
 
@@ -769,29 +808,37 @@ flowchart LR
 
 | Node | Classification | Capacity and placement |
 |---|---|---|
-| Control plane | `[Project decision]` | One `t3.medium`, 30 GB EBS; runs Kubernetes control-plane services and selected lightweight cluster controllers, but no business application workloads |
-| Dev worker | `[Project decision]` | One `t3.medium`, 30 GB EBS; hard-labeled/tainted for the complete dev application and dev observability stack |
-| Prod worker | `[Project decision]` | One `t3.medium`, 30 GB EBS; hard-labeled/tainted for the complete prod application and prod observability stack |
+| Control plane | `[Project decision]` | One `t3.medium`, encrypted 30 GB EBS; runs Kubernetes control-plane services and selected lightweight cluster controllers, but no business application workloads |
+| Dev worker ASG | `[Tutorial-supported approach]` | Single-AZ `t3.medium` launch template with encrypted 30 GB root EBS; active `min = 1`, `desired = 1`, `max = 3`; hard-labeled/tainted for only the dev application and observability stack |
+| Prod worker ASG | `[Tutorial-supported approach]` | Single-AZ `t3.medium` launch template with encrypted 30 GB root EBS; active `min = 1`, `desired = 1`, `max = 3`; hard-labeled/tainted for only the prod application and observability stack |
 
 [Project decision] Separate worker instance profiles restrict dev and prod AWS access. Hard node selection prevents a prod pod from receiving dev-node IAM credentials or vice versa.
 
-[Project decision] The single-worker-per-environment topology is not highly available. HPA can add a second Agent API pod only on the same environment worker when capacity permits.
+[Project decision] One worker is the normal active capacity for each environment, so application availability is interrupted while an ASG replaces a failed worker. The ASG provides instance self-healing, not multi-node high availability.
+
+[Project decision] Each launch template bootstraps its worker with an environment identity, kubelet node labels and taints, SSM, and kubeadm join retry logic. The control plane rotates a finite 24-hour kubeadm bootstrap token every 12 hours and overwrites one Terraform-created SSM `SecureString`; workers may read only that parameter and validate that its decrypted value is a `kubeadm join` command before executing it.
+
+[Project decision] Planned instance refreshes use launch-before-terminate behavior where ASG capacity permits. An unexpected single-worker failure still causes downtime until the replacement joins Kubernetes, becomes Ready, mounts retained volumes, and passes ALB health checks.
+
+[Project decision] ASG self-healing uses EC2 status health, while ALB and Kubernetes readiness are monitored separately. An EC2 instance can temporarily be `InService` before its Kubernetes node is Ready; the ASG-versus-Ready-node alert and bootstrap runbook cover that gap rather than using application failure alone to trigger a replacement loop. Launch-before-terminate refresh reduces overlap risk but does not claim Kubernetes-level zero downtime.
 
 ### 17.2 Environment workloads
 
 [Explicit course requirement] Both `dev` and `prod` namespaces contain separate configuration and the complete application stack.
 
-[Project decision] Each environment includes React/NGINX, FastAPI, Procurement MCP, Odoo, PostgreSQL, CronJob, Prometheus, Grafana, Loki, Alertmanager, and namespace-scoped log collection.
+[Project decision] Each environment includes React/NGINX, FastAPI, Procurement MCP, Odoo, PostgreSQL, CronJob, Prometheus, Grafana, Loki, Alertmanager, a lightweight HTTPS blackbox probe, and namespace-scoped log collection.
 
-[Project decision] Cluster-level components include containerd, kubeadm-managed Kubernetes, the course-compatible CNI with NetworkPolicy support, NGINX Ingress, cert-manager, External Secrets, metrics-server, kube-state-metrics, and Argo CD.
+[Project decision] Cluster-level components include containerd, kubeadm-managed Kubernetes, the course-compatible CNI with NetworkPolicy support, NGINX Ingress, the pinned AWS EBS CSI driver, External Secrets, metrics-server, kube-state-metrics, and Argo CD.
 
 [Project decision] Lightweight cluster controllers may tolerate the control-plane taint to preserve worker memory. Odoo, PostgreSQL, the agent, MCP, and environment observability may not.
+
+[Project decision] NGINX Ingress runs on the environment workers and exposes one fixed HTTP NodePort. The control plane does not receive ALB application traffic.
 
 ### 17.3 Resource strategy
 
 [Project decision] Every container receives CPU/memory requests and limits. Initial values are conservative hypotheses and must be replaced by measurements from the seeded workload before production promotion.
 
-[Project decision] Each 4 GiB worker reserves capacity for the OS, kubelet, CNI, and ingress before scheduling application requests.
+[Project decision] Each 4 GiB worker reserves capacity for the OS, kubelet, CNI, and ingress before scheduling application requests. Capacity measurements use the normal one-worker environment and separately document the behavior after manual expansion.
 
 [Project decision] Odoo uses one application worker, PostgreSQL uses a small demo configuration, and monitoring uses short retention and modest scrape intervals.
 
@@ -799,11 +846,13 @@ flowchart LR
 
 ### 17.4 HPA and replicas
 
-[Project decision] HPA applies only to the stateless FastAPI Agent API with minimum one and maximum two replicas based on CPU.
+[Tutorial-supported approach] CPU HPAs apply to the three stateless project services: React/NGINX frontend, FastAPI Agent API, and Procurement MCP.
 
-[Project decision] Frontend, MCP, Odoo, PostgreSQL, Prometheus, Grafana, Loki, and Alertmanager use one replica per environment.
+[Project decision] Each HPA uses minimum one replica, maximum three replicas, and a 50% average CPU-utilization target. Resource/load tests must verify scale-up and scale-down for each service with normal one-worker capacity and again after an explicit worker-capacity increase.
 
-[Project decision] HPA demonstrates correct Kubernetes autoscaling behavior but does not claim node autoscaling or availability during worker failure.
+[Project decision] Odoo, PostgreSQL, Prometheus, Grafana, Loki, and Alertmanager use one replica per environment.
+
+[Project decision] HPA demonstrates pod autoscaling only. In the MVP, worker ASGs have no scaling policies and are not managed by Cluster Autoscaler or Karpenter. HPA-created pods remain pending when capacity is insufficient until an operator changes the environment ASG's desired capacity through Terraform.
 
 ### 17.5 Configuration and secrets
 
@@ -823,21 +872,25 @@ flowchart LR
 
 [Project decision] Dependency health is reported separately so the dashboard can remain available when Odoo or Bedrock is down.
 
-[Project decision] Odoo and PostgreSQL use their supported shutdown signals and local PVs.
+[Project decision] Odoo and PostgreSQL use their supported shutdown signals and retained CSI-mounted EBS volumes.
 
 [Project decision] Stateless services use rolling updates with readiness gates. Stateful single replicas accept brief planned downtime.
 
 ### 17.7 Storage
 
-[Project decision] Static local PVs allocate directories on the environment worker’s 30 GB root EBS volume.
+[Project decision] Terraform creates separate encrypted `gp3` Odoo-filestore and PostgreSQL volumes for each environment. Static CSI PV/PVC pairs bind the exact volume IDs with `ReadWriteOnce`, `Retain`, and Availability Zone affinity.
 
-[Project decision] Approximate per-worker storage budget is 12 GB for OS/Kubernetes/images, 5 GB for Odoo/PostgreSQL data, 3 GB for Prometheus, 1 GB for Loki WAL/cache, and 9 GB safety/temporary headroom.
+[Project decision] Terraform creates one encrypted 5 GiB `gp3` Prometheus volume in each environment ASG's Availability Zone. A static EBS CSI PV/PVC binds that exact volume with `ReadWriteOnce` and `Retain`; the driver does not dynamically create unplanned AWS volumes.
 
-[Project decision] Loki’s retained log objects reside in S3 rather than on the 30 GB disk.
+[Project decision] Approximate root-disk budget per worker is 12 GB for OS/Kubernetes/images, 1 GB for Loki WAL/cache, and 17 GB safety/temporary headroom. Odoo, PostgreSQL, and Prometheus use their dedicated retained volumes, and Loki's retained log objects reside in S3.
+
+[Project decision] Grafana mounts provisioned dashboards, data sources, and alert configuration from version-controlled ConfigMaps and uses `emptyDir` for `/var/lib/grafana`. Restart recovery is a configuration-reconciliation test, not a volume-restore operation.
 
 ### 17.8 Network exposure
 
-[Project decision] Public HTTPS ingress exposes only the React/API hostname, Odoo UI, and Grafana for the demo.
+[Project decision] The ALB security group accepts public HTTP and HTTPS; HTTP redirects to HTTPS. The worker security group accepts the fixed NGINX HTTP NodePort and its health checks only from the ALB security group.
+
+[Project decision] Public HTTPS ingress exposes only the React/API hostname, Odoo UI, and Grafana for the demo. Host-based NGINX rules route those six dev/prod hostnames after TLS terminates at the ALB.
 
 [Project decision] MCP, PostgreSQL, Prometheus, Loki, Alertmanager, and internal metrics endpoints remain private ClusterIP services.
 
@@ -845,13 +898,31 @@ flowchart LR
 
 [Project decision] Default-deny NetworkPolicies permit only documented flows.
 
+[Project decision] ALB-to-NGINX traffic is HTTP inside the VPC. Its trust boundary is enforced by security-group source restriction, environment-specific ASG target registration, health checks, host validation, and NetworkPolicy; end-to-end TLS from ALB to the pod is outside the MVP.
+
 ### 17.9 Non-24/7 operation
 
-[Project decision] EC2 instances may be stopped outside development and demonstration periods while EBS volumes and stable public addresses remain.
+[Project decision] Outside development and demonstration periods, Terraform may set each worker ASG to `min = 0` and `desired = 0`, and the fixed control plane may then be stopped. Stopping an ASG-managed worker directly is not a supported shutdown because the ASG would replace it. Retained data volumes, ACM, DNS, and the ALB remain and continue to incur their applicable charges.
 
 [Project decision] Application SLOs apply only during declared active periods. Intentional suspension pauses daily-scan health evaluation.
 
 [Project decision] After restart, health remains “warming” until all dependencies are ready and an authorized scan succeeds. Missed scans are not silently presented as successful.
+
+### 17.10 Worker termination automation
+
+[Project decision] Each worker ASG has an EC2 termination lifecycle hook with a 300-second heartbeat timeout and default result `CONTINUE`. EventBridge accepts only `EC2 Instance-terminate Lifecycle Action` events whose ASG name matches the Terraform-managed dev or prod worker ASG and invokes one shared cleanup Lambda configured with a shorter 240-second timeout.
+
+[Project decision] The Lambda validates the event and ASG-to-environment mapping, resolves the worker's Kubernetes node from the EC2 private DNS name used as the kubelet node name, and sends `AWS-RunShellScript` through SSM only to the fixed control-plane instance. The command uses `/etc/kubernetes/admin.conf` to cordon, drain with a 120-second bound, and delete the Node object.
+
+[Project decision] While SSM runs, Lambda heartbeats the lifecycle action. The function attempts to complete the hook with `CONTINUE` in a `finally` path; if the Lambda invocation itself times out or is never delivered, the lifecycle hook's default `CONTINUE` releases the instance at the 300-second bound. An unavailable control plane therefore cannot leave an EC2 instance indefinitely stuck in `Terminating:Wait`.
+
+[Project decision] The SSM script preserves the drain exit code and sanitized outcome rather than hiding errors with an unconditional success expression. Cleanup outcomes are explicit: `clean` means drain and Node deletion succeeded; `forced` means bounded drain failed or timed out but stale Node removal was attempted; `failed` means SSM or the control plane prevented cleanup. Forced and failed outcomes continue termination, emit sanitized CloudWatch logs and metrics, raise an actionable alert, and require the stale-node/EBS-detach runbook.
+
+[Project decision] Cleanup is idempotent. Duplicate EventBridge delivery, a missing EC2 instance, or an already-absent Kubernetes Node cannot repeat a destructive application action and is recorded as already complete when its identity checks pass.
+
+[Project decision] The Lambda is infrastructure automation only: it cannot read procurement tables, secrets, Bedrock, Odoo, Loki objects, or worker application credentials. `SendCommand` is scoped to the control-plane instance and the `AWS-RunShellScript` document; lifecycle heartbeat/completion is scoped to the two ASGs.
+
+[Project decision] Real node autoscaling is a post-MVP option. If time permits after the Phase 1 system is validated, Cluster Autoscaler may manage the same two ASGs; it requires a separately reviewed spec and plan revision and does not replace the required HPAs.
 
 ## 18. CI/CD and GitOps
 
@@ -909,6 +980,8 @@ flowchart LR
 | MCP/Odoo write | `[Project decision]` | 15 seconds | Use idempotency; on timeout reconcile Odoo/DynamoDB before any retry |
 | Complete automated case | `[Project decision]` | 120 seconds excluding human wait | Stop safely, persist state, and expose retry or manual review |
 | Public API request | `[Project decision]` | Short synchronous request | Long work returns `202`; no browser-held workflow request |
+| Worker termination cleanup | `[Project decision]` | 240-second Lambda inside a 300-second lifecycle heartbeat window; drain bounded to 120 seconds | Poll SSM while heartbeating; retry only a clearly transient command submission; classify clean/forced/failed; always complete `CONTINUE` and alert on non-clean outcomes |
+| Worker kubeadm join | `[Project decision]` | Bounded attempt with bootstrap-level backoff | Poll for a valid encrypted join command, reset only a partial kubeadm attempt, and retry until the finite token is refreshed; never log the command or token |
 
 [Project decision] Authentication, authorization, validation, conflict, and policy failures are permanent and are never retried.
 
@@ -926,11 +999,13 @@ flowchart LR
 
 | Boundary | Classification | Controls |
 |---|---|---|
-| Browser to ingress | `[Project decision]` | HTTPS, Cognito, secure session cookie, CSRF, security headers, request limits |
+| Browser to ALB | `[Project decision]` | ACM HTTPS, HTTP-to-HTTPS redirect, Cognito, secure session cookie, CSRF, security headers, request limits |
+| ALB to NGINX Ingress | `[Project decision]` | Fixed target registration, ALB-source-only NodePort security-group rule, health checks, host validation, NetworkPolicy |
 | Frontend to API | `[Project decision]` | Same-origin proxy; no browser-held AWS or Cognito token |
 | API to MCP | `[Project decision]` | Private service, bearer credential, NetworkPolicy, strict schemas |
 | MCP to Odoo | `[Project decision]` | Private service, rotating API key, Odoo ACLs, allowlisted operations |
 | Pods to AWS | `[Project decision]` | Environment-specific EC2 roles, TLS endpoints, exact resource scopes |
+| ASG termination event to Kubernetes | `[Project decision]` | EventBridge ASG-name filter, Lambda event validation and idempotency, SSM only to the control plane, bounded drain, lifecycle timeout, sanitized logs |
 | Untrusted business text to LLM | `[Project decision]` | Delimiting, length limits, escaping, no instruction authority, structured output validation |
 | Approval to confirmation | `[Project decision]` | Cognito manager role, immutable revision-bound approval, strong MCP revalidation, idempotency |
 
@@ -940,7 +1015,11 @@ flowchart LR
 
 [Project decision] Dev and prod workers use distinct roles restricted to their Bedrock model, DynamoDB tables, S3 prefixes, and secret ARNs.
 
-[Project decision] The control plane does not receive application data permissions.
+[Project decision] The control plane does not receive procurement-data permissions. Its infrastructure-only role may write the exact SSM join parameter, receive SSM Run Command, and perform only the EBS CSI attach/detach and describe operations required for tagged cluster data volumes.
+
+[Project decision] Workers may read the exact join parameter and use SSM managed-instance channels, but only the environment-specific role may access that environment's application resources. The project does not attach `AmazonEKSClusterPolicy` because the cluster is not EKS.
+
+[Project decision] Lambda may describe the terminating EC2 instance, send only the approved SSM document to the control plane, poll that command, heartbeat/complete lifecycle actions for only the two worker ASGs, and write only its pre-created log group and cleanup metric namespace. Where an AWS read/list API does not support resource scoping, event allowlisting and EC2/ASG/node identity checks provide the additional boundary. The function receives no worker instance profile or application permissions.
 
 [Project decision] GitHub OIDC roles distinguish read-only pull-request planning from protected apply/promotion.
 
@@ -951,6 +1030,8 @@ flowchart LR
 [Project decision] Operational logs contain identifiers, state, timing, tool names, model/token counts, retry counts, and sanitized error codes.
 
 [Project decision] Operational logs do not contain full prompts, model responses, vendor prices, contract terms, budget values, manager justifications, secrets, API keys, passwords, or raw database errors.
+
+[Project decision] Cleanup Lambda logs use only event identifier, environment, allowlisted ASG name, instance ID, resolved node name, duration, heartbeat count, SSM status, cleanup outcome, and sanitized error code. Bootstrap scripts never log the decrypted join command or token.
 
 [Project decision] Sensitive audit evidence is encrypted at rest in DynamoDB and accessed only by authorized application roles.
 
@@ -978,9 +1059,13 @@ flowchart LR
 
 [Project decision] Fluent Bit collects namespace-scoped structured logs and sends them to that environment’s Loki. Loki uses the environment’s encrypted S3 prefix for retained objects.
 
-[Project decision] Grafana queries Prometheus for metrics and Loki for logs. DynamoDB remains the authoritative procurement audit store.
+[Project decision] Grafana queries Prometheus for application, Kubernetes, HPA, Ready-node, and HTTPS-probe metrics; Loki for application logs; and CloudWatch read-only for the shared ALB, the two ASGs, and the cleanup Lambda. Dev and prod dashboards select their environment target group and ASG. DynamoDB remains the authoritative procurement audit store.
 
-[Project decision] Application alerts remain visible in Grafana and Alertmanager for the MVP. External email, Slack, or Teams alert delivery is post-MVP.
+[Project decision] Grafana data sources, folders, dashboards, and alert definitions are provisioned from Git-managed files. Grafana uses disposable runtime storage; manual UI edits are neither durable nor an accepted configuration workflow.
+
+[Project decision] Prometheus stores metrics on the environment’s CSI-mounted encrypted EBS volume. Its bounded retention must fit the 5 GiB allocation; a pod restart must retain data, while volume loss is an accepted single-AZ MVP recovery limitation.
+
+[Project decision] Application alerts remain visible in Grafana and Alertmanager for the MVP. The termination automation additionally creates CloudWatch alarms for Lambda errors and forced/failed cleanup outcomes; Grafana displays these metrics. External email, Slack, or Teams delivery is post-MVP.
 
 ### 21.2 Metrics
 
@@ -998,6 +1083,10 @@ flowchart LR
 - PO create, update, cancel, and confirm outcomes
 - duplicate prevention and unauthorized confirmation attempts
 - approval-to-confirmation latency
+- ASG desired, pending, and in-service capacity by environment
+- Kubernetes Ready worker count by environment
+- clean, forced, failed, and timed-out termination cleanup outcomes
+- worker replacement duration and retained-volume attach errors
 
 [Project decision] Odoo and PostgreSQL receive Kubernetes resource/restart metrics and dependency probes; the MVP avoids additional heavy exporters on the constrained workers.
 
@@ -1009,17 +1098,19 @@ flowchart LR
 
 | Dashboard | Classification | Content |
 |---|---|---|
-| Agent health | `[Project decision]` | Requests, errors, latency, scan recency, case outcomes, approval-ready SLO |
-| LLM and MCP | `[Project decision]` | Bedrock calls/tokens/failures, tool volume/latency/timeouts/retries |
+| Agent health | `[Project decision]` | Requests per minute split by success/error, error rate, p50/p95/p99 request latency, scan recency, case outcomes, approval-ready SLO |
+| LLM and MCP | `[Project decision]` | Bedrock calls, separate input/output token counts, failures and latency; MCP tool volume, latency, timeouts, and retries |
 | Procurement safety | `[Project decision]` | Pending approvals, budget/premium exceptions, preference-resolution failures, duplicate blocks, stale approvals, confirmation outcomes |
-| Kubernetes | `[Project decision]` | Pod status/restarts/OOM, CPU/memory, disk pressure, deployment readiness |
-| Dependencies | `[Project decision]` | Odoo, PostgreSQL, DynamoDB, S3/Loki, and Bedrock health |
+| Kubernetes and capacity | `[Project decision]` | Pod status/restarts/OOM, CPU/memory, root/PV capacity, HPA desired/current replicas, pending pods, Ready workers compared with ASG desired/in-service capacity, deployment readiness, and replacement duration |
+| Dependencies and edge | `[Project decision]` | Odoo, PostgreSQL, DynamoDB, S3/Loki, Bedrock, public HTTPS probes, ACM expiry, per-environment ALB target-group health/request/latency/5xx, and lifecycle-cleanup outcomes |
 
 ### 21.5 Health definition
 
 [Project decision] During active operation, the system is healthy when:
 
 - required pods are ready and not repeatedly restarting
+- each active environment's ASG desired and in-service counts match and it has at least one correctly labeled Ready Kubernetes worker
+- both ALB target groups have a healthy NGINX target and each public HTTPS hostname passes its expected health or login check
 - API and MCP error/latency rates remain within their thresholds
 - dependencies are reachable or show an explicit degraded state
 - a daily scan succeeded within the previous 26 hours
@@ -1039,8 +1130,11 @@ flowchart LR
 | Any unapproved or duplicate confirmation attempt | `[Project decision]` | Treat as a procurement safety incident |
 | p95 approval-ready latency above 2 minutes with a meaningful sample | `[Project decision]` | Inspect Bedrock/MCP latency and concurrency |
 | Pod crash loop, OOM, or worker memory pressure | `[Project decision]` | Reduce pressure, inspect limits, and stop stretch workloads |
+| Active ASG capacity differs from correctly labeled Ready workers beyond the replacement window | `[Project decision]` | Inspect launch bootstrap, join parameter/token rotation, instance health, kubelet, and CNI |
+| Forced or failed termination cleanup, Lambda error, or lifecycle timeout | `[Project decision]` | Inspect the sanitized Lambda/SSM result, remove only the verified stale Node if necessary, confirm EBS detachment, and follow the recovery runbook |
 | Worker disk above 80% or PV errors | `[Project decision]` | Clean safe transient data, verify retention, and snapshot/recover |
-| Certificate near expiry | `[Project decision]` | Inspect cert-manager challenge and ingress |
+| ALB has no healthy ingress target or elevated 5xx | `[Project decision]` | Check ASG target membership, NodePort, security groups, NGINX readiness, and host routing |
+| Public certificate expires within 21 days or HTTPS probe fails | `[Project decision]` | Check ACM status/renewal, Route 53 validation record, ALB listener, and host route |
 | Odoo integration key near expiry | `[Project decision]` | Rotate the key, verify the new key, then revoke the old key |
 
 ## 22. Testing strategy
@@ -1072,6 +1166,7 @@ flowchart LR
 | MCP tools | `[Explicit course requirement]` | Each tool in isolation, schema validation, Odoo errors, idempotency, approval revalidation |
 | API and auth | `[Project decision]` | HTTP status/errors, RBAC, session expiry, CSRF, optimistic concurrency, idempotency |
 | React and Odoo UI | `[Project decision]` | Role-specific actions, read-only applied-preference evidence, preference inheritance/versioning, budget warning, error/manual-review states |
+| Worker cleanup Lambda | `[Project decision]` | Valid/invalid ASG events, environment/node identity, clean/forced/failed SSM outcomes, heartbeats, timeouts, duplicate events, already-absent nodes, and guaranteed bounded lifecycle completion |
 
 [Explicit course requirement] LLM, Odoo, external APIs, and AWS clients are mocked in unit tests.
 
@@ -1117,25 +1212,31 @@ flowchart LR
 
 ### 22.5 Infrastructure and delivery validation
 
-[Project decision] Automated checks cover Python formatting/lint/type/tests, React lint/type/tests/build, Docker builds, Docker Scout, Terraform formatting/validation/static checks/plans, Kustomize rendering, Kubernetes schema validation, and Argo CD desired-state smoke checks.
+[Project decision] Automated checks cover Python formatting/lint/type/tests, React lint/type/tests/build, Lambda packaging/unit tests, Docker builds, Docker Scout, Terraform formatting/validation/static checks/plans, Kustomize rendering, Kubernetes schema validation, and Argo CD desired-state smoke checks.
 
-[Project decision] Resource tests verify that each environment fits one `t3.medium` worker under the seeded load and that the Agent API’s second HPA replica can schedule when expected.
+[Project decision] Resource tests verify that each environment fits one `t3.medium` worker under the seeded load and that the frontend, Agent API, and MCP HPAs each scale from one toward three replicas at 50% average CPU and scale down after load. A test first records pending pods at insufficient node capacity, then changes one dev ASG desired-capacity variable through Terraform and verifies scheduling on the joined replacement-safe worker; this is manual node capacity, not automatic node scaling.
+
+[Project decision] Infrastructure smoke tests verify Route 53 alias resolution, HTTP-to-HTTPS redirect, the ACM certificate and hostname, ASG-maintained ALB target health, host routing through NGINX, Odoo/PostgreSQL/Prometheus data survival across pod restart, and complete Grafana reconstruction from Git-managed provisioning after pod deletion.
+
+[Project decision] A controlled dev termination test records data, terminates the dev worker through its ASG, and verifies lifecycle heartbeats, a `clean` cleanup result, disappearance of the old Node, automatic replacement and kubeadm join, correct dev labels/taints and IAM role, retained EBS reattachment, workload readiness, and restored ALB health. Separate fault-injection tests cover SSM/control-plane unavailability and confirm bounded fail-open completion plus an actionable alert.
 
 ## 23. Cost and quota constraints
 
-[Project decision] The architecture is constrained to three `t3.medium` instances: one control plane and two workers.
+[Project decision] Normal active capacity is three `t3.medium` instances: one fixed control plane and one desired worker in each environment ASG. A temporary, explicit Terraform change may raise either worker ASG to at most three instances; this maximum is not the cost baseline.
 
 [Project decision] Each instance uses at most a 30 GB EBS root volume.
 
-[Assumption] At current `us-east-1` On-Demand rates, the three instances cost approximately $0.125 per active hour before storage, public IPv4, and usage-based services.
+[Assumption] Before apply, the regional Standard On-Demand vCPU quota must be verified for the six-vCPU normal baseline and for the exact temporary dev capacity used in tests. Terraform must not request unverified simultaneous maximum capacity across both ASGs.
 
-[Assumption] With roughly 176 active hours per month, low demo traffic, and retained EBS/public addresses, the expected monthly total is approximately $40–60.
+[Assumption] At the previously estimated `us-east-1` On-Demand rates, normal three-instance capacity costs approximately $0.125 per active hour before storage, public IPv4, and usage-based services. This figure must be refreshed before infrastructure approval.
 
-[Project decision] The operating target is below $50 per month and the review/alarm ceiling is $75 per month. The cluster is stopped outside active development and demonstration periods.
+[Assumption] With roughly 176 EC2 active hours per month at normal desired capacity, low demo traffic, one continuously provisioned ALB, retained root volumes, six initial 5 GiB data volumes, and infrequent SSM/EventBridge/Lambda cleanup, the expected monthly total remains approximately $60–85. The exact estimate and temporary max-capacity scenario must be refreshed in the AWS Pricing Calculator before infrastructure approval.
+
+[Project decision] The revised operating target is below $70 per month and the review/alarm ceiling is $90 per month. Outside active development and demonstration periods, Terraform scales both worker ASGs to zero and the control plane is stopped; the ALB and storage continue to incur charges until Terraform destroys them.
 
 [Project decision] No automatic cost shutdown will interrupt an active workflow. Cost alerts prompt an operator to stop the environment safely.
 
-[Project decision] Bedrock, DynamoDB, S3, and Cognito are expected to remain minor usage-based costs for the fictional demo workload.
+[Project decision] Bedrock, DynamoDB, S3, Cognito, SSM, EventBridge, Lambda, and bounded cleanup logging are expected to remain minor usage-based costs for the fictional demo workload.
 
 ## 24. Live demo and presentation
 
@@ -1184,10 +1285,15 @@ flowchart LR
 | “Landed cost” cannot be known without freight/duty data. | `[Project decision]` | Use normalized current order cost and do not overclaim complete landed-cost comparison. |
 | “Place order” could imply real-world liability. | `[Project decision]` | Confirm only a fictional Odoo PO and perform no supplier communication or payment. |
 | Automatic monitoring is impressive but fragile in a stopped lab cluster. | `[Project decision]` | Use a daily CronJob plus the same authorized on-demand endpoint; pause SLOs during intentional shutdown. |
-| One `t3.medium` worker cannot run both environments. | `[Project decision]` | Use two `t3.medium` workers, pin one full environment to each, and keep strict resource budgets. |
+| One `t3.medium` worker cannot run both environments. | `[Project decision]` | Use separate dev/prod worker ASGs, normally one `t3.medium` worker in each, and keep strict resource budgets. |
 | Two full observability stacks stress 4 GiB workers. | `[Project decision]` | Use short metrics retention, S3-backed Loki objects, one replica, shared lightweight cluster collectors, and no unnecessary exporters. |
-| Local PVs are not highly available. | `[Project decision]` | Accept the course-demo limitation, retain seed data, and snapshot the prod worker. |
-| Public subnets reduce cost but expand exposure. | `[Project decision]` | Avoid NAT cost while enforcing narrow security groups, TLS, auth, host firewall, RBAC, and NetworkPolicy. |
+| Replacement of a root-disk worker must not destroy ERP data. | `[Project decision]` | Put Odoo filestore, PostgreSQL, and Prometheus on dedicated retained EBS volumes in the environment ASG's Availability Zone and snapshot the tagged prod ERP volumes. |
+| Grafana manual UI changes would disappear after restart. | `[Project decision]` | Treat Git-managed provisioning as the only supported dashboard/data-source/alert configuration and verify reconstruction in tests. |
+| HPA does not add EC2 capacity. | `[Project decision]` | Keep HPA, alert on pending pods, and change ASG desired capacity explicitly through Terraform in Phase 1; consider Cluster Autoscaler only as a separately reviewed post-MVP phase. |
+| ASG termination can leave a stale Kubernetes Node or interrupt stateful workloads. | `[Project decision]` | Use a lifecycle hook, EventBridge, an idempotent cleanup Lambda, SSM drain through the control plane, heartbeats, retained EBS, bounded fail-open behavior, alerts, and a tested recovery runbook. |
+| A non-expiring kubeadm token increases bootstrap exposure. | `[Project decision]` | Store one encrypted join command in SSM and rotate its finite 24-hour token every 12 hours; workers validate it and have only exact-parameter read access. |
+| Public subnets expand exposure. | `[Project decision]` | Put one ALB in front of the workers, restrict the ingress NodePort to its security group, and retain TLS, auth, host firewall, RBAC, and NetworkPolicy. |
+| A continuously provisioned ALB adds fixed cost while EC2 is stopped. | `[Project decision]` | Include it in budgets and document a Terraform-managed teardown/recreate procedure for extended inactive periods. |
 | Self-managed EC2 lacks simple pod-level IAM. | `[Assumption]` | Separate dev/prod worker roles and hard scheduling reduce the shared-node credential risk; document that it is not eliminated. |
 | Internal-only Alertmanager is not proactive. | `[Project decision]` | Accept dashboard-only alert delivery for MVP and defer email/Slack/Teams. |
 | Rebuilding on main could deploy a different artifact than dev. | `[Project decision]` | Record and promote the exact dev-validated immutable digest with provenance verification. |
@@ -1210,14 +1316,19 @@ flowchart LR
 | Backend-managed Cognito session | `[Project decision]` | CR-15 | Browser-held tokens; custom accounts | Secure HttpOnly sessions and managed identity/roles |
 | DynamoDB persistence | `[Tutorial-supported approach]` | CR-05, CR-16 | PostgreSQL checkpointing; memory only | Course-supported AWS checkpointer and safe human waits |
 | Single cluster, dev/prod namespaces | `[Explicit course requirement]` | CR-07, CR-08 | Separate clusters; EKS | Meets requirement within quota and cost |
-| One worker per environment | `[Project decision]` | CR-08, CR-09 | One shared worker; larger instances | Fits user quota and improves IAM/data separation |
-| Local PV on root EBS | `[Project decision]` | CR-09 | Extra EBS CSI volumes; EFS/RDS | Fits 30 GB-per-instance constraint at acknowledged recovery cost |
-| Separate observability stacks | `[Project decision]` | CR-08, CR-12 | Shared monitoring; CloudWatch | User-selected environment isolation and live demonstration |
+| Separate environment worker ASGs, normally desired one | `[Tutorial-supported approach]` | CR-07, CR-08, CR-09, CR-10, CR-16 | Fixed workers; one shared ASG; Cluster Autoscaler immediately | Preserves environment IAM/scheduling isolation, replaces failed instances, and permits explicit capacity changes without adding real node autoscaling to the MVP |
+| HPA plus Terraform-managed ASG capacity in Phase 1 | `[Project decision]` | CR-09, CR-10, CR-12, CR-16 | Remove HPA; add Cluster Autoscaler now | Keeps the required pod autoscaling, exposes pending capacity honestly, and limits initial operational complexity; Cluster Autoscaler remains a reviewed post-MVP option |
+| EventBridge/Lambda/SSM termination cleanup | `[Project decision]` | CR-05, CR-07, CR-10, CR-12, CR-15, CR-16 | Manual `kubectl delete node`; lifecycle hook without cleanup; Lambda with kubeconfig | Automates bounded drain and stale-node removal without distributing cluster credentials to Lambda, while fail-open completion prevents stuck ASG termination |
+| ALB and ACM before NGINX Ingress | `[Tutorial-supported approach]` | CR-04, CR-10, CR-15, CR-16 | Direct public NodePort/EIP with cert-manager; NLB | Centralizes public HTTPS and health checks while keeping host routing inside Kubernetes |
+| Dedicated retained EBS for Odoo/PostgreSQL | `[Project decision]` | CR-09, CR-10, CR-16 | Worker-root local PV; EFS; RDS | Survives ASG worker replacement while retaining a small, Terraform-managed, single-AZ architecture |
+| EBS CSI volume for Prometheus | `[Tutorial-supported approach]` | CR-09, CR-12 | Root-disk local PV; ephemeral metrics | Preserves operational history across pod restart without introducing a managed database |
+| Git-provisioned Grafana with `emptyDir` | `[Project decision]` | CR-09, CR-10, CR-12 | Dedicated Grafana EBS volume | Configuration is reproducible and auditable; only unsupported manual UI state is disposable |
+| Separate observability stacks | `[Project decision]` | CR-08, CR-12 | Shared monitoring; CloudWatch-only monitoring | User-selected environment isolation and live demonstration; native CloudWatch supplies only ALB/ASG/Lambda operational metrics and cleanup logs |
 | Loki with S3 object storage | `[Project decision]` | CR-12, CR-16 | CloudWatch Logs; direct raw S3 files | Queryable logs while satisfying S3 retention requirement |
 | Kustomize | `[Project decision]` | CR-08, CR-11 | Duplicated YAML; Helm | Small shared base with explicit environment differences |
 | GitHub Actions plus Argo CD | `[Explicit course requirement]` | CR-11 | Direct `kubectl`; manual deploy | Required GitOps source of truth and promotion |
 | GPT-OSS 20B only | `[Project decision]` | CR-03, CR-16 | Amazon Nova; model fallback | User-selected course-approved low-cost model with predictable behavior |
-| Public subnets without NAT/ALB | `[Project decision]` | CR-07, CR-16 | Private subnets with NAT; managed load balancer | Fits cost constraints with documented security trade-off |
+| Public subnets with one ALB and no NAT | `[Project decision]` | CR-04, CR-07, CR-15, CR-16 | Direct worker exposure; private subnets with NAT | Provides managed HTTPS ingress while avoiding NAT cost in the small course environment |
 
 ## 27. Risks and limitations
 
@@ -1233,9 +1344,13 @@ flowchart LR
 | Normalized order cost omits unknown freight, duties, and insurance. | `[Project decision]` | Label it accurately and add landed-cost sources only in a later accounting/supplier integration. |
 | The 14-day projection omits unconfirmed future demand. | `[Project decision]` | Do not call it predictive demand forecasting; surface data timestamp and horizon. |
 | One product per PO may create too many drafts. | `[Project decision]` | Accept for audit clarity; consolidate post-MVP. |
-| One worker per environment is a single point of failure. | `[Project decision]` | No HA claim; snapshots, seed recovery, clear alerts. |
-| Root-disk local PV can be lost when a worker is replaced. | `[Project decision]` | Retain/snapshot prod root EBS and keep reproducible seed data. |
-| Public EC2 networking is less isolated than private subnets. | `[Project decision]` | Tight security groups, TLS, auth, firewall, patching, and NetworkPolicy. |
+| Normal desired capacity of one worker per environment is a temporary single point of failure. | `[Project decision]` | No HA claim; ASG replacement, retained data volumes, seed recovery, replacement-duration monitoring, and clear alerts. |
+| Odoo/PostgreSQL/Prometheus volumes are AZ-bound and single-writer. | `[Project decision]` | Keep each environment ASG in the volumes' Availability Zone, use static CSI binding and `Retain`, snapshot tagged prod ERP volumes, and make no multi-AZ HA claim. |
+| Grafana runtime/UI-only changes are ephemeral. | `[Project decision]` | Provision all supported configuration from Git and test pod-deletion reconstruction. |
+| Public EC2 networking is less isolated than private subnets. | `[Project decision]` | Expose applications only through the ALB; use source-restricted worker security groups, TLS, auth, firewall, patching, and NetworkPolicy. |
+| HPA cannot add node capacity in Phase 1. | `[Project decision]` | Use fixed min/max pod bounds, capacity/load tests, pending-pod alerts, and Terraform-managed desired capacity; require a spec/plan revision before adding Cluster Autoscaler. |
+| ASG replacement can register an EC2 instance that never joins Kubernetes. | `[Project decision]` | Finite token rotation, worker join retries, ASG-versus-Ready-node monitoring, ALB health checks, and a tested bootstrap runbook. |
+| EventBridge delivery, SSM, or the control plane can fail during termination. | `[Project decision]` | Lifecycle heartbeats, idempotency, bounded fail-open `CONTINUE`, forced/failed metrics and alarms, and a verified stale-node/EBS-detach runbook. |
 | Node-role credentials are shared by pods on that node. | `[Assumption]` | Separate workers/roles and minimal resource policies; document residual risk. |
 | Two observability stacks may exhaust memory or disk. | `[Project decision]` | Measure early, cap retention/cardinality, alert at safe thresholds, stop stretch work. |
 | Odoo standard service roles may be broader than desired. | `[Project decision]` | Dedicated integration user plus strict MCP operation allowlist and audit. |
@@ -1256,13 +1371,13 @@ flowchart LR
 | CR-04 HTTP API/UI | `[Explicit course requirement]` | 13, 14 | API tests, live React dashboard, and structured Odoo preference UI |
 | CR-05 Prompt/reliability | `[Explicit course requirement]` | 6, 8.7, 9.4, 17.6, 19 | Prompt/preference review, retry/fallback/shutdown tests |
 | CR-06 Real MCP interaction | `[Explicit course requirement]` | 10, 11 | Real Streamable HTTP preference/procurement integration and demo traces |
-| CR-07 EC2 Kubernetes/no EKS | `[Explicit course requirement]` | 16, 17 | Terraform plan/state and cluster node evidence |
+| CR-07 EC2 Kubernetes/no EKS | `[Explicit course requirement]` | 16, 17 | Terraform plan/state, per-environment ASGs, join evidence, and controlled worker-replacement test |
 | CR-08 Dev/prod full stacks | `[Explicit course requirement]` | 12, 16, 17 | Argo apps, namespace inventories, smoke checks |
-| CR-09 Well-crafted workloads | `[Explicit course requirement]` | 17 | Render validation, probes, resources, HPA, Secrets/ConfigMaps |
-| CR-10 Terraform/no manual creation | `[Explicit course requirement]` | 16, 18 | Terraform state/plan/apply records |
+| CR-09 Well-crafted workloads | `[Explicit course requirement]` | 17 | Render validation, probes, resources, HPA, retained CSI volumes, Secrets/ConfigMaps, drain and replacement evidence |
+| CR-10 Terraform/no manual creation | `[Explicit course requirement]` | 16, 17, 18 | Terraform state/plan/apply records for ASGs, lifecycle automation, storage, and delivery infrastructure |
 | CR-11 CI/CD | `[Explicit course requirement]` | 18 | PR checks, Docker Scout, digest provenance, Argo sync |
-| CR-12 Observability | `[Explicit course requirement]` | 21 | Live dashboards, alerts, S3-backed logs, health endpoints |
-| CR-13 Automated tests | `[Explicit course requirement]` | 22 | Unit/integration reports and coverage summaries |
+| CR-12 Observability | `[Explicit course requirement]` | 17.10, 21 | Live dashboards, alerts, S3-backed application logs, cleanup logs/metrics, health endpoints |
+| CR-13 Automated tests | `[Explicit course requirement]` | 22 | Unit/integration reports, Lambda tests, capacity tests, and controlled replacement evidence |
 | CR-14 Presentation | `[Explicit course requirement]` | 24 | Slides, live demo, Grafana, Actions, reflection |
 | CR-15 Security | `[Explicit course requirement]` | 6, 8.7, 11.3, 13, 20 | Auth/RBAC/CSRF/idempotency, preference-role, and prompt-boundary tests |
 | CR-16 Decision/AWS justification | `[Explicit course requirement]` | 16.2, 25, 26 | Spec review and presentation explanation |
@@ -1271,8 +1386,8 @@ flowchart LR
 
 [Project decision] This document intentionally contains no implementation tasks, code, tests, Terraform, manifests, Dockerfiles, or CI/CD workflows.
 
-[Project decision] User and course-staff approval of the previous specification were confirmed by the user on 2026-07-25. The preference-management revision dated 2026-07-28 now requires a new review.
+[Project decision] User and course-staff approval of the previous specification were confirmed by the user on 2026-07-25. The user approved the preference-management plus ALB/ACM, environment-ASG lifecycle, HPA-capacity, and observability/storage revisions on 2026-08-02; course-staff approval was confirmed by the user on 2026-08-02.
 
 [Explicit course requirement] This revised specification and the synchronized `docs/plan.md` do not authorize implementation until both receive the required new approvals.
 
-[Explicit course requirement] The user must review this revised specification first. Course staff must then approve it through a pull request. The synchronized implementation plan must be reviewed and approved separately, and implementation may begin only after both approvals plus a separate explicit user instruction.
+[Explicit course requirement] User and course-staff review of this revised specification are complete. The synchronized implementation plan must now be reviewed and approved separately, and implementation may begin only after both approvals plus a separate explicit user instruction.
