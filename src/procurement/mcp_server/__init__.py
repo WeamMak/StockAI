@@ -1,0 +1,1 @@
+"""Procurement MCP server boundary."""
