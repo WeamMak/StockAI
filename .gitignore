@@ -4,4 +4,8 @@ __pycache__/
 .env
 .vscode/
 
-docs/
+# Keep course source material ignored when untracked, but allow mandatory
+# planning artifacts to be reviewed and committed.
+docs/*
+!docs/spec.md
+!docs/plan.md

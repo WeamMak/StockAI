@@ -1,4 +1,4 @@
-# MarketingAI Project Instructions
+# StockAI Project Instructions
 
 ## Project purpose
 
@@ -23,7 +23,6 @@ Before proposing, planning, or implementing anything, read:
 
 - `docs/requirements/`
 - `docs/tutorials/`
-- `docs/references/`
 - the project assignment file
 - any existing files in `docs/`
 
@@ -165,28 +164,72 @@ The implementation plan must:
 - define completion criteria
 - identify dependencies and risks
 
-Recommended implementation phases:
+Recommended implementation strategy:
 
-1. Repository foundation
-2. Core domain model
-3. Agent skeleton
-4. MCP server
-5. MCP client integration
-6. HTTP API
-7. Persistence
-8. Web UI
-9. Unit tests
-10. Integration tests
-11. Containerization
-12. Terraform infrastructure
-13. Kubernetes dev environment
-14. Kubernetes prod environment
-15. CI pipeline
-16. CD pipeline
-17. Metrics and logs
-18. Alerts and dashboards
-19. Documentation
-20. Presentation and demo preparation
+1. Build a minimal local end-to-end walking skeleton containing:
+   - a basic HTTP API
+   - a minimal agent workflow using the selected coded LLM framework
+   - at least one real MCP tool call over the real MCP transport
+   - a simple user-facing result
+   - basic structured logs and meaningful request, LLM, and MCP metrics
+   - automated unit and integration tests for the happy path and one
+     representative failure path
+2. Containerize the working walking skeleton.
+3. Provision the minimum required AWS infrastructure and separate `dev` and
+   `prod` configuration with Terraform.
+4. Establish the CI/CD and GitOps promotion path described below.
+5. Deploy the walking skeleton to the `dev` Kubernetes namespace and validate
+   its end-to-end user interaction in dev.
+6. Promote the same tested walking-skeleton artifact to the `prod` Kubernetes
+   namespace through an explicit approval gate and verify it with smoke checks.
+7. Add the remaining capabilities as small end-to-end vertical slices.
+8. For every vertical slice, update together:
+   - application and agent code
+   - unit and integration tests
+   - documentation and requirements traceability
+   - metrics, logs, alerts, and dashboard panels when relevant
+   - configuration, Terraform, containers, and Kubernetes manifests when
+     relevant
+9. Finish with a requirements-hardening pass covering security, retries,
+   timeouts, fallbacks, graceful termination, probes, resource requests and
+   limits, HPA, secrets, actionable alerts, dashboards, documentation, and
+   presentation/demo preparation.
+
+Use this branch and promotion workflow:
+
+- `main` is the protected production branch and maps to the `prod`
+  environment.
+- `dev` is an unprotected integration branch and maps to the `dev`
+  environment. Pull requests into `dev` are not required.
+- Create each feature branch from the latest `main`.
+- Implement and commit the feature on its feature branch.
+- Merge the feature branch locally into `dev`, resolve any conflicts, and push
+  `dev` directly.
+- A push to `dev` triggers only the relevant dev GitHub Actions flows, such as
+  building and publishing the container image and updating the desired image
+  tag or other deployment configuration under the dev manifest path.
+- Docker Scout checks run on merge and push to `dev`.
+- Tests checks run on pull requests targeting `main`, not on
+  pushes to `dev`.
+- GitHub Actions must not deploy workloads directly with `kubectl`. Configure
+  the dev Argo CD application to track the `dev` revision and dev manifest path
+  and reconcile the `dev` namespace.
+- After the change is validated in dev, open a pull request from the new feature branch to
+  `main`.
+- Run the complete automated test suite and Docker Scout checks on that pull
+  request. Do not merge it until all required checks pass.
+- Merging the pull request to `main` is the explicit production promotion
+  decision. The main GitHub Actions flow promotes the same immutable artifact
+  validated in dev and updates the desired production deployment
+  configuration.
+- GitHub Actions must not deploy directly to production. Configure the prod
+  Argo CD application to track the `main` revision and prod manifest path and
+  reconcile the `prod` namespace.
+- Do not push feature work directly to `main`.
+- Keep `dev` releasable. Do not merge unrelated features into it when they
+  should not be promoted together in the next new feature branch to `main` pull request.
+- Apply an urgent production hotfix through a branch created from `main`, then
+  reconcile the accepted change back into `dev`.
 
 Do not create one large task called "implement the project."
 
@@ -351,9 +394,16 @@ Alerts must represent actionable conditions, not arbitrary thresholds.
 
 ## AWS service selection
 
-Use AWS services only when they fit the domain.
+### Required platform infrastructure
 
-Possible services include:
+- EC2 for the self-managed Kubernetes control plane and worker nodes
+- VPC, subnets, route tables, gateways, and security groups
+- IAM roles and policies
+- Terraform state infrastructure when required
+
+### Optional application and operational services
+
+Use these only when justified by the domain:
 
 - S3
 - DynamoDB
