@@ -99,7 +99,9 @@ class ErrorEnvelope:
         if (
             not isinstance(self.field_errors, tuple)
             or len(self.field_errors) > MAX_FIELD_ERRORS
-            or not all(isinstance(field_error, FieldError) for field_error in self.field_errors)
+            or not all(
+                isinstance(field_error, FieldError) for field_error in self.field_errors
+            )
         ):
             raise ValueError("field_errors must contain at most 20 field errors")
 

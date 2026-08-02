@@ -24,14 +24,24 @@ class CaseState(StrEnum):
 
 _ALLOWED_TRANSITIONS: dict[CaseState, frozenset[CaseState]] = {
     CaseState.DETECTED: frozenset({CaseState.SKIPPED, CaseState.GATHERING_EVIDENCE}),
-    CaseState.GATHERING_EVIDENCE: frozenset({CaseState.MANUAL_REVIEW, CaseState.PENDING_APPROVAL}),
-    CaseState.PENDING_APPROVAL: frozenset({CaseState.CHANGE_REQUESTED, CaseState.REJECTED, CaseState.APPROVED}),
+    CaseState.GATHERING_EVIDENCE: frozenset(
+        {CaseState.MANUAL_REVIEW, CaseState.PENDING_APPROVAL}
+    ),
+    CaseState.PENDING_APPROVAL: frozenset(
+        {CaseState.CHANGE_REQUESTED, CaseState.REJECTED, CaseState.APPROVED}
+    ),
     CaseState.CHANGE_REQUESTED: frozenset({CaseState.GATHERING_EVIDENCE}),
-    CaseState.REJECTED: frozenset({CaseState.CANCELLED, CaseState.RECONCILIATION_REQUIRED}),
+    CaseState.REJECTED: frozenset(
+        {CaseState.CANCELLED, CaseState.RECONCILIATION_REQUIRED}
+    ),
     CaseState.APPROVED: frozenset({CaseState.CONFIRMING}),
-    CaseState.CONFIRMING: frozenset({CaseState.CONFIRMED, CaseState.RECONCILIATION_REQUIRED}),
+    CaseState.CONFIRMING: frozenset(
+        {CaseState.CONFIRMED, CaseState.RECONCILIATION_REQUIRED}
+    ),
     CaseState.MANUAL_REVIEW: frozenset({CaseState.GATHERING_EVIDENCE}),
-    CaseState.RECONCILIATION_REQUIRED: frozenset({CaseState.CONFIRMED, CaseState.MANUAL_REVIEW}),
+    CaseState.RECONCILIATION_REQUIRED: frozenset(
+        {CaseState.CONFIRMED, CaseState.MANUAL_REVIEW}
+    ),
     CaseState.SKIPPED: frozenset(),
     CaseState.CANCELLED: frozenset(),
     CaseState.CONFIRMED: frozenset(),

@@ -62,7 +62,8 @@ class Money:
                     FieldError(
                         field="amount",
                         message=(
-                            "Amount must be a finite, non-negative Decimal less than 1 trillion, with at most six fractional digits."
+                            "Amount must be a finite, non-negative Decimal less than "
+                            "1 trillion, with at most six fractional digits."
                         ),
                     ),
                 ),
@@ -100,7 +101,8 @@ class Quantity:
                     FieldError(
                         field="quantity",
                         message=(
-                            "Quantity must be a finite, positive Decimal less than 1 billion, with at most six fractional digits."
+                            "Quantity must be a finite, positive Decimal less than "
+                            "1 billion, with at most six fractional digits."
                         ),
                     ),
                 ),
