@@ -4,9 +4,10 @@ StockAI is an approval-gated AI procurement agent for a fictional, self-hosted
 Odoo business. The approved design and implementation sequence live in
 [`docs/spec.md`](docs/spec.md) and [`docs/plan.md`](docs/plan.md).
 
-Tasks T01 and T02 established the Python foundation and framework-independent
-procurement domain contracts. The repository does not contain runnable
-application behavior yet; that begins with later approved plan tasks.
+Tasks T01 through T03 established the Python foundation, framework-independent
+procurement domain contracts, and the runnable FastAPI observability baseline.
+The API currently exposes health, readiness, dependency-status, and Prometheus
+metrics endpoints; procurement workflows begin in later approved plan tasks.
 
 ## Prerequisites
 
@@ -23,8 +24,26 @@ it is not already available.
 uv sync --locked
 ```
 
-Do not put credentials in the repository. Copy `.env.example` to `.env` only
-when a later task introduces documented local configuration.
+Do not put credentials in the repository. `.env.example` documents the safe
+runtime configuration names and contains no credentials.
+
+## Run the API locally
+
+```bash
+uv run uvicorn procurement.api.app:app --host 127.0.0.1 --port 8000
+```
+
+The defaults are the `dev` environment and `INFO` JSON logging. Override them
+through `PROCUREMENT_ENVIRONMENT` and `PROCUREMENT_LOG_LEVEL` when needed.
+
+Useful local checks:
+
+```bash
+curl http://127.0.0.1:8000/health/live
+curl http://127.0.0.1:8000/health/ready
+curl http://127.0.0.1:8000/health/dependencies
+curl http://127.0.0.1:8000/metrics
+```
 
 ## Quality commands
 

@@ -390,12 +390,12 @@ environment crossings, or illegal case transitions.
 
 **Work and tests**
 
-- [ ] **Step 1:** Test `/health/live`, `/health/ready`, `/health/dependencies`, and `/metrics`.
-- [ ] **Step 2:** Test the safe error envelope and correlation-ID propagation.
-- [ ] **Step 3:** Test JSON log fields and redaction of secrets, prompts, model output,
+- [x] **Step 1:** Test `/health/live`, `/health/ready`, `/health/dependencies`, and `/metrics`.
+- [x] **Step 2:** Test the safe error envelope and correlation-ID propagation.
+- [x] **Step 3:** Test JSON log fields and redaction of secrets, prompts, model output,
    prices, budgets, manager notes, and upstream errors.
-- [ ] **Step 4:** Implement process liveness separately from dependency readiness.
-- [ ] **Step 5:** Expose request count, error count, and latency without high-cardinality
+- [x] **Step 4:** Implement process liveness separately from dependency readiness.
+- [x] **Step 5:** Expose request count, error count, and latency without high-cardinality
    labels.
 
 **Verification:** Run API and observability unit tests; start the API locally
@@ -2470,5 +2470,5 @@ The user and course staff should confirm:
 
 Planning gate G0 is complete: the specification and this plan have user and
 course-staff approval, and the user explicitly authorized implementation on
-2026-08-02. T01 and T02 are complete. Later tasks remain subject to the
+2026-08-02. T01 through T03 are complete. Later tasks remain subject to the
 one-task-at-a-time workflow and their stated dependencies.
