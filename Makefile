@@ -14,7 +14,7 @@ help:
 	@echo "  format-check  Check Python formatting without changing files"
 	@echo "  lint          Run Ruff, mypy, and architecture checks"
 	@echo "  test-unit     Run unit tests with JUnit and coverage reports"
-	@echo "  check         Run all T01 verification targets"
+	@echo "  check         Run the complete Python verification suite"
 
 sync:
 	$(UV) sync --locked
