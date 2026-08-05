@@ -4,20 +4,20 @@ StockAI is an approval-gated AI procurement agent for a fictional, self-hosted
 Odoo business. The approved design and implementation sequence live in
 [`docs/spec.md`](docs/spec.md) and [`docs/plan.md`](docs/plan.md).
 
-Tasks T01 through T05 established the Python foundation, framework-independent
-procurement domain contracts, the runnable FastAPI observability baseline, and
-the first authenticated Procurement MCP tool. The asynchronous scan API now
-runs a minimal coded LangGraph path that calls
-`list_replenishment_candidates` over real Streamable HTTP, invokes a fake
-structured LLM port in tests, and exposes a fictional read-only result through
-polling. Real Odoo, Bedrock, durable state, and write operations remain later
-approved plan tasks.
+Tasks T01 through T07 establish the local walking skeleton: the Python domain,
+FastAPI asynchronous scan API, coded LangGraph, authenticated Procurement MCP
+tool, React polling UI, service-owned observability, and separate runnable API
+and MCP composition roots. The local path uses deterministic fictional ERP and
+structured-LLM adapters so it needs neither AWS nor Odoo. Real Odoo, Bedrock,
+durable state, and write operations remain later approved plan tasks.
 
 ## Prerequisites
 
 - Python 3.12
 - [uv](https://docs.astral.sh/uv/) 0.11 or later
+- Node.js 20.19 or later and npm
 - GNU Make
+- `curl`
 
 `uv` reads `.python-version` and can install the requested Python version when
 it is not already available.
@@ -26,21 +26,28 @@ it is not already available.
 
 ```bash
 uv sync --locked
+cd frontend && npm ci && cd ..
 ```
 
 Do not put credentials in the repository. `.env.example` documents the safe
 runtime configuration names and contains no credentials.
 
-## Run the API locally
+## Run the local walking skeleton
 
 ```bash
-uv run uvicorn procurement.api.app:app --host 127.0.0.1 --port 8000
+./scripts/run-local-skeleton.sh
 ```
 
-The defaults are the `dev` environment and `INFO` JSON logging. Override them
-through `PROCUREMENT_ENVIRONMENT` and `PROCUREMENT_LOG_LEVEL` when needed. Set
-`PROCUREMENT_CRON_TOKEN` through a secret source before using the internal Cron
-scan route; never commit its value.
+The command generates one ephemeral local MCP bearer token, starts the MCP and
+API as separate processes, and starts the React development server. Open
+<http://127.0.0.1:5173>, select **Run manual scan**, and inspect the fictional
+read-only recommendation. Press Ctrl+C once to stop all three processes.
+If port 5173 is already in use, choose another frontend port with
+`PROCUREMENT_FRONTEND_PORT=5174 ./scripts/run-local-skeleton.sh`.
+
+The script is intentionally local-only. It uses the deterministic fictional ERP
+and structured-LLM adapters assigned to the walking skeleton; it does not call
+Odoo, Bedrock, or AWS and it does not contain a committed credential.
 
 Useful local checks:
 
@@ -60,11 +67,10 @@ GET  /api/v1/scans/{id}     -> progress, read-only result, or safe failure
 POST /internal/v1/scans     -> 202 with the separate Cron bearer credential
 ```
 
-The default module-level API intentionally has no real LLM or MCP client wired
-yet and therefore records an explicit unconfigured failure if a scan is
-started. The real local composition command is assigned to T07; the T05
-integration suite injects deterministic ports and exercises the complete API →
-LangGraph → authenticated MCP transport path.
+The reusable `procurement.api.app` factory still defaults to a safe unconfigured
+workflow. The local command starts `procurement.bootstrap.api` instead, whose
+composition root connects the compiled LangGraph to the independent MCP process
+over authenticated Streamable HTTP.
 
 ## Quality commands
 
@@ -86,3 +92,12 @@ make check
 
 Generated environments, caches, coverage output, and test reports are ignored
 by Git.
+
+The single verification command for the local backend walking skeleton is:
+
+```bash
+make test-integration
+```
+
+It starts actual API and MCP processes for the T07 happy and timeout paths,
+including retry, log, metric, and safe-error assertions.

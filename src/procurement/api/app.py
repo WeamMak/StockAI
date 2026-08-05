@@ -7,6 +7,12 @@ from fastapi import FastAPI
 from procurement.api.config import ApiSettings
 from procurement.api.errors import install_error_handling
 from procurement.api.lifecycle import LifecycleState, lifespan_for
+from procurement.api.observability import (
+    HttpMetrics,
+    create_http_metrics,
+    install_http_metrics,
+    install_request_logging,
+)
 from procurement.api.routes.health import router as health_router
 from procurement.api.routes.internal import router as internal_router
 from procurement.api.routes.scans import router as scans_router
@@ -17,14 +23,10 @@ from procurement.api.services.scans import (
 )
 from procurement.observability.logging import (
     configure_json_logging,
-    install_request_logging,
 )
 from procurement.observability.metrics import (
     AgentMetrics,
-    HttpMetrics,
     create_agent_metrics,
-    create_http_metrics,
-    install_http_metrics,
 )
 
 

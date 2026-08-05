@@ -16,6 +16,7 @@ from procurement.mcp_server.auth import (
     StaticBearerTokenVerifier,
     create_auth_settings,
 )
+from procurement.mcp_server.observability import McpMetrics, create_mcp_metrics
 from procurement.mcp_server.schemas import (
     CandidateCursor,
     CandidateLimit,
@@ -26,7 +27,6 @@ from procurement.mcp_server.schemas import (
 )
 from procurement.mcp_server.tools import candidates
 from procurement.observability.logging import configure_json_logging
-from procurement.observability.metrics import McpMetrics, create_mcp_metrics
 from procurement.ports.erp import ErpPort
 
 SERVICE_NAME = "procurement-mcp"

@@ -19,13 +19,11 @@ from mcp.client.streamable_http import streamable_http_client
 
 from procurement.agent.graph import build_walking_skeleton_graph
 from procurement.api.app import create_app
+from procurement.api.observability import create_http_metrics
 from procurement.api.services.scans import ScanWorkflow
 from procurement.domain.identifiers import Environment
 from procurement.mcp_server.server import create_mcp_server
-from procurement.observability.metrics import (
-    create_agent_metrics,
-    create_http_metrics,
-)
+from procurement.observability.metrics import create_agent_metrics
 from procurement.ports.erp import CandidatePage as ErpCandidatePage
 from procurement.ports.erp import ReplenishmentCandidateRecord
 from procurement.ports.llm import (

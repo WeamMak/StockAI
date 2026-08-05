@@ -20,6 +20,7 @@ from procurement.mcp_server.auth import (
     create_auth_settings,
     validate_bearer_token,
 )
+from procurement.mcp_server.observability import create_mcp_metrics
 from procurement.mcp_server.schemas import ListReplenishmentCandidatesInput
 from procurement.mcp_server.server import create_mcp_server
 from procurement.mcp_server.tools.candidates import (
@@ -27,7 +28,6 @@ from procurement.mcp_server.tools.candidates import (
     list_replenishment_candidates,
 )
 from procurement.observability.logging import configure_json_logging
-from procurement.observability.metrics import create_mcp_metrics
 from procurement.ports.erp import (
     CandidatePage,
     ErpUnavailableError,

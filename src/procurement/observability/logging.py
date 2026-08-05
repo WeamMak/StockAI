@@ -6,12 +6,9 @@ import json
 import logging
 import re
 import sys
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Mapping
 from datetime import UTC, datetime
-from time import perf_counter
 from typing import TextIO
-
-from fastapi import FastAPI, Request, Response
 
 REDACTED = "[REDACTED]"
 _SENSITIVE_EXACT_KEYS = frozenset(
@@ -139,47 +136,3 @@ def log_event(
     """Emit a structured event through the configured project logger."""
 
     logger.log(level, event, extra={"event_fields": fields})
-
-
-def _route_template(request: Request) -> str:
-    route = request.scope.get("route")
-    path = getattr(route, "path", None)
-    return path if isinstance(path, str) else "unmatched"
-
-
-def install_request_logging(application: FastAPI, logger: logging.Logger) -> None:
-    """Emit one sanitized completion event for every API request."""
-
-    async def log_request(
-        request: Request,
-        call_next: Callable[[Request], Awaitable[Response]],
-    ) -> Response:
-        started_at = perf_counter()
-        try:
-            response = await call_next(request)
-        except Exception:
-            log_event(
-                logger,
-                "http_request_completed",
-                level=logging.ERROR,
-                request_id=request.state.correlation_id,
-                method=request.method,
-                route=_route_template(request),
-                http_status=500,
-                duration_ms=round((perf_counter() - started_at) * 1000, 3),
-                status="error",
-            )
-            raise
-        log_event(
-            logger,
-            "http_request_completed",
-            request_id=request.state.correlation_id,
-            method=request.method,
-            route=_route_template(request),
-            http_status=response.status_code,
-            duration_ms=round((perf_counter() - started_at) * 1000, 3),
-            status="success" if response.status_code < 400 else "error",
-        )
-        return response
-
-    application.middleware("http")(log_request)
