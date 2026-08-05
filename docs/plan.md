@@ -478,17 +478,17 @@ authenticated Streamable HTTP and receives a validated fictional candidate.
 
 **Work and tests**
 
-- [ ] **Step 1:** Test a coded LangGraph that calls MCP, invokes a fake structured LLM port,
+- [x] **Step 1:** Test a coded LangGraph that calls MCP, invokes a fake structured LLM port,
    and returns one approval-ready read-only result.
-- [ ] **Step 2:** Test one MCP timeout path that produces a safe unresolved result.
-- [ ] **Step 3:** Extend the architecture test so API/agent cannot import the MCP server or
+- [x] **Step 2:** Test one MCP timeout path that produces a safe unresolved result.
+- [x] **Step 3:** Extend the architecture test so API/agent cannot import the MCP server or
    Odoo implementation and MCP cannot import API/agent or the Bedrock implementation.
-- [ ] **Step 4:** Implement `POST /api/v1/scans` as `202 Accepted`, plus scan list/detail
+- [x] **Step 4:** Implement `POST /api/v1/scans` as `202 Accepted`, plus scan list/detail
    polling endpoints.
-- [ ] **Step 5:** Implement `POST /internal/v1/scans` with a separate narrow Cron credential;
+- [x] **Step 5:** Implement `POST /internal/v1/scans` with a separate narrow Cron credential;
    do not reuse a human session.
-- [ ] **Step 6:** Enforce one local scan lock and a 120-second non-human workflow deadline.
-- [ ] **Step 7:** Add scan, LLM, MCP, retry, and result metrics.
+- [x] **Step 6:** Enforce one local scan lock and a 120-second non-human workflow deadline.
+- [x] **Step 7:** Add scan, LLM, MCP, retry, and result metrics.
 
 **Verification:** Run unit tests and the API → graph → real MCP transport
 integration test.

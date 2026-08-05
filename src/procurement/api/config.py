@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import os
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from procurement.domain.identifiers import Environment
 
@@ -17,6 +17,8 @@ _LOG_LEVELS = {
     "ERROR": logging.ERROR,
     "CRITICAL": logging.CRITICAL,
 }
+_MIN_CREDENTIAL_LENGTH = 32
+_MAX_CREDENTIAL_LENGTH = 256
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,6 +28,7 @@ class ApiSettings:
     environment: Environment = Environment.DEV
     log_level: int = logging.INFO
     service_name: str = SERVICE_NAME
+    cron_token: str | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         if not isinstance(self.environment, Environment):
@@ -34,6 +37,15 @@ class ApiSettings:
             raise ValueError("log_level must be a supported logging level")
         if self.service_name != SERVICE_NAME:
             raise ValueError(f"service_name must be {SERVICE_NAME}")
+        if self.cron_token is not None and (
+            not isinstance(self.cron_token, str)
+            or not _MIN_CREDENTIAL_LENGTH
+            <= len(self.cron_token)
+            <= _MAX_CREDENTIAL_LENGTH
+            or not self.cron_token.isascii()
+            or any(character.isspace() for character in self.cron_token)
+        ):
+            raise ValueError("cron_token must be a bounded opaque ASCII credential")
 
     @classmethod
     def from_environment(
@@ -55,4 +67,8 @@ class ApiSettings:
             raise ValueError(
                 "PROCUREMENT_LOG_LEVEL must be DEBUG, INFO, WARNING, ERROR, or CRITICAL"
             ) from error
-        return cls(environment=environment, log_level=log_level)
+        return cls(
+            environment=environment,
+            log_level=log_level,
+            cron_token=values.get("PROCUREMENT_CRON_TOKEN"),
+        )

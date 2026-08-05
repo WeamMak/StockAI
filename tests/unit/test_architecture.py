@@ -79,6 +79,7 @@ FORBIDDEN_IMPORTS_BY_PACKAGE = {
         "procurement.agent",
         "procurement.api",
         "procurement.bootstrap",
+        "procurement.adapters.aws.bedrock",
     ),
     "observability": (
         "procurement.adapters",
@@ -163,6 +164,31 @@ class ArchitectureTest(unittest.TestCase):
             [],
             "Package boundary violations:\n" + "\n".join(violations),
         )
+
+    def test_t05_service_boundaries_are_guarded(self) -> None:
+        expected_guards = {
+            "agent": {
+                "procurement.mcp_server",
+                "procurement.adapters",
+            },
+            "api": {
+                "procurement.mcp_server",
+                "procurement.adapters",
+            },
+            "mcp_server": {
+                "procurement.agent",
+                "procurement.api",
+                "procurement.adapters.aws.bedrock",
+            },
+        }
+
+        for package_name, expected_prefixes in expected_guards.items():
+            self.assertTrue(
+                expected_prefixes.issubset(
+                    set(FORBIDDEN_IMPORTS_BY_PACKAGE[package_name])
+                ),
+                f"{package_name} is missing a T05 boundary guard",
+            )
 
 
 if __name__ == "__main__":
