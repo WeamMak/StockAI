@@ -12,6 +12,7 @@ from pydantic import ValidationError
 
 from procurement.domain.errors import ErrorCode
 from procurement.domain.identifiers import Environment
+from procurement.mcp_server.observability import McpMetrics
 from procurement.mcp_server.schemas import (
     CandidateSkipMetadata,
     ListReplenishmentCandidatesInput,
@@ -19,7 +20,6 @@ from procurement.mcp_server.schemas import (
     ReplenishmentCandidate,
 )
 from procurement.observability.logging import log_event
-from procurement.observability.metrics import McpMetrics
 from procurement.ports.erp import (
     CandidatePage,
     ErpPort,
@@ -35,10 +35,16 @@ _RETRYABLE_CODES = frozenset({ErrorCode.MCP_TIMEOUT, ErrorCode.ODOO_UNAVAILABLE}
 class SafeMcpToolError(Exception):
     """Stable MCP tool failure containing no raw request or upstream data."""
 
-    def __init__(self, error_code: ErrorCode, safe_message: str) -> None:
+    def __init__(
+        self,
+        error_code: ErrorCode,
+        safe_message: str,
+        retry_count: int,
+    ) -> None:
         super().__init__(safe_message)
         self.error_code = error_code
         self.safe_message = safe_message
+        self.retry_count = retry_count
 
     @property
     def retryable(self) -> bool:
@@ -51,6 +57,7 @@ class SafeMcpToolError(Exception):
             {
                 "error_code": self.error_code.value,
                 "message": self.safe_message,
+                "retry_count": self.retry_count,
                 "retryable": self.retryable,
             },
             separators=(",", ":"),
@@ -147,7 +154,7 @@ def _raise_safe_error(
         retry_count=retry_count,
         error_code=error_code,
     )
-    raise SafeMcpToolError(error_code, safe_message) from None
+    raise SafeMcpToolError(error_code, safe_message, retry_count) from None
 
 
 async def list_replenishment_candidates(

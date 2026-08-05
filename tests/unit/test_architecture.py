@@ -87,6 +87,21 @@ FORBIDDEN_IMPORTS_BY_PACKAGE = {
         "procurement.api",
         "procurement.bootstrap",
         "procurement.mcp_server",
+        "fastapi",
+        "mcp",
+        "starlette",
+    ),
+}
+
+FORBIDDEN_IMPORTS_BY_FILE = {
+    Path("bootstrap/api.py"): (
+        "procurement.adapters.odoo",
+        "procurement.mcp_server",
+    ),
+    Path("bootstrap/mcp.py"): (
+        "procurement.adapters.aws",
+        "procurement.agent",
+        "procurement.api",
     ),
 }
 
@@ -163,6 +178,41 @@ class ArchitectureTest(unittest.TestCase):
             violations,
             [],
             "Package boundary violations:\n" + "\n".join(violations),
+        )
+
+    def test_composition_roots_construct_only_owned_dependencies(self) -> None:
+        violations: list[str] = []
+
+        for relative_file, forbidden_prefixes in FORBIDDEN_IMPORTS_BY_FILE.items():
+            source_file = PACKAGE_ROOT / relative_file
+            for imported_module, line_number in _imported_modules(source_file):
+                for forbidden_prefix in forbidden_prefixes:
+                    if _matches_prefix(imported_module, forbidden_prefix):
+                        violations.append(
+                            f"{source_file.relative_to(PROJECT_ROOT)}:{line_number} "
+                            f"imports {imported_module}"
+                        )
+
+        self.assertEqual(
+            violations,
+            [],
+            "Composition-root ownership violations:\n" + "\n".join(violations),
+        )
+
+    def test_service_observability_modules_exist(self) -> None:
+        expected_files = (
+            PACKAGE_ROOT / "api" / "observability.py",
+            PACKAGE_ROOT / "mcp_server" / "observability.py",
+        )
+
+        self.assertEqual(
+            [
+                str(path.relative_to(PROJECT_ROOT))
+                for path in expected_files
+                if not path.is_file()
+            ],
+            [],
+            "Service-owned observability modules are missing",
         )
 
     def test_t05_service_boundaries_are_guarded(self) -> None:
