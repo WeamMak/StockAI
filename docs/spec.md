@@ -504,9 +504,9 @@ flowchart LR
 | ALB, ACM, and Route 53 | `[Project decision]` | Public HTTPS entry point, certificate termination, health checks, and stable environment hostnames | Each environment ASG maintains membership in its environment target group |
 | NGINX Ingress controller | `[Tutorial-supported approach]` | Host-based routing from one restricted NodePort to frontend/API, Odoo, and Grafana | Receives traffic only from the ALB security group |
 | NGINX frontend container | `[Project decision]` | Serves compiled React assets and proxies same-origin `/api` and `/auth` requests | Does not contain Cognito or AWS secrets |
-| FastAPI service | `[Project decision]` | HTTP API, Cognito session handling, RBAC, scan orchestration, human decisions, and health/metrics | Calls LangGraph and DynamoDB |
+| FastAPI service | `[Project decision]` | HTTP API, Cognito session handling, RBAC, scan orchestration, human decisions, and health/metrics | Calls LangGraph and DynamoDB; calls Procurement MCP only through the MCP client port and authenticated Streamable HTTP |
 | LangGraph workflow | `[Project decision]` | Explicit procurement state machine, reasoning, checkpoints, and human interrupts | Uses Bedrock and MCP through ports |
-| Procurement MCP server | `[Project decision]` | Stable, domain-specific, validated procurement operations | Hides Odoo JSON-2 and approval verification |
+| Procurement MCP server | `[Project decision]` | Stable, domain-specific, validated procurement operations | Hides Odoo JSON-2 and approval verification; does not expose Odoo models or import API/agent implementation code |
 | Odoo 19 Community plus preference add-on | `[Project decision]` | Business system of record, structured preference-administration UI, and fictional PO execution target | Persists to environment-local PostgreSQL |
 | DynamoDB | `[Project decision]` | Checkpoints, sessions, approvals, idempotency, and audit | Separate tables per environment |
 | Observability stack | `[Project decision]` | Metrics, log search, alerts, and health dashboards | Separate Prometheus, Grafana, Loki, and Alertmanager per environment |
@@ -514,7 +514,37 @@ flowchart LR
 | Environment worker ASGs | `[Tutorial-supported approach]` | Replace failed workers and permit explicit Terraform-managed capacity changes | Separate dev/prod launch templates, roles, labels, taints, Availability Zones, and ALB target groups; no scaling policy in the MVP |
 | EventBridge, cleanup Lambda, and SSM | `[Project decision]` | Remove terminating workers safely from Kubernetes before an ASG releases the instance | One allowlisted, idempotent cleanup path sends bounded drain commands through the control plane and always completes the lifecycle hook |
 
-### 10.3 End-to-end data flow
+### 10.3 Source-code and runtime boundaries
+
+[Project decision] The Python backend uses one version-controlled distribution,
+`stockai-procurement`, containing the shared procurement domain and two
+independently started services: the FastAPI Agent API and the Procurement MCP
+server.
+
+[Project decision] Sharing source code does not combine the runtime or security
+boundaries. The Agent API and Procurement MCP run with separate entry points,
+processes, container images, Kubernetes Deployments, Services, health probes,
+configuration, credentials, ServiceAccounts, NetworkPolicies, and HPAs.
+
+[Project decision] The Agent API communicates with Procurement MCP only through
+the authenticated Streamable HTTP MCP contract. Agent and API modules do not
+import the MCP server implementation or Odoo adapter. MCP modules do not import
+the Agent API, LangGraph workflow, or Bedrock adapter. No Python object crosses
+the service boundary; MCP request and response schemas are the wire contract.
+
+[Project decision] Concrete adapters are connected only by process-specific
+composition roots. Odoo is available only to the MCP process. Bedrock is
+available only to the Agent API process. Shared DynamoDB implementation code may
+be used by both processes, but each process receives only its required
+environment-scoped permissions.
+
+[Project decision] A per-service source-project structure was rejected for the
+MVP because both backend services use Python, belong to the same procurement
+domain, are maintained by one team, and follow one coordinated promotion
+workflow. This decision must be reconsidered if the services acquire independent
+ownership, release schedules, incompatible dependencies, or external consumers.
+
+### 10.4 End-to-end data flow
 
 1. `[Project decision]` The daily CronJob or an authorized officer sends an asynchronous scan request and receives `202 Accepted` with a scan identifier.
 2. `[Project decision]` FastAPI creates a scan audit record and starts the LangGraph workflow.
@@ -1310,6 +1340,7 @@ flowchart LR
 | LangGraph | `[Project decision]` | CR-03, CR-05 | Simple function pipeline; generic tool loop | Persistent state, branches, interrupts, and resumption |
 | Custom Procurement MCP | `[Project decision]` | CR-06, CR-15 | Direct Odoo calls from graph; generic DB MCP | Stable domain boundary, validation, least authority, future adapters |
 | Streamable HTTP | `[Tutorial-supported approach]` | CR-06, CR-13 | stdio | Real network interaction and required integration-test transport |
+| One backend Python distribution with two backend deployables | `[Project decision]` | CR-03, CR-05, CR-06, CR-09, CR-15 | One combined process; separate service projects; duplicated contracts | Shares stable domain code while preserving independent runtime, scaling, configuration, and security boundaries |
 | Self-hosted Odoo 19 Community | `[Project decision]` | CR-02, CR-06 | Odoo Online; mock ERP; Odoo 18 | Fictional free ERP plus current JSON-2 interface |
 | Scheduled scan plus manual trigger | `[Project decision]` | CR-02, CR-04, CR-14 | Real-time events; manual only | Impressive automation with deterministic demo control |
 | React/NGINX plus FastAPI | `[Project decision]` | CR-04, CR-14 | Server-rendered FastAPI; Streamlit | Clear user workflow and separate frontend while retaining a lightweight runtime |

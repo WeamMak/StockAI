@@ -4,10 +4,12 @@ StockAI is an approval-gated AI procurement agent for a fictional, self-hosted
 Odoo business. The approved design and implementation sequence live in
 [`docs/spec.md`](docs/spec.md) and [`docs/plan.md`](docs/plan.md).
 
-Tasks T01 through T03 established the Python foundation, framework-independent
-procurement domain contracts, and the runnable FastAPI observability baseline.
-The API currently exposes health, readiness, dependency-status, and Prometheus
-metrics endpoints; procurement workflows begin in later approved plan tasks.
+Tasks T01 through T04 established the Python foundation, framework-independent
+procurement domain contracts, the runnable FastAPI observability baseline, and
+the first authenticated Procurement MCP tool. The MCP service now discovers and
+calls `list_replenishment_candidates` over real Streamable HTTP with a
+deterministic fictional ERP adapter in tests. The LangGraph workflow and real
+Odoo adapter begin in later approved plan tasks.
 
 ## Prerequisites
 
@@ -52,9 +54,12 @@ make lock-check
 make format-check
 make lint
 make test-unit
+make test-integration
 ```
 
-Run the complete quality and unit-test suite with:
+Run the complete quality and unit-test suite with `make check`. The integration
+target starts a localhost MCP server and requires permission to bind a local
+TCP socket.
 
 ```bash
 make check

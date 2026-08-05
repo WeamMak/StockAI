@@ -115,9 +115,11 @@ toolchain change.
 
 ## 4. Planned repository layout
 
-The implementation will use one Python distribution with two independently
-started services. This shares typed domain contracts without combining the API
-and MCP security boundaries.
+The implementation uses one version-controlled Python distribution with two
+independently started backend services. This is a shared-code boundary, not a
+shared-process boundary. FastAPI and Procurement MCP have independent entry
+points, images, configuration, credentials, health behavior, and Kubernetes
+workloads.
 
 ```text
 .
@@ -174,6 +176,8 @@ and MCP security boundaries.
 │       ├── agent/
 │       ├── api/
 │       ├── bootstrap/
+│       │   ├── api.py
+│       │   └── mcp.py
 │       ├── domain/
 │       ├── mcp_server/
 │       ├── observability/
@@ -194,13 +198,25 @@ and MCP security boundaries.
 Boundary rules:
 
 - `procurement.domain` contains deterministic types and policy with no FastAPI,
-  MCP, Odoo, AWS, or LangGraph imports.
-- `procurement.ports` defines interfaces used by the agent.
-- `procurement.agent` depends on domain types and ports, never on the MCP
-  server implementation or Odoo adapter.
-- `procurement.mcp_server` owns domain tool schemas, authorization, validation,
-  Odoo access, write idempotency, and independent approval verification.
-- `procurement.api` owns HTTP, sessions, CSRF, RBAC, and graph orchestration.
+  MCP SDK, Odoo, AWS, or LangGraph imports.
+- `procurement.ports` contains framework-neutral, consumer-owned interfaces.
+  The agent uses the LLM, MCP-client, and repository ports. Procurement MCP uses
+  the ERP port.
+- `procurement.agent` depends on domain types and ports, never on the MCP server
+  implementation, Odoo adapter, FastAPI, or concrete AWS adapters.
+- `procurement.api` owns HTTP, sessions, CSRF, RBAC, and graph orchestration. It
+  calls Procurement MCP only through `procurement.ports.mcp`.
+- `procurement.mcp_server` owns tool schemas, authorization, validation, Odoo
+  operations, write idempotency, and independent approval verification. It does
+  not import API, agent, or Bedrock implementation code.
+- `procurement.adapters` contains concrete implementations but does not compose
+  processes or import API, agent, or MCP implementation modules.
+- `procurement.bootstrap.api` and `procurement.bootstrap.mcp` are the two
+  composition roots. They are the only modules that connect concrete adapters
+  to their owning runtime.
+- Shared observability code contains framework-neutral logging and metric
+  primitives. API- and MCP-specific middleware and collectors remain owned by
+  their respective services.
 - `frontend` uses only the versioned API and never receives AWS, Odoo, or
   Cognito tokens.
 - `odoo/addons/procurement_preferences` owns only typed preference models,
@@ -423,13 +439,13 @@ contracts without depending on Odoo, Bedrock, or AWS.
 
 **Work and tests**
 
-- [ ] **Step 1:** Test `list_replenishment_candidates` in isolation with strict inputs and
+- [x] **Step 1:** Test `list_replenishment_candidates` in isolation with strict inputs and
    bounded typed outputs.
-- [ ] **Step 2:** Test missing/wrong bearer credentials, malformed requests, response schema
+- [x] **Step 2:** Test missing/wrong bearer credentials, malformed requests, response schema
    validation, timeout mapping, and safe errors.
-- [ ] **Step 3:** Start the actual MCP server and call it through the Python MCP client using
+- [x] **Step 3:** Start the actual MCP server and call it through the Python MCP client using
    Streamable HTTP; no direct function-call substitute is accepted.
-- [ ] **Step 4:** Add MCP call count, duration, failures, timeouts, and retries to metrics and
+- [x] **Step 4:** Add MCP call count, duration, failures, timeouts, and retries to metrics and
    structured logs.
 
 **Verification:** Run the MCP unit suite and the real-transport integration
@@ -458,18 +474,21 @@ authenticated Streamable HTTP and receives a validated fictional candidate.
   `tests/unit/agent/test_walking_skeleton.py`,
   `tests/unit/api/test_scans.py`, and
   `tests/integration/test_api_agent_mcp.py`.
+- Modify `tests/unit/test_architecture.py`.
 
 **Work and tests**
 
 - [ ] **Step 1:** Test a coded LangGraph that calls MCP, invokes a fake structured LLM port,
    and returns one approval-ready read-only result.
 - [ ] **Step 2:** Test one MCP timeout path that produces a safe unresolved result.
-- [ ] **Step 3:** Implement `POST /api/v1/scans` as `202 Accepted`, plus scan list/detail
+- [ ] **Step 3:** Extend the architecture test so API/agent cannot import the MCP server or
+   Odoo implementation and MCP cannot import API/agent or the Bedrock implementation.
+- [ ] **Step 4:** Implement `POST /api/v1/scans` as `202 Accepted`, plus scan list/detail
    polling endpoints.
-- [ ] **Step 4:** Implement `POST /internal/v1/scans` with a separate narrow Cron credential;
+- [ ] **Step 5:** Implement `POST /internal/v1/scans` with a separate narrow Cron credential;
    do not reuse a human session.
-- [ ] **Step 5:** Enforce one local scan lock and a 120-second non-human workflow deadline.
-- [ ] **Step 6:** Add scan, LLM, MCP, retry, and result metrics.
+- [ ] **Step 6:** Enforce one local scan lock and a 120-second non-human workflow deadline.
+- [ ] **Step 7:** Add scan, LLM, MCP, retry, and result metrics.
 
 **Verification:** Run unit tests and the API → graph → real MCP transport
 integration test.
@@ -519,6 +538,13 @@ scan from a production-built React application.
 - Add `tests/integration/test_walking_skeleton.py`,
   `tests/integration/test_walking_skeleton_failure.py`, and
   `scripts/run-local-skeleton.sh`.
+- Create `src/procurement/bootstrap/api.py`,
+  `src/procurement/bootstrap/mcp.py`,
+  `src/procurement/api/observability.py`, and
+  `src/procurement/mcp_server/observability.py`.
+- Modify `src/procurement/observability/logging.py`,
+  `src/procurement/observability/metrics.py`, and
+  `tests/unit/test_architecture.py`.
 - Update `README.md` and `docs/implementation-status.md`.
 
 **Work and tests**
@@ -528,7 +554,13 @@ scan from a production-built React application.
    logs, and metrics.
 - [ ] **Step 3:** Verify the interaction contains a LangGraph run and a real MCP transport
    call.
-- [ ] **Step 4:** Document one command to run and one command to verify the skeleton.
+- [ ] **Step 4:** Add API and MCP composition roots that construct only their owned adapters
+   and configuration, then start the two real processes from the local script.
+- [ ] **Step 5:** Keep shared observability primitives framework-neutral and move API- and
+   MCP-specific middleware and collectors into their owning service modules.
+- [ ] **Step 6:** Extend architecture tests for the composition-root and observability
+   ownership rules.
+- [ ] **Step 7:** Document one command to run and one command to verify the skeleton.
 
 **Verification:** Run `make test-unit`, `make test-integration`, and a manual
 browser check.
@@ -548,15 +580,19 @@ live AWS or Odoo.
 
 - Create `docker/api.Dockerfile`, `docker/mcp.Dockerfile`,
   `docker/frontend.Dockerfile`, `docker/nginx.conf`, and `.dockerignore`.
+- Modify `pyproject.toml` to define fixed `stockai-api` and `stockai-mcp`
+  process entry points.
 - Create `tests/config/test_container_contracts.py`.
 
 **Work and tests**
 
 - [ ] **Step 1:** Add configuration tests for non-root execution, fixed entry points, health
    checks, no development server, minimal build context, and no copied secret.
-- [ ] **Step 2:** Use multi-stage builds and pinned base-image digests.
-- [ ] **Step 3:** Ensure the frontend proxies `/api` and `/auth` to FastAPI on the same origin.
-- [ ] **Step 4:** Define writable paths explicitly so later read-only root filesystems work.
+- [ ] **Step 2:** Define `stockai-api` and `stockai-mcp` package entry points and make each
+   backend image start only its corresponding composition root.
+- [ ] **Step 3:** Use multi-stage builds and pinned base-image digests.
+- [ ] **Step 4:** Ensure the frontend proxies `/api` and `/auth` to FastAPI on the same origin.
+- [ ] **Step 5:** Define writable paths explicitly so later read-only root filesystems work.
 
 **Verification:** Build all three images, run image configuration tests, start
 each image, and inspect health.
@@ -655,6 +691,8 @@ contract or has triggered the stop condition.
    coverage.
 - [ ] **Step 3:** Bootstrap the least-privilege integration user and rotating key without
    logging credentials; remove temporary bootstrap authority after success.
+   Keep `bootstrap/odoo.py` limited to this one-time provisioning workflow; the
+   MCP process remains composed by `bootstrap/mcp.py`.
 - [ ] **Step 4:** Replace the fixture implementation of
    `list_replenishment_candidates` with the real adapter while retaining the
    fake for deterministic tests.
@@ -1957,7 +1995,7 @@ company/category/product scenarios with real Odoo, MCP, and Bedrock in dev.
 **Dependencies:** T27B.
 
 **Requirements:** CR-02, CR-03, CR-04, CR-05, CR-06, CR-12, CR-13, CR-15;
-spec sections 8.7, 9, 10.3, 13, 14, 20, 21, and 22.
+   spec sections 8.7, 9, 10.4, 13, 14, 20, 21, and 22.
 
 **Complete when:** Every recommendation uses and displays one immutable
 preference snapshot, and neither business text nor configuration can expand

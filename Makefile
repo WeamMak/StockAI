@@ -4,7 +4,7 @@ PYTHON_PATHS := src tests
 
 export UV_CACHE_DIR
 
-.PHONY: help sync lock-check format format-check lint test-unit check
+.PHONY: help sync lock-check format format-check lint test-unit test-integration check
 
 help:
 	@echo "Available targets:"
@@ -14,6 +14,7 @@ help:
 	@echo "  format-check  Check Python formatting without changing files"
 	@echo "  lint          Run Ruff, mypy, and architecture checks"
 	@echo "  test-unit     Run unit tests with JUnit and coverage reports"
+	@echo "  test-integration Run real-transport integration tests"
 	@echo "  check         Run the complete Python verification suite"
 
 sync:
@@ -40,5 +41,10 @@ test-unit:
 		--cov-report=term-missing \
 		--cov-report=xml:reports/coverage/unit.xml \
 		--junitxml=reports/junit/unit.xml
+
+test-integration:
+	mkdir -p reports/junit
+	$(UV) run pytest tests/integration \
+		--junitxml=reports/junit/integration.xml
 
 check: lock-check format-check lint test-unit
