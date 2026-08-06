@@ -11,6 +11,7 @@ from decimal import Decimal, InvalidOperation
 from typing import cast
 
 import httpx
+import uvicorn
 from fastapi import FastAPI
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
@@ -262,3 +263,16 @@ def create_local_api_app(
 
 
 app = create_local_api_app()
+
+
+def run() -> None:
+    """Run only the configured API composition root."""
+
+    uvicorn.run(
+        app,
+        host="0.0.0.0",  # noqa: S104 - required inside the container boundary
+        port=8000,
+        log_level="warning",
+        access_log=False,
+        server_header=False,
+    )

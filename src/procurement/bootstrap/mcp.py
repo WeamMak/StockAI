@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
 
+import uvicorn
 from starlette.types import ASGIApp
 
 from procurement.domain.identifiers import Environment
@@ -135,6 +136,7 @@ def create_local_mcp_app(
         erp=LocalFictionalErp(mode=resolved.erp_mode),
         environment=resolved.environment,
         bearer_token=resolved.bearer_token,
+        host="0.0.0.0",  # noqa: S104 - accept the private container-network host
         logger=logger,
         read_timeout_seconds=resolved.read_timeout_seconds,
         max_retries=resolved.max_retries,
@@ -144,3 +146,16 @@ def create_local_mcp_app(
 
 
 app = create_local_mcp_app()
+
+
+def run() -> None:
+    """Run only the configured MCP composition root."""
+
+    uvicorn.run(
+        app,
+        host="0.0.0.0",  # noqa: S104 - required inside the container boundary
+        port=9000,
+        log_level="warning",
+        access_log=False,
+        server_header=False,
+    )
