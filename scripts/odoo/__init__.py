@@ -1,0 +1,1 @@
+"""Pinned Odoo contract probes."""

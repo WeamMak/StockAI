@@ -28,3 +28,4 @@ docs/*
 !docs/spec.md
 !docs/plan.md
 !docs/implementation-status.md
+!docs/odoo-contract.md

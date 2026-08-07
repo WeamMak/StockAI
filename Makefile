@@ -1,11 +1,11 @@
 UV ?= uv
 UV_CACHE_DIR ?= $(CURDIR)/.uv-cache
-PYTHON_PATHS := src tests
+PYTHON_PATHS := src tests scripts
 
 export UV_CACHE_DIR
 
 .PHONY: help sync lock-check format format-check lint test-unit test-integration \
-	test-e2e compose-validate compose-up compose-down check
+	test-e2e odoo-contract compose-validate compose-up compose-down check
 
 help:
 	@echo "Available targets:"
@@ -17,7 +17,8 @@ help:
 	@echo "  test-unit     Run unit tests with JUnit and coverage reports"
 	@echo "  test-integration Run real-transport integration tests"
 	@echo "  test-e2e      Run the four deterministic local Compose scenarios"
-	@echo "  compose-validate Validate the base and test Compose configurations"
+	@echo "  odoo-contract Run the disposable pinned Odoo JSON-2 contract suite"
+	@echo "  compose-validate Validate base, test, and Odoo Compose configurations"
 	@echo "  compose-up    Build and start the healthy local four-service stack"
 	@echo "  compose-down  Stop and remove the local Compose stack"
 	@echo "  check         Run the complete Python verification suite"
@@ -57,9 +58,15 @@ test-e2e:
 	$(UV) run pytest tests/e2e \
 		--junitxml=reports/junit/e2e.xml
 
+odoo-contract:
+	mkdir -p reports/junit
+	$(UV) run pytest tests/contract \
+		--junitxml=reports/junit/contract.xml
+
 compose-validate:
 	docker compose -f compose.yaml config --quiet
 	docker compose -f compose.yaml -f compose.test.yaml config --quiet
+	docker compose -f compose.odoo.yaml config --quiet
 
 compose-up:
 	docker compose -f compose.yaml up --build --detach --wait --wait-timeout 180

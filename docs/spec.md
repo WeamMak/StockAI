@@ -1,16 +1,20 @@
 # AI Procurement Agent — Design Specification
 
-**Status:** Revised specification approved by user and course staff
+**Status:** T10 Odoo contract revision approved by user and course staff
 
-**Date:** 2026-08-02
+**Date:** 2026-08-07
 
-**Planning stage:** Specification and implementation plan approved; implementation in progress
+**Implementation note:** T10 executable contract complete; awaiting task review
 
 **Approval record:** The previous specification was approved by the user and
 course staff on 2026-07-25. The company/category/product preference,
 ALB/ACM, ASG worker lifecycle, and observability/storage revisions dated
 2026-08-02 were approved by the user on 2026-08-02. Course-staff approval of
 the same revision was confirmed by the user on 2026-08-02.
+
+The user selected the T10 remediation direction and approved this exact written
+revision on 2026-08-07. The user then confirmed course-staff approval and
+explicitly authorized T10 implementation to resume on 2026-08-07.
 
 ## 1. Document status and classification
 
@@ -20,7 +24,11 @@ the same revision was confirmed by the user on 2026-08-02.
 
 [Project decision] This document resolves the remaining design questions using the smallest architecture that satisfies the assignment and the constraints confirmed during brainstorming.
 
-[Explicit course requirement] Because the preference-management and infrastructure designs are material revisions, the earlier specification approval does not authorize their implementation. This revised specification and the synchronized implementation plan must be reviewed and approved again.
+[Explicit course requirement] Because the preference-management,
+infrastructure, and T10 Odoo-contract designs are material revisions, their
+earlier approvals do not authorize the newly revised work. This specification
+and the synchronized implementation plan must be reviewed and approved again
+before affected implementation resumes.
 
 The required classification labels are:
 
@@ -200,7 +208,7 @@ The required classification labels are:
 |---|---|---|
 | Procurement officer | `[Project decision]` | Sign in, trigger a scan, view cases and evidence, inspect exceptions, and view the audit trail. |
 | Procurement manager | `[Project decision]` | All officer read actions plus approve, approve a budget exception, reject, and request changes. |
-| Procurement configuration administrator | `[Project decision]` | Sign in to Odoo, create and activate versioned company/category/product recommendation preferences, and view their Odoo change history. This role alone grants no case-approval permission. |
+| Procurement configuration administrator | `[Project decision]` | Sign in to Odoo, manage monthly category budgets, create and activate versioned company/category/product recommendation preferences, and inspect their Odoo change history. This role alone grants no case-approval permission. |
 | Kubernetes CronJob | `[Project decision]` | Start the daily scan through one internal, narrowly scoped HTTP credential. |
 | Odoo integration user | `[Project decision]` | Read required procurement records and perform only the PO operations exposed by the MCP allowlist. |
 
@@ -347,7 +355,18 @@ stateDiagram-v2
 
 ### 8.6 Budget policy
 
-[Project decision] Odoo 19 analytic budgets are the budget system of record.
+[Project decision] Odoo remains the budget system of record. Because the
+pinned Odoo 19 Community image has no `account_budget` add-on, the
+version-controlled StockAI Odoo add-on supplies a narrow
+`stockai.procurement.budget` model rather than introducing Enterprise, an
+unverified third-party module, or a second budget database.
+
+[Project decision] Each budget record binds one company, product category,
+analytic account, and calendar-month start to one non-negative amount in the
+company currency. A database constraint permits at most one active record for
+the same company, category, and month. The Procurement configuration
+administrator manages these records in Odoo; the agent, officer, manager, and
+integration user cannot change them.
 
 [Project decision] A “Procurement Categories” analytic plan maps product categories to analytic accounts and monthly periodic budgets.
 
@@ -507,7 +526,7 @@ flowchart LR
 | FastAPI service | `[Project decision]` | HTTP API, Cognito session handling, RBAC, scan orchestration, human decisions, and health/metrics | Calls LangGraph and DynamoDB; calls Procurement MCP only through the MCP client port and authenticated Streamable HTTP |
 | LangGraph workflow | `[Project decision]` | Explicit procurement state machine, reasoning, checkpoints, and human interrupts | Uses Bedrock and MCP through ports |
 | Procurement MCP server | `[Project decision]` | Stable, domain-specific, validated procurement operations | Hides Odoo JSON-2 and approval verification; does not expose Odoo models or import API/agent implementation code |
-| Odoo 19 Community plus preference add-on | `[Project decision]` | Business system of record, structured preference-administration UI, and fictional PO execution target | Persists to environment-local PostgreSQL |
+| Odoo 19 Community plus StockAI procurement add-on | `[Project decision]` | Business system of record, monthly category budgets, structured preference administration, revision-safe fictional PO actions, and fictional PO execution target | Persists to environment-local PostgreSQL |
 | DynamoDB | `[Project decision]` | Checkpoints, sessions, approvals, idempotency, and audit | Separate tables per environment |
 | Observability stack | `[Project decision]` | Metrics, log search, alerts, and health dashboards | Separate Prometheus, Grafana, Loki, and Alertmanager per environment |
 | EBS CSI driver | `[Tutorial-supported approach]` | Mounts the Terraform-created Odoo, PostgreSQL, and Prometheus EBS volumes on replacement workers | The controller runs on the control plane with tag- and resource-scoped volume permissions |
@@ -592,6 +611,17 @@ ownership, release schedules, incompatible dependencies, or external consumers.
 | `cancel_draft_purchase_order` | `[Project decision]` | Case ID, PO ID, expected revision, rejection record ID, idempotency key | Final Odoo state and audit reference |
 | `confirm_purchase_order` | `[Project decision]` | Case ID, PO ID, expected revision, approval record ID, idempotency key | Confirmed Odoo state, order identifier, confirmation time, idempotent prior result when applicable |
 
+[Project decision] The StockAI Odoo add-on exposes the explicit public methods
+`action_stockai_update_draft(expected, changes)`,
+`action_stockai_cancel_draft(expected)`, and
+`action_stockai_confirm(expected)`. Each locks one target `purchase.order`,
+rereads it in the same database transaction, and compares its expected
+`write_date`, state, vendor, currency, and total. Update accepts only allowlisted
+draft fields; cancellation and confirmation call `button_cancel` and
+`button_confirm`. No method assigns PO state directly. A mismatch raises a
+bounded conflict that the MCP adapter maps to `APPROVAL_STALE`; the method
+performs no action in that case.
+
 ### 11.3 Authentication, permissions, and approval defense
 
 [Project decision] The MCP Odoo client uses a dedicated Odoo integration user and a rotating JSON-2 bearer API key.
@@ -623,17 +653,48 @@ ownership, release schedules, incompatible dependencies, or external consumers.
 
 ### 12.1 Version and API
 
-[Project decision] Each environment runs a pinned immutable digest of the official Odoo 19 Community image and a pinned PostgreSQL image.
+[Project decision] Each environment runs one version-controlled StockAI Odoo
+image built from a pinned immutable digest of the official Odoo 19 Community
+image, plus a pinned PostgreSQL image. The derived image adds only the StockAI
+Odoo add-on and the one-time bootstrap code required by this design.
 
 [Project decision] Odoo 19 JSON-2 is selected instead of deprecated XML-RPC/JSON-RPC endpoints.
 
-[Project decision] The system uses Purchase, Inventory, Contacts, and Accounting/analytic-budget capabilities required by the workflow.
+[Project decision] The system uses the Purchase, Inventory, Contacts,
+Accounting, and Analytic capabilities available in Odoo 19 Community.
 
-[Project decision] A small version-controlled `procurement_preferences` Odoo add-on provides the structured profile models, constraints, configuration-administrator group, menus, forms, inheritance preview, and append-only version history. The add-on contains no LLM prompt editor and exposes no autonomous PO action.
+[Project decision] One small version-controlled `stockai_procurement` Odoo
+add-on provides the monthly category-budget model, the three atomic
+revision-bound PO methods, structured preference models, constraints, the
+Procurement configuration-administrator and integration groups, administration
+views, inheritance preview, and append-only preference version history. It
+contains no LLM, prompt editor, AWS client, supplier communication, payment
+operation, autonomous scheduling, or direct PO-state write.
 
 [Project decision] Odoo and PostgreSQL are separately deployed in both `dev` and `prod`, with distinct databases, credentials, configuration, and local PersistentVolumes.
 
-[Project decision] An idempotent post-deployment bootstrap job creates the dedicated Odoo integration user and rotating API key, stores the generated value in the pre-provisioned environment secret in Secrets Manager without logging it, and removes its temporary bootstrap authority after success.
+[Project decision] A one-time environment-scoped bootstrap Job runs Odoo's ORM
+inside the pinned StockAI Odoo image because JSON-2 cannot create its first API
+key. It idempotently finds or creates one dedicated integration user by stable
+login, assigns only the approved integration group, creates a named expiring
+key with no more than Odoo's three-calendar-month maximum only when the
+configured key is absent or rotation is explicitly requested, and sends the
+one-time raw value directly to the exact environment Secrets Manager secret
+without printing or returning it. Rerunning a completed Job does not create
+another user or key.
+
+[Project decision] The bootstrap code is outside the add-on's runtime models,
+uses temporary bootstrap authority only inside the finite Job, never exposes
+that authority to the MCP pod, and records only sanitized success/failure and
+key-expiry metadata. Normal key rotation generates the replacement before
+revoking the old key and is verified by a dedicated runbook and test.
+
+[Project decision] Because the self-managed cluster has no pod-level AWS
+identity, Terraform controls an environment-specific bootstrap policy that can
+write only the exact Odoo-key secret ARN. The policy is detached by default,
+attached to the matching worker role only for the bounded bootstrap/rotation
+window through a protected apply, and removed and verified afterward. Normal
+worker operation has no Secrets Manager write permission.
 
 ### 12.2 Business data mapping
 
@@ -649,7 +710,7 @@ ownership, release schedules, incompatible dependencies, or external consumers.
 | Payment terms | `[Project decision]` | Vendor payment terms |
 | Reliability | `[Project decision]` | Scheduled versus completed receipts |
 | Quality proxy | `[Project decision]` | Linked receipt return movements |
-| Monthly category budget | `[Project decision]` | Analytic plan/accounts, periodic budget, and confirmed PO commitments |
+| Monthly category budget | `[Project decision]` | Add-on model `stockai.procurement.budget`, uniquely scoped by company, product category, analytic account, and calendar month; confirmed PO-line commitments remain derived from Odoo |
 | Recommendation preference | `[Project decision]` | Custom add-on profile/version records scoped to company, product category, or product |
 | Preference priority | `[Project decision]` | Ordered add-on child records restricted to the supported criterion enum |
 | Idempotency reference | `[Project decision]` | Stable procurement case ID in PO origin/reference plus DynamoDB record |
@@ -738,7 +799,12 @@ ownership, release schedules, incompatible dependencies, or external consumers.
 
 [Project decision] Odoo and Grafana are separate authenticated interfaces linked from the dashboard for demo verification.
 
-### 14.2 Preference administration
+### 14.2 Procurement configuration administration
+
+[Project decision] The StockAI Odoo add-on gives only the Procurement
+configuration administrator create/update/archive access to monthly category
+budgets. Budget records use typed fields and tracked changes; they cannot be
+edited through React, the agent, MCP write tools, or manager approval actions.
 
 [Project decision] Long-lived recommendation preferences are administered in Odoo rather than duplicated in the React dashboard. The custom add-on gives only the Procurement configuration administrator a structured UI to:
 
@@ -966,9 +1032,13 @@ ownership, release schedules, incompatible dependencies, or external consumers.
 
 ### 18.2 Images
 
-[Project decision] Docker Hub stores three project images: React/NGINX frontend, FastAPI agent API, and Procurement MCP server.
+[Project decision] Docker Hub stores four project images: React/NGINX
+frontend, FastAPI agent API, Procurement MCP server, and the StockAI Odoo image
+derived from the pinned official Community digest.
 
-[Project decision] Odoo, PostgreSQL, and observability images use pinned upstream digests.
+[Project decision] The StockAI Odoo image contains only the version-controlled
+add-on and bootstrap code on top of the pinned official digest. PostgreSQL and
+observability images use pinned upstream digests without project rebuilds.
 
 [Project decision] Production runs compiled React assets in NGINX and never runs a Node development server.
 
@@ -1061,7 +1131,7 @@ ownership, release schedules, incompatible dependencies, or external consumers.
 
 [Project decision] Operational logs do not contain full prompts, model responses, vendor prices, contract terms, budget values, manager justifications, secrets, API keys, passwords, or raw database errors.
 
-[Project decision] Cleanup Lambda logs use only event identifier, environment, allowlisted ASG name, instance ID, resolved node name, duration, heartbeat count, SSM status, cleanup outcome, and sanitized error code. Bootstrap scripts never log the decrypted join command or token.
+[Project decision] Cleanup Lambda logs use only event identifier, environment, allowlisted ASG name, instance ID, resolved node name, duration, heartbeat count, SSM status, cleanup outcome, and sanitized error code. Bootstrap scripts never log decrypted join material, temporary authority, passwords, or raw API keys.
 
 [Project decision] Sensitive audit evidence is encrypted at rest in DynamoDB and accessed only by authorized application roles.
 
@@ -1073,7 +1143,12 @@ ownership, release schedules, incompatible dependencies, or external consumers.
 
 [Project decision] Free-text manager notes are length-limited, rendered safely, classified as untrusted, and cannot bypass structured policy.
 
-[Project decision] Only the Odoo Procurement configuration administrator may activate preference versions. Officers and managers receive read-only applied-preference data through FastAPI, and the Odoo integration user receives only the preference read access required by the MCP allowlist.
+[Project decision] Only the Odoo Procurement configuration administrator may
+manage category budgets or activate preference versions. Officers and managers
+receive read-only applied budget/preference evidence through FastAPI. The Odoo
+integration user receives budget/preference reads plus only the explicit
+revision-bound PO methods required by the MCP allowlist; it cannot administer
+budgets or preferences.
 
 [Project decision] Preference values are validated as enums, identifiers, dates, bounded decimals, and unique active scopes. They are serialized into model context from typed fields; raw Odoo text and configuration change reasons are never interpolated into the system prompt.
 
@@ -1341,7 +1416,7 @@ ownership, release schedules, incompatible dependencies, or external consumers.
 | Custom Procurement MCP | `[Project decision]` | CR-06, CR-15 | Direct Odoo calls from graph; generic DB MCP | Stable domain boundary, validation, least authority, future adapters |
 | Streamable HTTP | `[Tutorial-supported approach]` | CR-06, CR-13 | stdio | Real network interaction and required integration-test transport |
 | One backend Python distribution with two backend deployables | `[Project decision]` | CR-03, CR-05, CR-06, CR-09, CR-15 | One combined process; separate service projects; duplicated contracts | Shares stable domain code while preserving independent runtime, scaling, configuration, and security boundaries |
-| Self-hosted Odoo 19 Community | `[Project decision]` | CR-02, CR-06 | Odoo Online; mock ERP; Odoo 18 | Fictional free ERP plus current JSON-2 interface |
+| Self-hosted Odoo 19 Community plus one project add-on | `[Project decision]` | CR-02, CR-06, CR-15 | Odoo Enterprise; unverified third-party budget add-on; DynamoDB budgets; unsafe multi-call PO actions | Keeps the free ERP and JSON-2 boundary while adding only the missing typed budget and atomic PO contracts under project control |
 | Scheduled scan plus manual trigger | `[Project decision]` | CR-02, CR-04, CR-14 | Real-time events; manual only | Impressive automation with deterministic demo control |
 | React/NGINX plus FastAPI | `[Project decision]` | CR-04, CR-14 | Server-rendered FastAPI; Streamlit | Clear user workflow and separate frontend while retaining a lightweight runtime |
 | Backend-managed Cognito session | `[Project decision]` | CR-15 | Browser-held tokens; custom accounts | Secure HttpOnly sessions and managed identity/roles |
@@ -1369,7 +1444,7 @@ ownership, release schedules, incompatible dependencies, or external consumers.
 | LLM output is nondeterministic. | `[Project decision]` | Structured output, low-variance configuration, deterministic validation, manual fallback, no fallback model. |
 | Preference changes could silently alter an in-flight recommendation. | `[Project decision]` | Snapshot the immutable effective profile and include its version in the evidence hash; new versions apply only to later scans. |
 | An administrator could configure an extreme or conflicting preference. | `[Project decision]` | Bound fields, enforce one effective profile per scope/time, separate configuration from approval, and route invalid resolution to manual review. |
-| A custom Odoo add-on increases upgrade and operational work. | `[Project decision]` | Keep it limited to typed profile models, views, access control, and versioning; pin Odoo and test the add-on contract before promotion. |
+| A custom Odoo add-on increases upgrade and operational work. | `[Project decision]` | Keep one narrow add-on for typed budgets, revision-bound PO methods, preferences, views, and access control; pin the base digest and contract-test every extension before promotion. |
 | Odoo data may be incomplete or inconsistent. | `[Project decision]` | Evidence confidence, strict eligibility, typed errors, and human review. |
 | Return movements are only a proxy for product quality. | `[Project decision]` | Label the metric accurately and show evidence counts. |
 | Normalized order cost omits unknown freight, duties, and insurance. | `[Project decision]` | Label it accurately and add landed-cost sources only in a later accounting/supplier integration. |
@@ -1382,7 +1457,7 @@ ownership, release schedules, incompatible dependencies, or external consumers.
 | HPA cannot add node capacity in Phase 1. | `[Project decision]` | Use fixed min/max pod bounds, capacity/load tests, pending-pod alerts, and Terraform-managed desired capacity; require a spec/plan revision before adding Cluster Autoscaler. |
 | ASG replacement can register an EC2 instance that never joins Kubernetes. | `[Project decision]` | Finite token rotation, worker join retries, ASG-versus-Ready-node monitoring, ALB health checks, and a tested bootstrap runbook. |
 | EventBridge delivery, SSM, or the control plane can fail during termination. | `[Project decision]` | Lifecycle heartbeats, idempotency, bounded fail-open `CONTINUE`, forced/failed metrics and alarms, and a verified stale-node/EBS-detach runbook. |
-| Node-role credentials are shared by pods on that node. | `[Assumption]` | Separate workers/roles and minimal resource policies; document residual risk. |
+| Node-role credentials are shared by pods on that node. | `[Assumption]` | Separate workers/roles and minimal normal policies; attach exact-secret write only for a protected, monitored bootstrap/rotation window, detach it afterward, and document the finite residual exposure. |
 | Two observability stacks may exhaust memory or disk. | `[Project decision]` | Measure early, cap retention/cardinality, alert at safe thresholds, stop stretch work. |
 | Odoo standard service roles may be broader than desired. | `[Project decision]` | Dedicated integration user plus strict MCP operation allowlist and audit. |
 | Odoo JSON-2 is newer than XML-RPC. | `[Project decision]` | Pin version/digest, contract-test actual models/methods, and avoid deprecated API. |
@@ -1419,6 +1494,8 @@ ownership, release schedules, incompatible dependencies, or external consumers.
 
 [Project decision] User and course-staff approval of the previous specification were confirmed by the user on 2026-07-25. The user approved the preference-management plus ALB/ACM, environment-ASG lifecycle, HPA-capacity, and observability/storage revisions on 2026-08-02; course-staff approval was confirmed by the user on 2026-08-02.
 
-[Explicit course requirement] This revised specification and the synchronized `docs/plan.md` did not authorize implementation until both received the required new approvals.
-
-[Explicit course requirement] User and course-staff review of this revised specification and the synchronized implementation plan are complete. The user separately authorized implementation on 2026-08-02, and work now proceeds one approved plan task at a time.
+[Project decision] On 2026-08-07 the user selected Odoo 19 Community plus one
+project add-on for budgets and atomic PO actions, and a one-time Odoo ORM Job
+for the initial integration identity and key. The user approved this exact
+specification and synchronized plan, confirmed course-staff approval, and
+explicitly authorized T10 implementation to resume on the same date.
