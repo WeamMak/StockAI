@@ -4,18 +4,20 @@ StockAI is an approval-gated AI procurement agent for a fictional, self-hosted
 Odoo business. The approved design and implementation sequence live in
 [`docs/spec.md`](docs/spec.md) and [`docs/plan.md`](docs/plan.md).
 
-Tasks T01 through T07 establish the local walking skeleton: the Python domain,
+Tasks T01 through T09 establish and package the local walking skeleton: the Python domain,
 FastAPI asynchronous scan API, coded LangGraph, authenticated Procurement MCP
 tool, React polling UI, service-owned observability, and separate runnable API
-and MCP composition roots. The local path uses deterministic fictional ERP and
-structured-LLM adapters so it needs neither AWS nor Odoo. Real Odoo, Bedrock,
-durable state, and write operations remain later approved plan tasks.
+and MCP composition roots. Three immutable images and a four-service Compose
+stack run the frontend, API, MCP server, and deterministic fake Odoo gateway as
+separate processes. The local path needs neither AWS nor real Odoo. Real Odoo,
+Bedrock, durable state, and write operations remain later approved plan tasks.
 
 ## Prerequisites
 
 - Python 3.12
 - [uv](https://docs.astral.sh/uv/) 0.11 or later
 - Node.js 20.19 or later and npm
+- Docker Engine with Docker Compose
 - GNU Make
 - `curl`
 
@@ -29,10 +31,38 @@ uv sync --locked
 cd frontend && npm ci && cd ..
 ```
 
-Do not put credentials in the repository. `.env.example` documents the safe
-runtime configuration names and contains no credentials.
+Do not put real credentials in the repository. `.env.example` documents the
+safe runtime configuration names and contains only explicit fictional values.
 
-## Run the local walking skeleton
+## Run the reproducible Compose stack
+
+Create the ignored local environment file once. Its provided tokens are
+explicitly fictional and must never be replaced with production credentials:
+
+```bash
+cp .env.example .env
+```
+
+Then build and start the complete local stack with one command:
+
+```bash
+make compose-up
+```
+
+Open <http://127.0.0.1:8080>, select **Run manual scan**, and inspect the
+fictional read-only recommendation. Compose waits for fake Odoo, MCP, API, and
+frontend health before returning. Stop the stack and remove its disposable
+runtime mounts with:
+
+```bash
+make compose-down
+```
+
+The fake Odoo endpoint is an internal deterministic test contract. It does not
+claim to implement the Odoo 19 JSON-2 contract; that contract is verified in
+Task T10 before the real adapter is implemented.
+
+## Run the process-only local walking skeleton
 
 ```bash
 ./scripts/run-local-skeleton.sh
@@ -80,6 +110,8 @@ make format-check
 make lint
 make test-unit
 make test-integration
+make compose-validate
+make test-e2e
 ```
 
 Run the complete quality and unit-test suite with `make check`. The integration
@@ -101,3 +133,9 @@ make test-integration
 
 It starts actual API and MCP processes for the T07 happy and timeout paths,
 including retry, log, metric, and safe-error assertions.
+
+The Task T09 end-to-end target builds isolated Compose projects and exercises
+the success, no-valid-response, malformed-upstream-response, and timeout
+scenarios through the public NGINX proxy. Every scenario uses the real
+FastAPI-to-LangGraph-to-authenticated-MCP transport and the separate fake Odoo
+HTTP service; cleanup runs even after a failed assertion.

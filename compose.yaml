@@ -1,0 +1,162 @@
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+    image: stockai-frontend:t09-local
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - target: 8080
+        published: ${PROCUREMENT_FRONTEND_PORT:-8080}
+        host_ip: 127.0.0.1
+        protocol: tcp
+    networks:
+      - edge
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m,uid=101,gid=101
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    stop_grace_period: 10s
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    image: stockai-api:t09-local
+    depends_on:
+      mcp:
+        condition: service_healthy
+    environment:
+      PROCUREMENT_ENVIRONMENT: ${PROCUREMENT_ENVIRONMENT:-dev}
+      PROCUREMENT_LOG_LEVEL: ${PROCUREMENT_LOG_LEVEL:-INFO}
+      PROCUREMENT_CRON_TOKEN: ${PROCUREMENT_CRON_TOKEN:?Copy .env.example to .env and set a fictional local Cron token}
+      PROCUREMENT_MCP_URL: http://mcp:9000/mcp
+      PROCUREMENT_MCP_CLIENT_TIMEOUT_SECONDS: ${PROCUREMENT_MCP_CLIENT_TIMEOUT_SECONDS:-2}
+      PROCUREMENT_MCP_TOKEN: ${PROCUREMENT_MCP_TOKEN:?Copy .env.example to .env and set a fictional local MCP token}
+    networks:
+      - edge
+      - backend
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m,uid=10001,gid=10001
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 384M
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/health/ready', timeout=2).close()"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    stop_grace_period: 15s
+
+  mcp:
+    build:
+      context: .
+      dockerfile: docker/mcp.Dockerfile
+    image: stockai-mcp:t09-local
+    depends_on:
+      fake-odoo:
+        condition: service_healthy
+    environment:
+      PROCUREMENT_ENVIRONMENT: ${PROCUREMENT_ENVIRONMENT:-dev}
+      PROCUREMENT_LOG_LEVEL: ${PROCUREMENT_LOG_LEVEL:-INFO}
+      PROCUREMENT_LOCAL_ERP_MODE: success
+      PROCUREMENT_LOCAL_ERP_URL: ${PROCUREMENT_LOCAL_ERP_URL:-http://fake-odoo:8069}
+      PROCUREMENT_MCP_MAX_RETRIES: ${PROCUREMENT_MCP_MAX_RETRIES:-2}
+      PROCUREMENT_MCP_READ_TIMEOUT_SECONDS: ${PROCUREMENT_MCP_READ_TIMEOUT_SECONDS:-1}
+      PROCUREMENT_MCP_RETRY_DELAY_SECONDS: ${PROCUREMENT_MCP_RETRY_DELAY_SECONDS:-0.01}
+      PROCUREMENT_MCP_TOKEN: ${PROCUREMENT_MCP_TOKEN:?Copy .env.example to .env and set a fictional local MCP token}
+    networks:
+      - backend
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m,uid=10001,gid=10001
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 384M
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:9000/metrics', timeout=2).close()"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    stop_grace_period: 15s
+
+  fake-odoo:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    image: stockai-api:t09-local
+    entrypoint: ["python", "-m", "uvicorn"]
+    command:
+      - tests.support.fake_odoo.app:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8069"
+      - --log-level
+      - warning
+      - --no-access-log
+    environment:
+      PROCUREMENT_FAKE_ODOO_SCENARIO: ${PROCUREMENT_FAKE_ODOO_SCENARIO:-success}
+      PROCUREMENT_FAKE_ODOO_TIMEOUT_SECONDS: ${PROCUREMENT_FAKE_ODOO_TIMEOUT_SECONDS:-5}
+    volumes:
+      - type: bind
+        source: ./tests
+        target: /opt/stockai/tests
+        read_only: true
+    networks:
+      - backend
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m,uid=10001,gid=10001
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8069/health/live', timeout=2).close()"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    stop_grace_period: 10s
+
+networks:
+  edge:
+  backend:
+    internal: true
