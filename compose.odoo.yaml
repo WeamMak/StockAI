@@ -1,0 +1,115 @@
+services:
+  postgres:
+    image: postgres@sha256:e8db9bd3e9e1751eb639fb17be53cc6d1b62a322adf75b99e791767a7a16ce69
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: odoo
+      POSTGRES_PASSWORD: ${ODOO_CONTRACT_POSTGRES_PASSWORD:-fictional-t10-postgres-password}
+    volumes:
+      - type: volume
+        source: odoo-contract-postgres
+        target: /var/lib/postgresql/data
+    tmpfs:
+      - /run/postgresql:rw,noexec,nosuid,size=4m,mode=0770,uid=999,gid=999
+      - /tmp:rw,noexec,nosuid,size=16m,mode=1777
+    networks:
+      - odoo-contract-db
+    read_only: true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: "0.75"
+          memory: 512M
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U odoo -d postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    stop_grace_period: 20s
+
+  odoo:
+    image: odoo@sha256:4872f23288454b724fd2d26c176a418276c2b3552e9aa752f9396b59d864b3a0
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command:
+      - odoo
+      - server
+      - --database=${ODOO_CONTRACT_DATABASE:-stockai_t10_contract}
+      - --init=purchase,stock,purchase_stock,contacts,account,analytic
+      - --without-demo=true
+      - --db-filter=^${ODOO_CONTRACT_DATABASE:-stockai_t10_contract}$
+      - --no-database-list
+      - --workers=0
+      - --max-cron-threads=0
+      - --log-level=warn
+    environment:
+      HOST: postgres
+      PORT: "5432"
+      USER: odoo
+      PASSWORD: ${ODOO_CONTRACT_POSTGRES_PASSWORD:-fictional-t10-postgres-password}
+      ODOO_CONTRACT_DATABASE: ${ODOO_CONTRACT_DATABASE:-stockai_t10_contract}
+      ODOO_CONTRACT_LOGIN: ${ODOO_CONTRACT_LOGIN:-stockai-contract@example.invalid}
+      ODOO_CONTRACT_KEY_FILE: /run/stockai-contract/api-key
+    ports:
+      - target: 8069
+        published: ${ODOO_CONTRACT_PORT:-8069}
+        host_ip: 127.0.0.1
+        protocol: tcp
+    volumes:
+      - type: volume
+        source: odoo-contract-filestore
+        target: /var/lib/odoo
+      - type: bind
+        source: ./scripts/odoo/probe_bootstrap.py
+        target: /opt/stockai/probe_bootstrap.py
+        read_only: true
+    tmpfs:
+      - /run/stockai-contract:rw,noexec,nosuid,size=1m,mode=0700,uid=100,gid=101
+      - /tmp:rw,noexec,nosuid,size=32m,mode=1777
+    networks:
+      - odoo-contract-db
+      - odoo-contract-edge
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 1536M
+    healthcheck:
+      test:
+        - CMD
+        - python3
+        - -c
+        - >-
+          from urllib.request import urlopen;
+          urlopen('http://127.0.0.1:8069/web/health?db_server_status=1', timeout=3).close()
+      interval: 5s
+      timeout: 4s
+      retries: 30
+      start_period: 120s
+    stop_grace_period: 30s
+
+networks:
+  odoo-contract-db:
+    internal: true
+  odoo-contract-edge:
+
+volumes:
+  odoo-contract-filestore:
+  odoo-contract-postgres:

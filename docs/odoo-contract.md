@@ -4,11 +4,11 @@
 
 **Task:** T10
 
-**Status:** **Stop condition triggered; selected resolution pending revised-document approval**
+**Status:** **Executable T10 verification complete; awaiting task review**
 
-This note separates facts verified in official Odoo documentation/source from
-facts that still require an executable probe against the pinned database. It
-does not invent replacement behavior for missing Odoo capabilities.
+This note records both official Odoo documentation/source evidence and the
+completed clean-database probe against the pinned runtime. It does not invent
+replacement behavior for missing Odoo capabilities.
 
 ## 1. Decision summary
 
@@ -36,9 +36,9 @@ Community source. Two approved assumptions do not hold as written:
 These findings met T10's stop condition. The user selected Odoo 19 Community
 plus one project add-on for the budget model and atomic PO methods, with a
 one-time ORM bootstrap Job, on 2026-08-07. Revised `docs/spec.md` and
-`docs/plan.md` now define that direction, but affected implementation remains
-stopped until the exact documents receive the required user and course-staff
-approval.
+`docs/plan.md` now define that direction. The user approved the exact documents,
+confirmed course-staff approval, and explicitly authorized T10 implementation
+to resume on 2026-08-07.
 
 The selected extension contracts are:
 
@@ -49,9 +49,10 @@ The selected extension contracts are:
 - `purchase.order.action_stockai_confirm(expected)`; and
 - a finite Odoo ORM bootstrap Job for the initial integration user/key.
 
-The stop condition was decisive before a clean database contract suite was
-created. Therefore `compose.odoo.yaml`, the executable probe, and contract tests
-remain intentionally unimplemented until the revised contract is approved.
+After approval, `make odoo-contract` ran the executable contract from a clean
+database. All 9 tests passed in 55.53 seconds and teardown removed the raw key,
+database, containers, networks, and volumes. The approved custom extensions
+remain T11A work; this task verifies only the standard runtime they will extend.
 
 ## 2. Runtime under investigation
 
@@ -102,8 +103,8 @@ The authoritative protocol reference is Odoo's
 
 The same documentation warns that hosted external-API access is limited to a
 Custom Odoo pricing plan. That pricing statement is not evidence that a
-self-managed Community database accepts JSON-2; endpoint availability in the
-pinned Community image must therefore be an explicit runtime contract test.
+self-managed Community database accepts JSON-2. T10 explicitly verified the
+endpoint in the pinned self-managed Community image.
 
 A representative sanitized read, subject to the runtime checks below, is:
 
@@ -138,30 +139,38 @@ Consequences:
   is explicitly unsafe because those calls are not atomic.
 - The Community source has a private in-process
   `res.users.apikeys._generate` method used by Odoo's own UI. A privileged Odoo
-  bootstrap process could call it as the intended integration user without an
-  existing API key, but a private method is not a stable external contract and
-  this path still requires a runtime bootstrap test in T11A.
+  bootstrap process can call it as the intended integration user without an
+  existing API key, but a private method is not a stable external contract.
+  T10 proved that exact path with an expiring contract-only key, an idempotent
+  rerun, a mode-`0600` tmpfs file, and a check that the raw key never appeared
+  in container logs. T11A still owns the production Job and its lifecycle.
 
 Sources: [API-key implementation](https://github.com/odoo/odoo/blob/19.0/odoo/addons/base/models/res_users.py)
 and [JSON-2 API-key documentation](https://www.odoo.com/documentation/19.0/developer/reference/external_api.html#api-keys).
+
+The disposable contract identity uses direct membership in
+`base.group_user`, `purchase.group_purchase_user`, `stock.group_stock_user`,
+`account.group_account_readonly`, `analytic.group_analytic_accounting`, and
+`api_doc.group_allow_doc`. The second bootstrap run reconciles the same group
+set and proves that no duplicate user or active named key is created.
 
 ## 5. Community capability matrix
 
 | Capability | Official Community evidence | Result |
 |---|---|---|
-| Purchase orders | [`purchase`](https://github.com/odoo/odoo/tree/19.0/addons/purchase) | Source-supported; runtime install/ACL probe required |
-| Inventory, reordering, receipts, returns | [`stock`](https://github.com/odoo/odoo/tree/19.0/addons/stock) | Source-supported; runtime install/ACL probe required |
-| PO-to-receipt linkage | [`purchase_stock`](https://github.com/odoo/odoo/tree/19.0/addons/purchase_stock) | Source-supported; runtime behavior probe required |
-| Contacts and tags | [`contacts`](https://github.com/odoo/odoo/tree/19.0/addons/contacts) and base `res.partner` | Source-supported; runtime ACL probe required |
-| Supplier pricelists | [`product.supplierinfo`](https://github.com/odoo/odoo/blob/19.0/addons/product/models/product_supplierinfo.py) | Source-supported |
-| Analytic plans/accounts/distribution | [`analytic`](https://github.com/odoo/odoo/tree/19.0/addons/analytic) | Source-supported |
-| Standard analytic budgets | No Community `account_budget` add-on; official edition comparison lists budgets with comprehensive Enterprise accounting | **Not supported; stop condition** |
-| Atomic expected-revision PO action | No standard PO action accepts `expected_write_date`; JSON-2 calls are separate transactions | **Not supported; stop condition** |
+| Purchase orders | [`purchase`](https://github.com/odoo/odoo/tree/19.0/addons/purchase) | Runtime verified through JSON-2 create/read/write and standard actions |
+| Inventory, reordering, receipts, returns | [`stock`](https://github.com/odoo/odoo/tree/19.0/addons/stock) | Runtime verified for rule reads, partial receipt/backorder, and linked return |
+| PO-to-receipt linkage | [`purchase_stock`](https://github.com/odoo/odoo/tree/19.0/addons/purchase_stock) | Runtime verified after standard PO confirmation |
+| Contacts and tags | [`contacts`](https://github.com/odoo/odoo/tree/19.0/addons/contacts) and base `res.partner` | Runtime read and denied-write ACLs verified |
+| Supplier pricelists | [`product.supplierinfo`](https://github.com/odoo/odoo/blob/19.0/addons/product/models/product_supplierinfo.py) | Runtime field values and denied-write ACL verified |
+| Analytic plans/accounts/distribution | [`analytic`](https://github.com/odoo/odoo/tree/19.0/addons/analytic) | Runtime read and PO-line JSON distribution verified |
+| Standard analytic budgets | No Community `account_budget` add-on; official edition comparison lists budgets with comprehensive Enterprise accounting | **Not supported; confirmed T11A extension required** |
+| Atomic expected-revision PO action | No standard PO action accepts `expected_write_date`; JSON-2 calls are separate transactions | **Not supported; confirmed T11A extension required** |
 
 ## 6. Source-verified models, fields, and methods
 
-These are source facts for Odoo 19. They are not yet claims that the dedicated
-integration user can access every field or method in the seeded database.
+These source facts are now paired with executable `/doc-bearer`, `fields_get`,
+and integration-user JSON-2 checks for every listed field and public method.
 
 ### 6.1 Products, reordering, and stock
 
@@ -173,10 +182,12 @@ integration user can access every field or method in the seeded database.
 | `stock.move` | `product_id`, `product_uom_qty` (planned demand), `quantity` (processed quantity), `product_uom`, `date`, `date_deadline`, `location_id`, `location_dest_id`, `state`, `picking_id`, `reservation_date`, `origin_returned_move_id`, `returned_move_ids`, `orderpoint_id` |
 
 `replenishment_uom_id` is the Odoo 19 **Multiple** UoM/packaging field; older
-integrations that expect `qty_multiple` must not be copied. Quants are split by
-location, lot, package, and owner, so a single `stock.quant` row is not a
-warehouse total. The 14-day projection must aggregate only the intended
-warehouse locations and interpret source/destination usage correctly.
+integrations that expect `qty_multiple` must not be copied. The clean create
+probe also confirmed that the older `product.template.uom_po_id` field is
+absent. Quants are split by location, lot, package, and owner, so a single
+`stock.quant` row is not a warehouse total. The 14-day projection must
+aggregate only the intended warehouse locations and interpret
+source/destination usage correctly.
 
 Sources: [product models](https://github.com/odoo/odoo/blob/19.0/addons/product/models/product_template.py),
 [stock product extension](https://github.com/odoo/odoo/blob/19.0/addons/stock/models/product.py),
@@ -261,9 +272,10 @@ contract. Return moves link back through `origin_returned_move_id`, and return
 pickings link through `return_id`.
 
 `button_validate` can raise validation errors or return a wizard/action rather
-than completing unconditionally. Return creation depends on transient defaults
-and context. Both flows require executable probes; no fixed multi-call sequence
-is asserted here.
+than completing unconditionally. The executable contract follows the returned
+backorder context, processes the transient confirmation, and verifies the
+resulting backorder. It then uses `stock.return.picking` to create and verify a
+return linked through both `return_id` and `origin_returned_move_id`.
 
 Sources: [pickings](https://github.com/odoo/odoo/blob/19.0/addons/stock/models/stock_picking.py),
 [moves](https://github.com/odoo/odoo/blob/19.0/addons/stock/models/stock_move.py),
@@ -303,16 +315,18 @@ JSON-2 adds no authorization bypass. Relevant official ACL defaults include:
 - `stock.group_stock_manager`: full CRUD on orderpoints and stock moves;
 - ordinary internal users: read-only `product.product`, `product.template`, and
   `product.supplierinfo`;
+- `analytic.group_analytic_accounting`: full CRUD on analytic plans, accounts,
+  and lines; Accounting read-only alone does not grant analytic-model access;
 - `purchase.group_purchase_manager` or product managers: write access to
   supplier information;
 - multi-company record rules restrict purchase and stock records to allowed
   companies.
 
-The standard Purchase User role is broader than MCP's desired PO-only write
-surface. The approved mitigation remains a dedicated integration user plus a
-strict MCP operation allowlist; the residual breadth must be documented. Exact
-installed ACLs, group implications, record rules, field restrictions, and
-single-company visibility must be asserted by the runtime contract suite.
+The clean probe verified reads and PO/receipt actions while vendor,
+supplier-pricelist, reorder-rule, and user mutations were denied. Standard
+Purchase, Stock, and Analytic roles are nevertheless broader than MCP's desired
+operation surface. The approved mitigation remains the narrower project groups
+in T11A plus a strict MCP operation allowlist in T11B.
 
 Sources: [purchase ACLs](https://github.com/odoo/odoo/blob/19.0/addons/purchase/security/ir.model.access.csv),
 [purchase record rules](https://github.com/odoo/odoo/blob/19.0/addons/purchase/security/purchase_security.xml),
@@ -335,39 +349,38 @@ read write_date -> MCP compares -> another transaction writes -> button_confirm
 
 The approved rule that confirmation and cancellation must match the exact
 approved PO revision therefore needs one server-side transaction that checks
-the expected revision and performs the business action. Selecting how to
-provide that transaction is an architecture change and is deliberately left
-unresolved.
+the expected revision and performs the business action. The approved project
+add-on methods `action_stockai_{update_draft,cancel_draft,confirm}` provide that
+boundary in T11A.
 
-## 9. Required executable probes after the stop decision is resolved
+## 9. Executable probe results
 
-Official source narrows the contract but cannot replace database-specific
-tests. A clean-database contract suite still must verify:
+`make odoo-contract` now verifies these standard-runtime claims from one newly
+created database:
 
-1. `/web/version` reports Odoo 19 and the compose image digests match this note.
+1. `/web/version` reports Odoo 19 and Compose uses the exact image digests in
+   this note.
 2. `purchase`, `stock`, `purchase_stock`, `product`, `contacts`, `account`, and
-   `analytic` are installed; the budget decision is reflected in installed
-   modules and models.
+   `analytic` are installed, while `account_budget` and
+   `stockai.procurement.budget` are absent.
 3. Correct and incorrect `X-Odoo-Database` selection, missing/wrong bearer
    behavior, `res.users/context_get`, and safe error sanitization.
-4. `fields_get` types and `/doc` method signatures for every field/method listed
-   above.
-5. Integration-user ACL and record-rule behavior for every read and PO action,
-   including denial of vendor, reorder-rule, budget, user, and unrelated stock
-   mutations.
+4. `fields_get` and `/doc-bearer` expose every field and method listed above to
+   the integration user.
+5. The integration user can perform the required PO/receipt actions but cannot
+   mutate vendors, supplier pricelists, reorder rules, or users.
 6. JSON serialization for nested `purchase.order.create` line commands, the
-   resulting `origin`, totals, `write_date`, state, and receipt linkage.
-7. `button_confirm` outcomes under the selected PO approval configuration and
-   `button_cancel` rejection rules.
-8. On-hand/reserved aggregation, dated incoming/outgoing moves, open PO
-   coverage, UoM/packaging rounding, supplier validity/discount/currency, and
-   multi-company context.
-9. Completed on-time and late receipts, processed quantities, partial/backorder
-   behavior, and linked returns through both move and picking relationships.
-10. First-key bootstrap, secret persistence without key logging, rotation,
-    revocation, expiry, and idempotent rerun behavior.
-11. The approved replacement for atomic expected-revision confirmation and
-    cancellation, including a concurrent-write failure test.
+   resulting `origin`, vendor reference, totals, analytic distribution,
+   `write_date`, state, and receipt linkage.
+7. Standard confirmation, partial receipt and real backorder creation, linked
+   return creation, cancellation, and reset-to-draft behavior.
+8. First-key ORM bootstrap, an expiring key, mode-`0600` tmpfs persistence,
+   no raw-key logging, and an idempotent rerun with one user and one named key.
+9. Standard confirmation/cancellation signatures accept no expected revision;
+   independent JSON-2 calls therefore do not supply compare-and-act semantics.
 
-Until those tests pass, source-supported items in this document remain design
-inputs rather than claims of a verified end-to-end Odoo contract.
+T11A owns executable tests for the custom budget model, narrow groups,
+production bootstrap/rotation/revocation, atomic expected-revision methods,
+and concurrent-write rejection. T11B owns adapter-level aggregation,
+supplier-selection, UoM/rounding, multi-company, timeout, malformed-response,
+and ambiguous-write contracts. T10 does not claim those later slices are done.

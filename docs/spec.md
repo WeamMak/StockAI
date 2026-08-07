@@ -1,10 +1,10 @@
 # AI Procurement Agent — Design Specification
 
-**Status:** T10 Odoo contract revision pending user and course-staff review
+**Status:** T10 Odoo contract revision approved by user and course staff
 
 **Date:** 2026-08-07
 
-**Planning stage:** T10 stopped; synchronized specification and plan revision under review
+**Implementation note:** T10 executable contract complete; awaiting task review
 
 **Approval record:** The previous specification was approved by the user and
 course staff on 2026-07-25. The company/category/product preference,
@@ -12,9 +12,9 @@ ALB/ACM, ASG worker lifecycle, and observability/storage revisions dated
 2026-08-02 were approved by the user on 2026-08-02. Course-staff approval of
 the same revision was confirmed by the user on 2026-08-02.
 
-The user selected the T10 remediation direction on 2026-08-07. The exact
-written revision in this document and the synchronized plan still require user
-review and course-staff approval before T10 implementation resumes.
+The user selected the T10 remediation direction and approved this exact written
+revision on 2026-08-07. The user then confirmed course-staff approval and
+explicitly authorized T10 implementation to resume on 2026-08-07.
 
 ## 1. Document status and classification
 
@@ -1496,10 +1496,6 @@ budgets or preferences.
 
 [Project decision] On 2026-08-07 the user selected Odoo 19 Community plus one
 project add-on for budgets and atomic PO actions, and a one-time Odoo ORM Job
-for the initial integration identity and key. That direction authorizes this
-written revision; it is not approval of the completed wording.
-
-[Explicit course requirement] T10 and dependent Odoo work remain stopped until
-the user reviews this exact specification and synchronized `docs/plan.md`,
-course staff approves the material revision through the required pull-request
-workflow, and the user explicitly authorizes implementation to resume.
+for the initial integration identity and key. The user approved this exact
+specification and synchronized plan, confirmed course-staff approval, and
+explicitly authorized T10 implementation to resume on the same date.

@@ -13,16 +13,15 @@ ORM-bootstrap contracts selected after T10 discovery.
 
 **Tech Stack:** Python 3.12, FastAPI, LangGraph, Python MCP SDK, React, TypeScript, Vite, Odoo 19 Community, PostgreSQL, Terraform, AWS EC2/Auto Scaling/SSM/EventBridge/Lambda/EBS/ALB/ACM/Route 53, kubeadm Kubernetes, Kustomize, Argo CD, Prometheus, Grafana, Loki, Alertmanager, GitHub Actions.
 
-**Status:** T10 Odoo contract revision pending user and course-staff review
+**Status:** T10 implementation complete; awaiting task review
 
 **Date:** 2026-08-07
 
-**Source design:** Revised `docs/spec.md` dated 2026-08-07; exact revision pending approval
+**Source design:** User- and course-staff-approved `docs/spec.md` dated 2026-08-07
 
-**Current gate:** Previously completed work remains approved. T10 and dependent
-Odoo work are stopped until the exact 2026-08-07 specification and plan
-revision receive user and course-staff approval and the user authorizes work to
-resume.
+**Current gate:** The user approved the exact 2026-08-07 revision, confirmed
+course-staff approval, and explicitly authorized T10 implementation to resume.
+T10 is complete and awaits review; T11A has not started.
 
 ## 1. Approval status and purpose
 
@@ -32,13 +31,10 @@ synchronized implementation plan were subsequently completed through the
 required pull-request workflow.
 
 The user explicitly authorized implementation on 2026-08-02. T01–T09 proceeded
-under that authorization. T10 then triggered its approved stop condition. The
-user selected the remediation direction on 2026-08-07, but affected work cannot
-resume until this exact synchronized revision completes the following gate:
-
-1. The user must review and explicitly approve this revised specification and plan.
-2. Course staff must approve the material revision through a pull request.
-3. The user must then explicitly authorize T10 implementation to resume.
+under that authorization. T10 then triggered its approved stop condition. On
+2026-08-07 the user selected the remediation, approved this exact synchronized
+specification and plan, confirmed course-staff approval, and explicitly
+authorized T10 implementation to resume.
 
 If an implementation discovery conflicts with the approved specification, work
 must stop, the affected design and plan sections must be revised, and the
@@ -659,31 +655,31 @@ with one documented command.
 
 **Work and tests**
 
-- [ ] **Step 1:** Test that Compose uses the approved immutable Odoo and
+- [x] **Step 1:** Test that Compose uses the approved immutable Odoo and
    PostgreSQL digests, an isolated network, health checks, disposable contract
    volumes, fictional credentials, and no published PostgreSQL port.
-- [ ] **Step 2:** Start a clean database and install `purchase`, `stock`,
+- [x] **Step 2:** Start a clean database and install `purchase`, `stock`,
    `purchase_stock`, `contacts`, `account`, and `analytic` without an Odoo UI or
    production-console step.
-- [ ] **Step 3:** Run `probe_bootstrap.py` through `odoo shell --no-http` to
+- [x] **Step 3:** Run `probe_bootstrap.py` through `odoo shell --no-http` to
    create one contract-only user and expiring key through the ORM, write the raw
    key only to a mode-`0600` disposable file, rerun it to prove no duplicate
    user/key, and use the key for JSON-2 tests.
-- [ ] **Step 4:** Probe JSON-2 database selection, bearer failures, safe error
+- [x] **Step 4:** Probe JSON-2 database selection, bearer failures, safe error
    sanitization, `/doc`, `fields_get`, and integration-user ACLs for the exact
    Purchase/Inventory/Contacts/Accounting/Analytic models listed in
    `docs/odoo-contract.md`.
-- [ ] **Step 5:** Exercise reordering rules, supplier pricelists, PO
+- [x] **Step 5:** Exercise reordering rules, supplier pricelists, PO
    origin/reference and standard actions, receipts/backorders, returns,
    analytic distribution, and `write_date` behavior with sanitized fictional
    records.
-- [ ] **Step 6:** Assert the discovered negative contracts: Community has no
+- [x] **Step 6:** Assert the discovered negative contracts: Community has no
    standard `account_budget`, standard PO actions accept no expected revision,
    and independent JSON-2 calls cannot provide an atomic compare-and-act.
    Record the approved `stockai.procurement.budget` and
    `action_stockai_{update_draft,cancel_draft,confirm}` extension contracts as
    T11A responsibilities rather than pretending they are built-ins.
-- [ ] **Step 7:** Convert every standard-runtime claim into an executable test,
+- [x] **Step 7:** Convert every standard-runtime claim into an executable test,
    run from a newly created database, and always remove the disposable key file,
    database, containers, and volumes.
 
@@ -703,14 +699,15 @@ by itself. Standard JSON-2 calls also cannot atomically compare an expected PO
 revision and perform confirmation or cancellation. See
 `docs/odoo-contract.md`.
 
-**Selected resolution:** The user selected one project Odoo add-on for the
+**Approved resolution:** The user selected one project Odoo add-on for the
 monthly budget model and atomic PO methods, plus a one-time ORM bootstrap Job,
-on 2026-08-07. T11A implements those extensions. This is a material revision;
-T10 remains stopped until the exact revised specification and plan receive user
-and course-staff approval and the user authorizes implementation to resume.
+on 2026-08-07. The exact revision received user and course-staff approval and
+the user explicitly authorized T10 to resume. T11A implements those extensions.
 
-**Verification:** Run the contract suite against the pinned local Odoo image
-from a clean database.
+**Verification:** `make odoo-contract` passed all 9 tests in 55.53 seconds
+against one newly created database and wrote
+`reports/junit/contract.xml`. Teardown removed the raw key, database,
+containers, networks, and volumes.
 
 **Dependencies:** T09.
 
@@ -2660,7 +2657,7 @@ The user and course staff should confirm:
 
 The original planning gate and subsequent approved revisions authorized T01
 through T09, which are complete. T10 triggered its approved stop condition.
-The user selected the remediation direction on 2026-08-07, but T10 and
-dependent Odoo work remain stopped until the user reviews this exact revision,
-course staff approves it through the required pull-request workflow, and the
-user explicitly authorizes implementation to resume.
+The user approved the exact remediation revision, confirmed course-staff
+approval, and explicitly authorized T10 implementation to resume on 2026-08-07.
+T10's executable contract is complete. The next gate is task review; T11A must
+not start until the user accepts T10 and explicitly asks to continue.
