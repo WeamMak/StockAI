@@ -4,19 +4,25 @@
 
 **Goal:** Build, validate, deploy, and demonstrate the approved AI procurement agent on a self-managed Kubernetes cluster with isolated dev/prod worker ASGs and automated worker termination cleanup.
 
-**Architecture:** One fixed kubeadm control plane coordinates separate single-AZ dev and prod worker ASGs. Required Kubernetes HPAs scale pods; Phase 1 node capacity remains an explicit Terraform input, while EventBridge, Lambda, and SSM automate bounded worker drain and stale-node cleanup.
+**Architecture:** One fixed kubeadm control plane coordinates separate
+single-AZ dev and prod worker ASGs. Required Kubernetes HPAs scale pods; Phase
+1 node capacity remains an explicit Terraform input, while EventBridge, Lambda,
+and SSM automate bounded worker drain and stale-node cleanup. One StockAI Odoo
+image extends the pinned Community base with the narrow budget, atomic PO, and
+ORM-bootstrap contracts selected after T10 discovery.
 
 **Tech Stack:** Python 3.12, FastAPI, LangGraph, Python MCP SDK, React, TypeScript, Vite, Odoo 19 Community, PostgreSQL, Terraform, AWS EC2/Auto Scaling/SSM/EventBridge/Lambda/EBS/ALB/ACM/Route 53, kubeadm Kubernetes, Kustomize, Argo CD, Prometheus, Grafana, Loki, Alertmanager, GitHub Actions.
 
-**Status:** Approved by user and course staff; implementation in progress
+**Status:** T10 Odoo contract revision pending user and course-staff review
 
-**Date:** 2026-08-02
+**Date:** 2026-08-07
 
-**Source design:** User- and course-staff-approved `docs/spec.md` dated 2026-08-02
+**Source design:** Revised `docs/spec.md` dated 2026-08-07; exact revision pending approval
 
-**Current gate:** User and course-staff approval are complete. The user
-authorized implementation on 2026-08-02; work proceeds one approved task at a
-time.
+**Current gate:** Previously completed work remains approved. T10 and dependent
+Odoo work are stopped until the exact 2026-08-07 specification and plan
+revision receive user and course-staff approval and the user authorizes work to
+resume.
 
 ## 1. Approval status and purpose
 
@@ -25,13 +31,14 @@ were confirmed by the user on 2026-08-02. User and course-staff approval of this
 synchronized implementation plan were subsequently completed through the
 required pull-request workflow.
 
-The user explicitly authorized implementation on 2026-08-02. Implementation
-therefore proceeds under this plan's one-task-at-a-time workflow. The completed
-planning gate required:
+The user explicitly authorized implementation on 2026-08-02. T01–T09 proceeded
+under that authorization. T10 then triggered its approved stop condition. The
+user selected the remediation direction on 2026-08-07, but affected work cannot
+resume until this exact synchronized revision completes the following gate:
 
-1. The user must review and explicitly approve this synchronized plan.
-2. Course staff must approve this plan through a pull request.
-3. The user must then separately and explicitly authorize implementation.
+1. The user must review and explicitly approve this revised specification and plan.
+2. Course staff must approve the material revision through a pull request.
+3. The user must then explicitly authorize T10 implementation to resume.
 
 If an implementation discovery conflicts with the approved specification, work
 must stop, the affected design and plan sections must be revised, and the
@@ -165,8 +172,10 @@ workloads.
 │           ├── dev/
 │           └── prod/
 ├── odoo/
-│   └── addons/
-│       └── procurement_preferences/
+│   ├── addons/
+│   │   └── stockai_procurement/
+│   └── bootstrap/
+│       └── bootstrap.py
 ├── scripts/
 ├── src/
 │   └── procurement/
@@ -219,9 +228,15 @@ Boundary rules:
   their respective services.
 - `frontend` uses only the versioned API and never receives AWS, Odoo, or
   Cognito tokens.
-- `odoo/addons/procurement_preferences` owns only typed preference models,
-  constraints, access control, administration views, and immutable version
-  history. It contains no system-prompt editor or PO automation.
+- `odoo/addons/stockai_procurement` owns only typed monthly budgets, explicit
+  revision-bound PO methods, typed preference models, constraints, access
+  control, administration views, and immutable preference history. It contains
+  no LLM, AWS client, system-prompt editor, supplier communication, payment
+  operation, autonomous scheduler, or direct PO-state write.
+- `odoo/bootstrap/bootstrap.py` is finite deployment/bootstrap code executed
+  with the Odoo ORM. It is not imported by normal Odoo requests, API, or MCP
+  processes and is the only code allowed to create the initial integration
+  identity/key.
 
 An automated import-boundary test will enforce these rules.
 
@@ -294,7 +309,7 @@ capabilities and Make targets must remain stable.
 | `make test-unit` | Python and React unit tests with JUnit and coverage output |
 | `make test-integration` | Real API/LangGraph-to-MCP Streamable HTTP tests with deterministic dependencies |
 | `make test-e2e` | Local browser/API happy path and one representative safe failure |
-| `make build` | Frontend build and three OCI image builds |
+| `make build` | Frontend build and four OCI image builds after T11A adds the StockAI Odoo image |
 | `make compose-validate` | Render Compose configuration and verify service health |
 | `make terraform-validate` | Format, initialize without apply, validate, lint, plan-test every root, and package/unit-test lifecycle Lambda code |
 | `make kubernetes-validate` | Render both Kustomize overlays and run schema/policy checks |
@@ -515,11 +530,11 @@ shows either a safe approval-ready fictional result or an explicit failure.
 
 **Work and tests**
 
-- [ ] **Step 1:** Test loading, empty, success, manual-review, and safe-error states.
-- [ ] **Step 2:** Implement a manual scan button, 202 handling, bounded polling with cleanup,
+- [x] **Step 1:** Test loading, empty, success, manual-review, and safe-error states.
+- [x] **Step 2:** Implement a manual scan button, 202 handling, bounded polling with cleanup,
    and scan result display.
-- [ ] **Step 3:** Avoid embedding configuration or tokens in the browser bundle.
-- [ ] **Step 4:** Meet basic keyboard, label, focus, and contrast checks.
+- [x] **Step 3:** Avoid embedding configuration or tokens in the browser bundle.
+- [x] **Step 4:** Meet basic keyboard, label, focus, and contrast checks.
 
 **Verification:** Run frontend lint, type checks, unit tests, and production
 build.
@@ -549,18 +564,18 @@ scan from a production-built React application.
 
 **Work and tests**
 
-- [ ] **Step 1:** Test the full local happy path across actual API and MCP processes.
-- [ ] **Step 2:** Test a representative MCP timeout, including retry count, final error,
+- [x] **Step 1:** Test the full local happy path across actual API and MCP processes.
+- [x] **Step 2:** Test a representative MCP timeout, including retry count, final error,
    logs, and metrics.
-- [ ] **Step 3:** Verify the interaction contains a LangGraph run and a real MCP transport
+- [x] **Step 3:** Verify the interaction contains a LangGraph run and a real MCP transport
    call.
-- [ ] **Step 4:** Add API and MCP composition roots that construct only their owned adapters
+- [x] **Step 4:** Add API and MCP composition roots that construct only their owned adapters
    and configuration, then start the two real processes from the local script.
-- [ ] **Step 5:** Keep shared observability primitives framework-neutral and move API- and
+- [x] **Step 5:** Keep shared observability primitives framework-neutral and move API- and
    MCP-specific middleware and collectors into their owning service modules.
-- [ ] **Step 6:** Extend architecture tests for the composition-root and observability
+- [x] **Step 6:** Extend architecture tests for the composition-root and observability
    ownership rules.
-- [ ] **Step 7:** Document one command to run and one command to verify the skeleton.
+- [x] **Step 7:** Document one command to run and one command to verify the skeleton.
 
 **Verification:** Run `make test-unit`, `make test-integration`, and a manual
 browser check.
@@ -586,13 +601,13 @@ live AWS or Odoo.
 
 **Work and tests**
 
-- [ ] **Step 1:** Add configuration tests for non-root execution, fixed entry points, health
+- [x] **Step 1:** Add configuration tests for non-root execution, fixed entry points, health
    checks, no development server, minimal build context, and no copied secret.
-- [ ] **Step 2:** Define `stockai-api` and `stockai-mcp` package entry points and make each
+- [x] **Step 2:** Define `stockai-api` and `stockai-mcp` package entry points and make each
    backend image start only its corresponding composition root.
-- [ ] **Step 3:** Use multi-stage builds and pinned base-image digests.
-- [ ] **Step 4:** Ensure the frontend proxies `/api` and `/auth` to FastAPI on the same origin.
-- [ ] **Step 5:** Define writable paths explicitly so later read-only root filesystems work.
+- [x] **Step 3:** Use multi-stage builds and pinned base-image digests.
+- [x] **Step 4:** Ensure the frontend proxies `/api` and `/auth` to FastAPI on the same origin.
+- [x] **Step 5:** Define writable paths explicitly so later read-only root filesystems work.
 
 **Verification:** Build all three images, run image configuration tests, start
 each image, and inspect health.
@@ -614,12 +629,12 @@ skeleton.
 
 **Work and tests**
 
-- [ ] **Step 1:** Run frontend, API, MCP, and deterministic fake Odoo as separate services.
-- [ ] **Step 2:** Add explicit networks, health checks, bounded resources, and disposable test
+- [x] **Step 1:** Run frontend, API, MCP, and deterministic fake Odoo as separate services.
+- [x] **Step 2:** Add explicit networks, health checks, bounded resources, and disposable test
    volumes.
-- [ ] **Step 3:** Test happy path, no-valid-response failure, malformed fake Odoo response,
+- [x] **Step 3:** Test happy path, no-valid-response failure, malformed fake Odoo response,
    and service timeout.
-- [ ] **Step 4:** Keep credentials fictional and injected from ignored local environment
+- [x] **Step 4:** Keep credentials fictional and injected from ignored local environment
    files.
 
 **Verification:** Run `docker compose config`, `make compose-validate`, and
@@ -637,20 +652,40 @@ with one documented command.
 **Files**
 
 - Create `compose.odoo.yaml`, `scripts/odoo/probe_contract.py`,
+  `scripts/odoo/probe_bootstrap.py`, `tests/contract/conftest.py`,
   `tests/contract/test_odoo_json2.py`, and `docs/odoo-contract.md`.
+- Update `.env.example` and `Makefile` with fictional contract-only settings and
+  one bounded `odoo-contract` command.
 
 **Work and tests**
 
-- [ ] **Step 1:** Start pinned Odoo 19 Community and PostgreSQL images locally.
-- [ ] **Step 2:** Probe authentication, the required Purchase/Inventory/Contacts/accounting
-   models, reordering rules, vendor pricelists, receipts, returns, analytic
-   budgets, PO origin/reference, revision detection, and PO state actions.
-- [ ] **Step 3:** Record exact model names, fields, methods, permissions, and representative
-   sanitized payloads.
-- [ ] **Step 4:** Verify whether an integration API key and fictional identities can be
-   bootstrapped idempotently without manual production-console resource
-   creation.
-- [ ] **Step 5:** Convert every verified contract into an executable contract test.
+- [ ] **Step 1:** Test that Compose uses the approved immutable Odoo and
+   PostgreSQL digests, an isolated network, health checks, disposable contract
+   volumes, fictional credentials, and no published PostgreSQL port.
+- [ ] **Step 2:** Start a clean database and install `purchase`, `stock`,
+   `purchase_stock`, `contacts`, `account`, and `analytic` without an Odoo UI or
+   production-console step.
+- [ ] **Step 3:** Run `probe_bootstrap.py` through `odoo shell --no-http` to
+   create one contract-only user and expiring key through the ORM, write the raw
+   key only to a mode-`0600` disposable file, rerun it to prove no duplicate
+   user/key, and use the key for JSON-2 tests.
+- [ ] **Step 4:** Probe JSON-2 database selection, bearer failures, safe error
+   sanitization, `/doc`, `fields_get`, and integration-user ACLs for the exact
+   Purchase/Inventory/Contacts/Accounting/Analytic models listed in
+   `docs/odoo-contract.md`.
+- [ ] **Step 5:** Exercise reordering rules, supplier pricelists, PO
+   origin/reference and standard actions, receipts/backorders, returns,
+   analytic distribution, and `write_date` behavior with sanitized fictional
+   records.
+- [ ] **Step 6:** Assert the discovered negative contracts: Community has no
+   standard `account_budget`, standard PO actions accept no expected revision,
+   and independent JSON-2 calls cannot provide an atomic compare-and-act.
+   Record the approved `stockai.procurement.budget` and
+   `action_stockai_{update_draft,cancel_draft,confirm}` extension contracts as
+   T11A responsibilities rather than pretending they are built-ins.
+- [ ] **Step 7:** Convert every standard-runtime claim into an executable test,
+   run from a newly created database, and always remove the disposable key file,
+   database, containers, and volumes.
 
 **Stop condition**
 
@@ -659,6 +694,21 @@ perform the required operation, do not create an invented substitute. Stop,
 document evidence, revise `docs/spec.md` and this plan, and obtain the required
 approval.
 
+**Stop-condition discovery (2026-08-07):** The official
+`odoo@sha256:4872f23288454b724fd2d26c176a418276c2b3552e9aa752f9396b59d864b3a0`
+image contains Purchase, Inventory, Contacts, Accounting, and Analytic add-ons
+but does not contain `account_budget`. In addition, JSON-2 API-key generation
+requires an already-valid key, so it cannot bootstrap the first integration key
+by itself. Standard JSON-2 calls also cannot atomically compare an expected PO
+revision and perform confirmation or cancellation. See
+`docs/odoo-contract.md`.
+
+**Selected resolution:** The user selected one project Odoo add-on for the
+monthly budget model and atomic PO methods, plus a one-time ORM bootstrap Job,
+on 2026-08-07. T11A implements those extensions. This is a material revision;
+T10 remains stopped until the exact revised specification and plan receive user
+and course-staff approval and the user authorizes implementation to resume.
+
 **Verification:** Run the contract suite against the pinned local Odoo image
 from a clean database.
 
@@ -666,41 +716,117 @@ from a clean database.
 
 **Requirements:** CR-02, CR-06, CR-13, CR-15; spec section 12.
 
-**Complete when:** Every Odoo claim needed by the MVP has a passing executable
-contract or has triggered the stop condition.
+**Complete when:** Every standard Odoo/JSON-2 claim needed by T11A and T11B has
+a passing clean-database contract, every known Community limitation has a
+negative contract, and each approved project extension has an exact owning
+task and executable acceptance contract.
 
-#### T11 — Implement idempotent Odoo bootstrap, seed data, and the JSON-2 adapter
+#### T11A — Build the StockAI Odoo image, add-on foundation, and bootstrap
 
 **Files**
 
-- Create `src/procurement/adapters/odoo/client.py`,
-  `src/procurement/adapters/odoo/mappers.py`,
-  `src/procurement/bootstrap/odoo.py`,
-  `scripts/odoo/seed.py`, and `scripts/odoo/verify_seed.py`.
-- Create `tests/unit/adapters/odoo/test_client.py`,
-  `tests/unit/adapters/odoo/test_mappers.py`,
-  `tests/integration/test_odoo_bootstrap.py`, and
-  `tests/integration/test_mcp_real_odoo.py`.
+- Create `docker/odoo.Dockerfile` and the add-on under
+  `odoo/addons/stockai_procurement/`, including `__manifest__.py`, model files
+  for budgets and purchase-order extensions, integration/configuration groups,
+  ACLs, and record rules.
+- Create `odoo/bootstrap/bootstrap.py`, `scripts/odoo/seed.py`, and
+  `scripts/odoo/verify_seed.py`.
+- Create `tests/config/test_odoo_image_contract.py`,
+  `tests/contract/test_stockai_odoo_addon.py`, and
+  `tests/integration/test_odoo_bootstrap.py`.
+- Update `compose.odoo.yaml`, `.dockerignore`, `.env.example`, `Makefile`, and
+  `docs/odoo-contract.md`.
 
 **Work and tests**
 
-- [ ] **Step 1:** Test JSON-2 authentication, 10-second read timeout, transient retry, no
-   retry on permanent errors, strict mapping, and untrusted-output rejection.
-- [ ] **Step 2:** Implement idempotent fictional dev/prod seed profiles for the happy path,
-   over-budget path, no-valid-offer path, history, returns, and open-PO
-   coverage.
-- [ ] **Step 3:** Bootstrap the least-privilege integration user and rotating key without
-   logging credentials; remove temporary bootstrap authority after success.
-   Keep `bootstrap/odoo.py` limited to this one-time provisioning workflow; the
-   MCP process remains composed by `bootstrap/mcp.py`.
-- [ ] **Step 4:** Replace the fixture implementation of
-   `list_replenishment_candidates` with the real adapter while retaining the
-   fake for deterministic tests.
+- [ ] **Step 1:** Test a `stockai.procurement.budget` record with required
+   company, product category, analytic account, first-of-month period, company
+   currency, non-negative amount, active flag, tracked changes, and uniqueness
+   for company/category/month. Test that only the configuration administrator
+   can create, update, or archive it and the integration user is read-only.
+- [ ] **Step 2:** Implement the minimum budget model, configuration and
+   integration groups, ACLs, and record rules. Keep manifest dependencies to
+   the verified `purchase_stock`, `account`, `analytic`, and `mail` modules; do
+   not implement budget arithmetic, React administration, preference models,
+   or MCP budget tools in this task.
+- [ ] **Step 3:** Test and implement one-record-only public methods
+   `action_stockai_update_draft(expected, changes)`,
+   `action_stockai_cancel_draft(expected)`, and
+   `action_stockai_confirm(expected)`. Under a row lock, each must compare the
+   expected `write_date`, state, vendor, currency, and total, reject stale or
+   unauthorized calls without a write, allowlist update fields, and invoke the
+   standard Odoo business method instead of assigning `state`.
+- [ ] **Step 4:** Test a concurrent write between snapshot and action, direct
+   method calls by unauthorized users, multi-record calls, invalid states,
+   a repeat after an already-committed action, standard-method failures, and
+   bounded conflict results with no duplicate transition.
+- [ ] **Step 5:** Build one non-root StockAI Odoo image from the approved
+   official digest. Copy only the add-on and finite bootstrap code, retain the
+   upstream entrypoint, install only the existing locked `boto3==1.43.62`
+   bootstrap dependency, expose no secret in layers, and make local Compose
+   use this image.
+- [ ] **Step 6:** Implement the finite ORM bootstrap Job contract: find/create
+   the stable integration login, enforce only the approved group, generate a
+   named key with an expiry no later than three calendar months only when absent
+   or explicitly rotating, send the raw key to an injected local test sink or
+   exact environment Secrets Manager ARN without stdout/stderr exposure, and
+   remove temporary authority on every exit path.
+- [ ] **Step 7:** Run bootstrap twice and assert one user, one active named key,
+   unchanged secret on the second run, functional JSON-2 authentication, and no
+   secret material in container output. Test explicit rotation creates and
+   verifies the replacement before revoking the old key.
+- [ ] **Step 8:** Seed idempotent fictional dev/prod records for the happy path,
+   over-budget path, no-valid-offer path, receipts, returns, and open POs,
+   including monthly budget rows, then rerun and compare stable record counts
+   and references.
 
-**Verification:** Re-run bootstrap twice, compare resulting records, then call
-the MCP candidate tool over Streamable HTTP against real Odoo.
+**Verification:** Build the StockAI Odoo image, run add-on/ACL/concurrency
+contracts against a clean database, rerun bootstrap and seed twice, authenticate
+with the resulting key, rotate it once, and verify no raw key appears in logs or
+image history.
 
 **Dependencies:** T10.
+
+**Requirements:** CR-02, CR-05, CR-06, CR-11, CR-13, CR-15; spec sections 8.6,
+11, 12, 18.2, and 20.
+
+**Complete when:** One reproducible StockAI Odoo image supplies the approved
+Community extensions, clean environments bootstrap without manual UI work, and
+budget/action/security contracts pass against real Odoo.
+
+#### T11B — Implement the JSON-2 adapter and real Odoo-backed MCP read
+
+**Files**
+
+- Create `src/procurement/adapters/odoo/client.py` and
+  `src/procurement/adapters/odoo/mappers.py`.
+- Create `tests/unit/adapters/odoo/test_client.py`,
+  `tests/unit/adapters/odoo/test_mappers.py`, and
+  `tests/integration/test_mcp_real_odoo.py`.
+- Update `src/procurement/bootstrap/mcp.py` and `docs/odoo-contract.md`.
+
+**Work and tests**
+
+- [ ] **Step 1:** Test JSON-2 bearer/database headers, 10-second read timeout,
+   at most two transient retries with bounded backoff, no retry on permanent
+   errors, safe Odoo-error mapping, and response-size limits.
+- [ ] **Step 2:** Test strict mapping and rejection of missing, mistyped,
+   cross-company, malformed-decimal, malformed-datetime, and unexpected-state
+   Odoo output.
+- [ ] **Step 3:** Implement the narrow client and mappers against only the
+   executable T10 contracts; do not expose generic model/method passthrough to
+   MCP tools.
+- [ ] **Step 4:** Replace the fixture implementation of
+   `list_replenishment_candidates` with the real adapter in the MCP composition
+   root while retaining the deterministic fake for unit and E2E scenarios.
+- [ ] **Step 5:** Call the candidate tool over authenticated Streamable HTTP
+   against the seeded StockAI Odoo image and verify sanitized logs and bounded
+   Odoo/MCP metrics.
+
+**Verification:** Run unit tests, the real-Odoo adapter integration, and one
+walking-skeleton scan whose MCP call reads a seeded candidate over JSON-2.
+
+**Dependencies:** T11A.
 
 **Requirements:** CR-02, CR-05, CR-06, CR-13, CR-15; spec sections 11 and 12.
 
@@ -735,7 +861,7 @@ real, validated Odoo-backed MCP read.
 **Verification:** Run all tests with a mocked boto3 Bedrock client. A real model
 call is deferred to the dev smoke test.
 
-**Dependencies:** T11.
+**Dependencies:** T11B.
 
 **Requirements:** CR-03, CR-05, CR-12, CR-13, CR-15; spec sections 9 and 19.
 
@@ -996,7 +1122,10 @@ without EKS, automatic node scaling, or NAT Gateway.
 - [ ] **Step 1: Write failing environment, edge, and volume plan tests**
 
   Assert separate DynamoDB, Secrets Manager, Cognito, Loki prefixes, and IAM
-  resource scopes. Assert six encrypted `gp3` data volumes keyed exactly as:
+  resource scopes. Assert the normal plan grants no Secrets Manager write,
+  while the explicit bootstrap variant grants only `PutSecretValue` on its
+  environment's exact Odoo-key ARN and cannot target the other environment.
+  Assert six encrypted `gp3` data volumes keyed exactly as:
 
   ```python
   expected = {
@@ -1023,7 +1152,11 @@ without EKS, automatic node scaling, or NAT Gateway.
   Add separate checkpoint/application tables, PITR/TTL/retention, Secrets
   Manager entries, Cognito pools/clients/groups, encrypted Loki S3 prefixes,
   public-access blocking, and environment/resource-scoped IAM. Scope Bedrock
-  invocation to `openai.gpt-oss-20b-1:0` only.
+  invocation to `openai.gpt-oss-20b-1:0` only. Add a per-environment Odoo-key
+  bootstrap policy scoped to `secretsmanager:PutSecretValue` on exactly that
+  environment's Odoo-key ARN. A validated
+  `enable_odoo_key_bootstrap = false` default controls its attachment to the
+  matching worker role; no normal worker plan may contain that write action.
 
 - [ ] **Step 4: Provision the ALB, ACM, DNS, and ASG target membership**
 
@@ -1509,9 +1642,14 @@ to the intended pre-provisioned EBS volume.
 
 **Work and tests**
 
-- [ ] **Step 1:** Add one Odoo/PostgreSQL pair per environment and the idempotent bootstrap
-   Job. Mount only `odoo-filestore` into Odoo and only `postgresql-data` into
-   PostgreSQL; neither service writes durable data to worker root EBS.
+- [ ] **Step 1:** Add one StockAI Odoo/PostgreSQL pair per environment and the
+   T11A idempotent ORM bootstrap Job. The Deployment and Job use the same
+   immutable StockAI Odoo digest. A protected Terraform apply temporarily
+   attaches the exact-secret bootstrap policy, the Job updates only that ARN,
+   a follow-up apply detaches the policy, and External Secrets materializes the
+   resulting runtime key. Mount only `odoo-filestore` into Odoo and only
+   `postgresql-data` into PostgreSQL; neither service writes durable data to
+   worker root EBS.
 - [ ] **Step 2:** Add the daily `concurrencyPolicy: Forbid` CronJob with its private
    credential and source-restricted internal route.
 - [ ] **Step 3:** Add liveness/readiness/startup behavior, initial measured hypotheses for
@@ -1639,11 +1777,10 @@ from Git without a Grafana data volume.
 
 **Work and tests**
 
-- [ ] **Step 1:** Test release metadata that binds source commit/tree, the complete named map
-   of required project-image digests, build provenance, Scout result, dev
-   validation status, and creation time. The schema must reject a missing
-   required image as the project grows from three walking-skeleton images to
-   the four-image final system.
+- [ ] **Step 1:** Test release metadata that binds source commit/tree, the
+   complete named map of all four required project-image digests, build
+   provenance, Scout result, dev validation status, and creation time. The
+   schema must reject a missing frontend, API, MCP, or StockAI Odoo image.
 - [ ] **Step 2:** Run Python and React tests with JUnit/coverage summaries, builds, Compose
    validation, Terraform checks/plans, Kustomize/schema checks, secret scans,
    and action lint on every pull request.
@@ -1685,7 +1822,7 @@ offline validation and release manifests reject changed artifacts.
 - [ ] **Step 5:** Define how the generated release manifest is copied or cherry-picked back
    to the originating feature branch before its main pull request.
 
-**Verification:** Run a no-change path, one-image path, three-image path,
+**Verification:** Run a no-change path, one-image path, four-image path,
 tampered digest path, Argo failure path, and successful dev reconciliation.
 
 **Dependencies:** T21.
@@ -1858,7 +1995,8 @@ every excluded offer has a deterministic reason.
 
 **Behavior**
 
-- [ ] **Step 1:** Map product category to the approved analytic account and monthly period.
+- [ ] **Step 1:** Read the matching `stockai.procurement.budget` record and map
+   product category to its approved analytic account and calendar-month period.
 - [ ] **Step 2:** Calculate budget, current confirmed commitments, remaining before/after,
    and exact overage in authoritative code.
 - [ ] **Step 3:** Keep an over-budget offer eligible but mark it as requiring explicit
@@ -1880,15 +2018,13 @@ an overage cannot be visually or structurally hidden.
 
 **Files**
 
-- Create the Odoo add-on under
-  `odoo/addons/procurement_preferences/`, including `__manifest__.py`,
-  profile/version and ordered-priority models, constraints, access controls,
-  configuration-administrator group, menus, forms, and inheritance preview.
-- Create `docker/odoo.Dockerfile` from the pinned official Odoo digest and
-  update Compose, Kubernetes workloads/overlays, image-release schema, dev
-  image workflow, and immutable promotion checks for the fourth project image.
-- Add Odoo add-on model/view/access tests, container contract tests, release
-  tests, Kubernetes render tests, and a dev Odoo administration smoke test.
+- Extend `odoo/addons/stockai_procurement/` with profile/version and
+  ordered-priority models, constraints, access controls, menus, forms, and
+  inheritance preview.
+- Update the existing StockAI Odoo image digest in Compose and Kubernetes
+  overlays through the already-tested four-image release workflow.
+- Add Odoo add-on model/view/access tests and a dev Odoo administration smoke
+  test.
 
 **Behavior**
 
@@ -1910,7 +2046,7 @@ an overage cannot be visually or structurally hidden.
 **Verification:** Test scope precedence, inheritance preview, effective-date
 and overlap constraints, immutable history, role denial, 0–100% boundaries,
 unsupported/duplicate criteria, absence of a prompt editor, seeded profiles,
-and fourth-image build, scan, render, dev deployment, and promotion metadata.
+and immutable StockAI Odoo image build, scan, render, and dev deployment.
 
 **Dependencies:** T27.
 
@@ -2094,8 +2230,11 @@ safely for a human.
    every over-budget approval.
 - [ ] **Step 3:** Have MCP perform a strongly consistent approval read and independent exact
    match before Odoo confirmation.
-- [ ] **Step 4:** Reject wrong role, stale/expired/replayed approval, changed draft, missing
-   exception, or environment mismatch.
+- [ ] **Step 4:** Call only
+   `purchase.order.action_stockai_confirm(expected)` so Odoo locks and compares
+   the current revision-critical snapshot before invoking `button_confirm` in
+   the same transaction. Reject wrong role, stale/expired/replayed approval,
+   changed draft, missing exception, or environment mismatch.
 - [ ] **Step 5:** Confirm only a fictional Odoo PO; do not contact a supplier or move money.
 
 **Verification:** Run the happy path and over-budget path end to end, plus
@@ -2119,6 +2258,13 @@ strongly revalidated manager approval.
   and reconciliation.
 - Complete decision routes and React reject/change/audit timeline screens.
 - Add unit, transport, Odoo, API, UI, restart, concurrency, and dev smoke tests.
+
+**Behavior constraint:** Draft changes and cancellation must call only
+`purchase.order.action_stockai_update_draft(expected, changes)` and
+`purchase.order.action_stockai_cancel_draft(expected)`. The MCP allowlists
+change fields, Odoo performs its row-lock/revision check and standard business
+action, and ambiguous responses enter reconciliation rather than being blindly
+retried.
 
 **Behavior**
 
@@ -2162,8 +2308,11 @@ and visible in the UI and audit.
 - [ ] **Step 1:** Verify default-deny network flows and only documented allow paths.
 - [ ] **Step 2:** Verify containers run non-root, drop capabilities, use seccomp, and use
    read-only roots with explicit writable volumes where supported.
-- [ ] **Step 3:** Rotate Odoo key, MCP/Cron tokens, session secret, database credentials, and
-   Grafana credentials without logging old/new values.
+- [ ] **Step 3:** Rotate Odoo key, MCP/Cron tokens, session secret, database
+   credentials, and Grafana credentials without logging old/new values. For
+   the Odoo key, attach the exact-secret bootstrap policy through the protected
+   Terraform gate, run and verify rotation, detach it on success or failure,
+   and assert the normal worker plan again has no Secrets Manager write.
 - [ ] **Step 4:** Test browser security headers, CSRF, session fixation, role escalation,
    preference-configuration authorization, input limits, untrusted MCP output,
    prompt injection-like profile text/business data, and error leakage.
@@ -2328,6 +2477,7 @@ full presentation and live interaction within 15 minutes.
 | Gate | Required evidence | System condition |
 |---|---|---|
 | G0 — Planning | User approval, course-staff PR approval, explicit user implementation instruction | Implementation may start |
+| G0R — T10 Odoo revision | User review of the exact 2026-08-07 spec/plan, course-staff PR approval, explicit user resume instruction | T10 may resume under the selected add-on and ORM-bootstrap design |
 | G1 — Local skeleton | Unit/integration reports and manual browser check | Local API → LangGraph → real MCP transport → result works |
 | G2 — Odoo boundary | Executable Odoo contract, repeatable seed, live MCP read | No unresolved Odoo contract assumption |
 | G3 — Container | Image builds, Compose E2E, image contract checks | Local system runs from pinned containers |
@@ -2345,11 +2495,11 @@ No stretch work may begin before G9.
 | Requirement | Primary implementation tasks | Acceptance evidence |
 |---|---|---|
 | CR-01 Planning gates | Current plan, T34 | Approved spec/plan PRs and explicit implementation instruction |
-| CR-02 Business problem/value | T11, T25–T27, T27A–T27C, T28–T31, T35 | Timed baseline, preference-aware approval-ready latency, live workflow |
+| CR-02 Business problem/value | T11A–T11B, T25–T27, T27A–T27C, T28–T31, T35 | Timed baseline, preference-aware approval-ready latency, live workflow |
 | CR-03 Coded LLM framework | T05, T12, T27C, T28–T31 | LangGraph tests, deployed graph, real model evidence |
 | CR-04 HTTP API/UI | T03, T05, T06, T14, T25–T27, T27A–T27C, T28–T31 | API/UI tests, live dashboard, Odoo preference UI |
 | CR-05 Reliability contracts | T02–T05, T12, T18B, T27B–T27C, T28–T33 | Errors, preference validation, retries, fallback, lifecycle bounds, reconciliation, shutdown tests |
-| CR-06 Real MCP interaction | T04, T07, T11, T25–T27, T27A–T27C, T28–T31 | Streamable HTTP tests and demo traces |
+| CR-06 Real MCP interaction | T04, T07, T11A–T11B, T25–T27, T27A–T27C, T28–T31 | Streamable HTTP tests and demo traces |
 | CR-07 Self-managed EC2 Kubernetes | T16, T18A–T18C | Terraform state, ASG/node inventory, finite join, controlled replacement, no EKS |
 | CR-08 Complete dev/prod | T17, T19A–T24 | Separate full-stack overlays, namespaces, Argo apps, smoke |
 | CR-09 Workload quality | T18A–T20B, T32, T33 | Probes, resources, HPA, retained CSI volumes, secrets, graceful shutdown/drain evidence |
@@ -2358,7 +2508,7 @@ No stretch work may begin before G9.
 | CR-12 Observability | T03–T05, T18B, T20A–T20B, T25–T27, T27A–T27C, T28–T34 | Application/ASG/cleanup metrics, logs, S3 objects, dashboards, fired alerts |
 | CR-13 Automated testing | Every behavior task; T34 audit | Unit/integration/UI/smoke/JUnit/coverage evidence |
 | CR-14 Presentation | T06, T23, T30, T34, T35 | Timed live demo, dashboard, pipeline, reflection |
-| CR-15 Security | T02–T04, T11–T24, T25–T27, T27A–T27C, T28–T33 | IAM/RBAC/CSRF/idempotency/redaction/network/preference/approval tests |
+| CR-15 Security | T02–T04, T11A–T11B, T12–T24, T25–T27, T27A–T27C, T28–T33 | IAM/RBAC/CSRF/idempotency/redaction/network/preference/approval tests |
 | CR-16 Decision/AWS justification | T15–T18B, T23, T33–T35 | Plans, lifecycle/cost evidence, implementation status, explanation |
 
 ## 11. Test coverage map
@@ -2369,17 +2519,17 @@ No stretch work may begin before G9.
 | Duplicate/full/partial coverage | T25 | T25 concurrency | T25 seeded open PO |
 | Offer eligibility/quantity | T26 | T26 MCP + Odoo adapter | T26 vendor comparison |
 | Performance evidence | T26 | T26 MCP + Odoo adapter | T26 seeded receipts/returns |
-| Budget and overage | T27 | T27 MCP + Odoo adapter | T27/T30 exception path |
+| Budget and overage | T11A model/ACL; T27 policy/UI | T11A Odoo contract; T27 MCP + Odoo adapter | T27/T30 exception path |
 | Preference versioning and Odoo authorization | T27A | T27A add-on/container/release tests | T27A Odoo administration smoke |
 | Preference resolution and premium | T27B | T27B real MCP + Odoo add-on | T27B company/category/product scenarios |
 | Preference case/prompt/UI binding | T27C | T27C graph/API/React tests | T27C real Bedrock and read-only case view |
 | LLM recommendation/fallback | T12/T28 mocked | T28 graph + MCP | T28 real Bedrock |
 | Draft/idempotency | T29 | T29 concurrency/ambiguous result | T29 real Odoo |
-| Approval/confirmation | T30 | T30 stale/replay/role/exception | T30 real Odoo |
+| Approval/confirmation | T11A atomic Odoo contract; T30 approval/MCP integration | T11A/T30 stale/replay/role/exception | T30 real Odoo |
 | Reject/change/reconcile | T31 | T31 failures/restarts | T31 real Odoo |
 | API/auth/CSRF | T03/T05/T14/T25–T27/T27C/T28–T31 | T14/T25–T27/T27C/T28–T31 | T23/T24/T27C/T30 |
 | React states/actions | T06/T14/T25–T27/T27C/T28–T31 | Local browser E2E | Dev/prod browser smoke |
-| MCP tools | T04/T11/T25–T27/T27B/T28–T31 | All eleven over Streamable HTTP | Real Odoo demo traces |
+| MCP tools | T04/T11B/T25–T27/T27B/T28–T31 | All eleven over Streamable HTTP | Real Odoo demo traces |
 | AWS repositories | T12–T14 mocked | DynamoDB Local | Dev/prod AWS smoke |
 | Worker bootstrap and termination | T18A/T18B mocks | Terraform/event/IAM/SSM integration checks | Clean and fail-open dev replacement drills |
 | Kubernetes/config, ingress, and storage | T17–T20B static | Terraform/render/policy/resource tests | ASG/ACM/ALB/NGINX health, six EBS bindings/reattachment, Grafana reconstruction, Argo recovery |
@@ -2389,10 +2539,12 @@ No stretch work may begin before G9.
 
 Implementation stops for review when any of these occurs:
 
-- Odoo 19 Community or JSON-2 cannot provide an approved required operation.
-- The custom Odoo preference add-on cannot enforce immutable versions,
-  non-overlapping effective profiles, or least-privilege administration
-  without materially broader authority than approved.
+- Odoo 19 Community, JSON-2, or the narrowly approved StockAI add-on cannot
+  provide a required standard or extension contract.
+- The StockAI Odoo add-on cannot enforce budget uniqueness, atomic
+  revision-bound PO actions, immutable preference versions, non-overlapping
+  effective profiles, or least-privilege administration without materially
+  broader authority than approved.
 - The selected Bedrock model is unavailable in the approved region/account or
   violates the expected IAM invocation contract.
 - The complete stack cannot fit safely on each `t3.medium`/30 GB worker after
@@ -2506,7 +2658,9 @@ The user and course staff should confirm:
 
 ## 15. Next approval gate
 
-Planning gate G0 is complete: the specification and this plan have user and
-course-staff approval, and the user explicitly authorized implementation on
-2026-08-02. T01 through T03 are complete. Later tasks remain subject to the
-one-task-at-a-time workflow and their stated dependencies.
+The original planning gate and subsequent approved revisions authorized T01
+through T09, which are complete. T10 triggered its approved stop condition.
+The user selected the remediation direction on 2026-08-07, but T10 and
+dependent Odoo work remain stopped until the user reviews this exact revision,
+course staff approves it through the required pull-request workflow, and the
+user explicitly authorizes implementation to resume.
