@@ -4,7 +4,8 @@ PYTHON_PATHS := src tests
 
 export UV_CACHE_DIR
 
-.PHONY: help sync lock-check format format-check lint test-unit test-integration check
+.PHONY: help sync lock-check format format-check lint test-unit test-integration \
+	test-e2e compose-validate compose-up compose-down check
 
 help:
 	@echo "Available targets:"
@@ -15,6 +16,10 @@ help:
 	@echo "  lint          Run Ruff, mypy, and architecture checks"
 	@echo "  test-unit     Run unit tests with JUnit and coverage reports"
 	@echo "  test-integration Run real-transport integration tests"
+	@echo "  test-e2e      Run the four deterministic local Compose scenarios"
+	@echo "  compose-validate Validate the base and test Compose configurations"
+	@echo "  compose-up    Build and start the healthy local four-service stack"
+	@echo "  compose-down  Stop and remove the local Compose stack"
 	@echo "  check         Run the complete Python verification suite"
 
 sync:
@@ -46,5 +51,20 @@ test-integration:
 	mkdir -p reports/junit
 	$(UV) run pytest tests/integration \
 		--junitxml=reports/junit/integration.xml
+
+test-e2e:
+	mkdir -p reports/junit
+	$(UV) run pytest tests/e2e \
+		--junitxml=reports/junit/e2e.xml
+
+compose-validate:
+	docker compose -f compose.yaml config --quiet
+	docker compose -f compose.yaml -f compose.test.yaml config --quiet
+
+compose-up:
+	docker compose -f compose.yaml up --build --detach --wait --wait-timeout 180
+
+compose-down:
+	docker compose -f compose.yaml down --volumes --remove-orphans
 
 check: lock-check format-check lint test-unit
