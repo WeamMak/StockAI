@@ -5,6 +5,8 @@
 .env*
 **/*.key
 **/*.pem
+**/api-key
+**/bootstrap-api-key
 **/__pycache__
 *.py[cod]
 .mypy_cache

@@ -17,9 +17,7 @@ from tests.contract.conftest import OdooContractStack
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 COMPOSE_FILE = PROJECT_ROOT / "compose.odoo.yaml"
-ODOO_IMAGE = (
-    "odoo@sha256:4872f23288454b724fd2d26c176a418276c2b3552e9aa752f9396b59d864b3a0"
-)
+ODOO_IMAGE = "stockai-odoo:t11a-local"
 POSTGRES_IMAGE = (
     "postgres@sha256:e8db9bd3e9e1751eb639fb17be53cc6d1b62a322adf75b99e791767a7a16ce69"
 )
@@ -32,6 +30,7 @@ REQUIRED_MODULES = {
     "contacts",
     "account",
     "analytic",
+    "stockai_procurement",
 }
 REQUIRED_MODEL_FIELDS = {
     "product.product": {
@@ -281,6 +280,8 @@ def test_odoo_compose_is_pinned_private_bounded_and_disposable() -> None:
     assert isinstance(services, dict)
     assert set(services) == {"odoo", "postgres"}
     assert services["odoo"]["image"] == ODOO_IMAGE
+    assert services["odoo"]["build"]["context"] == str(PROJECT_ROOT)
+    assert services["odoo"]["build"]["dockerfile"] == "docker/odoo.Dockerfile"
     assert services["postgres"]["image"] == POSTGRES_IMAGE
 
     assert isinstance(networks, dict)
@@ -368,7 +369,18 @@ def test_orm_bootstrap_is_idempotent_and_keeps_the_key_private(
     )
     assert running_odoo_contract.first_bootstrap["active_named_key_count"] == 1
     assert running_odoo_contract.second_bootstrap["active_named_key_count"] == 1
+    assert running_odoo_contract.first_bootstrap["configuration_status"] == "created"
+    assert running_odoo_contract.second_bootstrap["configuration_status"] == "existing"
+    assert (
+        running_odoo_contract.first_bootstrap["configuration_user_id"]
+        == running_odoo_contract.second_bootstrap["configuration_user_id"]
+    )
+    assert (
+        running_odoo_contract.first_bootstrap["configuration_active_named_key_count"]
+        == 1
+    )
     assert running_odoo_contract.key_mode == "600"
+    assert running_odoo_contract.configuration_key_mode == "600"
     assert len(running_odoo_contract.api_key) >= 32
 
 
@@ -500,10 +512,10 @@ def test_documented_models_fields_methods_and_acls_match_the_runtime(
     assert not missing_methods
 
 
-def test_missing_budget_and_non_atomic_standard_po_actions_are_explicit(
+def test_custom_budget_and_atomic_actions_extend_the_standard_contract(
     running_odoo_contract: OdooContractStack,
 ) -> None:
-    from scripts.odoo.probe_contract import Json2Client, ProbeError
+    from scripts.odoo.probe_contract import Json2Client
 
     with Json2Client(
         base_url=running_odoo_contract.base_url,
@@ -513,20 +525,20 @@ def test_missing_budget_and_non_atomic_standard_po_actions_are_explicit(
     ) as client:
         index = client.doc()
         purchase_order_doc = client.doc("purchase.order")
-        with pytest.raises(ProbeError) as missing_budget:
-            client.doc("stockai.procurement.budget")
+        budget_doc = client.doc("stockai.procurement.budget")
 
     assert REQUIRED_MODULES <= set(index["modules"])
     assert "account_budget" not in index["modules"]
-    assert "stockai.procurement.budget" not in {
-        model["model"] for model in index["models"]
-    }
-    assert missing_budget.value.status_code == 404
+    assert "stockai.procurement.budget" in {model["model"] for model in index["models"]}
+    assert budget_doc["model"] == "stockai.procurement.budget"
 
-    for method_name in ("button_confirm", "button_cancel"):
+    for method_name in (
+        "action_stockai_update_draft",
+        "action_stockai_cancel_draft",
+        "action_stockai_confirm",
+    ):
         method = purchase_order_doc["methods"][method_name]
-        assert "expected" not in method["parameters"]
-        assert "expected_write_date" not in method["parameters"]
+        assert "expected" in method["parameters"]
 
 
 def test_fictional_reordering_supplier_and_analytic_records_are_readable(

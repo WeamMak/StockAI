@@ -18,21 +18,20 @@ KEY_FILE = Path(
     os.environ.get("ODOO_CONTRACT_KEY_FILE", "/run/stockai-contract/api-key")
 )
 KEY_NAME = "stockai-t10-contract"
-GROUP_XML_IDS = (
-    "base.group_user",
-    "purchase.group_purchase_user",
-    "stock.group_stock_user",
-    "account.group_account_readonly",
-    "analytic.group_analytic_accounting",
-    "api_doc.group_allow_doc",
+CONFIGURATION_LOGIN = "stockai-contract-config@example.invalid"
+CONFIGURATION_KEY_FILE = Path("/run/stockai-contract/config-api-key")
+CONFIGURATION_KEY_NAME = "stockai-t11a-config-contract"
+INTEGRATION_GROUP_XML_ID = "stockai_procurement.group_stockai_procurement_integration"
+CONFIGURATION_GROUP_XML_ID = (
+    "stockai_procurement.group_stockai_procurement_config_admin"
 )
 
 
-def _active_named_keys(user_id: int):
+def _active_named_keys(user_id: int, key_name: str):
     return env["res.users.apikeys"].search(  # noqa: F821 - supplied by odoo shell
         [
             ("user_id", "=", user_id),
-            ("name", "=", KEY_NAME),
+            ("name", "=", key_name),
             "|",
             ("expiration_date", "=", False),
             ("expiration_date", ">=", datetime.datetime.now()),
@@ -40,33 +39,49 @@ def _active_named_keys(user_id: int):
     )
 
 
-groups = [env.ref(xml_id) for xml_id in GROUP_XML_IDS]  # noqa: F821
-expected_group_ids = [group.id for group in groups]
-users = env["res.users"].sudo()  # noqa: F821 - supplied by odoo shell
-matching_users = users.search([("login", "=", LOGIN)])
-if len(matching_users) > 1:
-    raise RuntimeError("contract bootstrap found duplicate integration users")
+def _identity(*, login, name, group_xml_id, key_name, key_file):
+    users = env["res.users"].sudo()  # noqa: F821 - supplied by odoo shell
+    matching_users = users.search([("login", "=", login)])
+    if len(matching_users) > 1:
+        raise RuntimeError("contract bootstrap found duplicate users")
 
-status = "existing"
-if not matching_users:
-    matching_users = users.create(
-        {
-            "name": "StockAI Contract Integration",
-            "login": LOGIN,
-            "email": LOGIN,
-            "active": True,
-            "group_ids": [Command.set(expected_group_ids)],
-        }
-    )
-    status = "created"
+    status = "existing"
+    group = env.ref(group_xml_id)  # noqa: F821 - supplied by odoo shell
+    if not matching_users:
+        matching_users = users.create(
+            {
+                "name": name,
+                "login": login,
+                "email": login,
+                "active": True,
+                "group_ids": [Command.set([group.id])],
+            }
+        )
+        status = "created"
 
-user = matching_users.ensure_one()
-if set(user.group_ids.ids) != set(expected_group_ids):
-    user.write({"group_ids": [Command.set(expected_group_ids)]})
-active_keys = _active_named_keys(user.id)
+    user = matching_users.ensure_one()
+    if set(user.group_ids.ids) != {group.id}:
+        user.write({"group_ids": [Command.set([group.id])]})
+    active_keys = _active_named_keys(user.id, key_name)
 
-if KEY_FILE.exists():
-    raw_key = KEY_FILE.read_text(encoding="utf-8").strip()
+    if key_file.exists():
+        raw_key = key_file.read_text(encoding="utf-8").strip()
+    else:
+        if active_keys:
+            raise RuntimeError(
+                "active contract key exists but its raw value is unavailable"
+            )
+        expiration = datetime.datetime.now() + datetime.timedelta(hours=12)
+        raw_key = (
+            env["res.users.apikeys"]  # noqa: F821 - supplied by odoo shell
+            .with_user(user)
+            ._generate(scope="rpc", name=key_name, expiration_date=expiration)
+        )
+        descriptor = os.open(key_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as key_stream:
+            key_stream.write(raw_key)
+        active_keys = _active_named_keys(user.id, key_name)
+
     authenticated_user_id = env[  # noqa: F821
         "res.users.apikeys"
     ]._check_credentials(scope="rpc", key=raw_key)
@@ -74,29 +89,25 @@ if KEY_FILE.exists():
         raise RuntimeError("contract key file does not authenticate its user")
     if len(active_keys) != 1:
         raise RuntimeError("contract bootstrap expected one active named key")
-else:
-    if active_keys:
-        raise RuntimeError(
-            "active contract key exists but its raw value is unavailable"
-        )
-    expiration = datetime.datetime.now() + datetime.timedelta(hours=12)
-    raw_key = (
-        env["res.users.apikeys"]  # noqa: F821 - supplied by odoo shell
-        .with_user(user)
-        ._generate(  # noqa: F821
-            scope="rpc",
-            name=KEY_NAME,
-            expiration_date=expiration,
-        )
-    )
-    descriptor = os.open(KEY_FILE, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(descriptor, "w", encoding="utf-8") as key_stream:
-        key_stream.write(raw_key)
-    active_keys = _active_named_keys(user.id)
+    if key_file.stat().st_mode & 0o777 != 0o600:
+        raise RuntimeError("contract key file permissions are not 0600")
+    return status, user, active_keys
 
-key_mode = KEY_FILE.stat().st_mode & 0o777
-if key_mode != 0o600:
-    raise RuntimeError("contract key file permissions are not 0600")
+
+status, user, active_keys = _identity(
+    login=LOGIN,
+    name="StockAI Contract Integration",
+    group_xml_id=INTEGRATION_GROUP_XML_ID,
+    key_name=KEY_NAME,
+    key_file=KEY_FILE,
+)
+configuration_status, configuration_user, configuration_keys = _identity(
+    login=CONFIGURATION_LOGIN,
+    name="StockAI Contract Configuration Administrator",
+    group_xml_id=CONFIGURATION_GROUP_XML_ID,
+    key_name=CONFIGURATION_KEY_NAME,
+    key_file=CONFIGURATION_KEY_FILE,
+)
 
 
 def _one_or_create(model_name, domain, values):
@@ -211,8 +222,10 @@ fixture = {
     "analytic_account_id": analytic_account.id,
     "analytic_plan_id": analytic_plan.id,
     "company_id": company.id,
+    "currency_id": company.currency_id.id,
     "orderpoint_id": orderpoint.id,
     "product_id": product.id,
+    "product_category_id": product_category.id,
     "product_template_id": product_template.id,
     "supplierinfo_id": supplierinfo.id,
     "unit_uom_id": unit_uom.id,
@@ -225,6 +238,9 @@ print(
     json.dumps(
         {
             "active_named_key_count": len(active_keys),
+            "configuration_active_named_key_count": len(configuration_keys),
+            "configuration_status": configuration_status,
+            "configuration_user_id": configuration_user.id,
             "fixture": fixture,
             "status": status,
             "user_id": user.id,

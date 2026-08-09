@@ -1,11 +1,12 @@
 UV ?= uv
 UV_CACHE_DIR ?= $(CURDIR)/.uv-cache
-PYTHON_PATHS := src tests scripts
+PYTHON_PATHS := src tests scripts odoo
 
 export UV_CACHE_DIR
 
 .PHONY: help sync lock-check format format-check lint test-unit test-integration \
-	test-e2e odoo-contract compose-validate compose-up compose-down check
+	test-e2e build odoo-image odoo-contract odoo-seed odoo-verify-seed \
+	compose-validate compose-up compose-down check
 
 help:
 	@echo "Available targets:"
@@ -17,7 +18,11 @@ help:
 	@echo "  test-unit     Run unit tests with JUnit and coverage reports"
 	@echo "  test-integration Run real-transport integration tests"
 	@echo "  test-e2e      Run the four deterministic local Compose scenarios"
-	@echo "  odoo-contract Run the disposable pinned Odoo JSON-2 contract suite"
+	@echo "  build         Build the three app images and the StockAI Odoo image"
+	@echo "  odoo-image    Build only the derived StockAI Odoo image"
+	@echo "  odoo-contract Run the clean Odoo add-on/bootstrap/seed contract suite"
+	@echo "  odoo-seed     Seed fictional Odoo data in the running contract stack"
+	@echo "  odoo-verify-seed Verify the running Odoo fictional seed"
 	@echo "  compose-validate Validate base, test, and Odoo Compose configurations"
 	@echo "  compose-up    Build and start the healthy local four-service stack"
 	@echo "  compose-down  Stop and remove the local Compose stack"
@@ -58,10 +63,26 @@ test-e2e:
 	$(UV) run pytest tests/e2e \
 		--junitxml=reports/junit/e2e.xml
 
+build:
+	docker compose -f compose.yaml build
+	docker compose -f compose.odoo.yaml build odoo
+
+odoo-image:
+	docker compose -f compose.odoo.yaml build odoo
+
 odoo-contract:
 	mkdir -p reports/junit
-	$(UV) run pytest tests/contract \
+	$(UV) run pytest tests/config/test_odoo_image_contract.py tests/contract \
+		tests/integration/test_odoo_bootstrap.py \
 		--junitxml=reports/junit/contract.xml
+
+odoo-seed:
+	docker compose -f compose.odoo.yaml exec -T odoo bash -lc \
+		'odoo shell --no-http --database="$$ODOO_CONTRACT_DATABASE" --db_host="$$HOST" --db_port="$$PORT" --db_user="$$USER" --db_password="$$PASSWORD" --log-level=error < /opt/stockai/seed.py'
+
+odoo-verify-seed:
+	docker compose -f compose.odoo.yaml exec -T odoo bash -lc \
+		'odoo shell --no-http --database="$$ODOO_CONTRACT_DATABASE" --db_host="$$HOST" --db_port="$$PORT" --db_user="$$USER" --db_password="$$PASSWORD" --log-level=error < /opt/stockai/verify_seed.py'
 
 compose-validate:
 	docker compose -f compose.yaml config --quiet
