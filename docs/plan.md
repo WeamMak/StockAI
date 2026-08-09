@@ -904,6 +904,65 @@ Bedrock implementation; the Bedrock runtime path is mocked-provider tested
 through LangGraph and remains advisory, schema-bound, observable, and incapable
 of authorizing writes or altering deterministic values.
 
+#### T12A — Close pre-T13 validation and reproducibility gaps
+
+This is a bounded audit-remediation task. It introduces no new product behavior
+and does not change the approved architecture.
+
+**Files**
+
+- Create `docker/odoo-requirements.in`, `docker/odoo-requirements.txt`,
+  `tests/config/test_makefile_contract.py`, `odoo/bootstrap/sinks.py`,
+  `tests/unit/odoo/__init__.py`, and
+  `tests/unit/odoo/test_bootstrap_sinks.py`.
+- Update `Makefile`, `docker/odoo.Dockerfile`,
+  `tests/config/test_odoo_image_contract.py`, `odoo/bootstrap/bootstrap.py`,
+  `tests/integration/test_odoo_bootstrap.py`, and
+  `docs/implementation-status.md`.
+
+**Work and tests**
+
+- [ ] **Step 1:** Add a failing Makefile contract test proving that `make lint`
+   invokes the existing `npm --prefix frontend run lint` command, then add that
+   command without changing the frontend toolchain. Keep `actionlint` assigned
+   to T21, where the workflow files first exist.
+- [ ] **Step 2:** Replace the Dockerfile's direct `boto3==1.43.62` installation
+   with a Python 3.12 lock generated from the single direct requirement in
+   `docker/odoo-requirements.in` by `uv pip compile --generate-hashes`. Install
+   `docker/odoo-requirements.txt` with pip `--require-hashes`; test that every
+   resolved distribution is exactly pinned and hashed, the Dockerfile consumes
+   only that lock, and the derived image still builds from the approved Odoo
+   digest.
+- [ ] **Step 3:** Extract only the existing file and Secrets Manager sink
+   boundary into `odoo/bootstrap/sinks.py`. With a mocked boto3 client, test
+   exact-ARN validation, ARN-derived region selection, missing-secret reads,
+   non-empty reads, and writes whose `SecretId` is exactly the configured ARN.
+   Assert invalid or empty responses fail safely and the raw secret never
+   appears in stdout, stderr, or logs.
+- [ ] **Step 4:** Parameterize the real-Odoo seed contract over both `dev` and
+   `prod`. For each environment, run seed and verification twice, assert stable
+   summaries and counts, and assert distinct `STOCKAI-DEV` and `STOCKAI-PROD`
+   fictional references.
+- [ ] **Step 5:** Run the focused configuration and sink unit tests, frontend
+   lint, the clean derived-image/Odoo contract suite, and `make check`; record
+   the executed evidence and any remaining named deferrals in
+   `docs/implementation-status.md`.
+
+**Verification:** Run `make lint`, the focused Makefile/image/sink tests,
+`make odoo-contract`, and `make check`. The Odoo contract must rebuild the
+derived image from the hash-locked dependency file and exercise both seed
+environments. No live AWS call is made.
+
+**Dependencies:** T11A and T12.
+
+**Requirements:** CR-08, CR-11, CR-13, CR-15; spec sections 12, 18, 20, and 22.
+
+**Complete when:** `make lint` enforces ESLint, the derived Odoo image has a
+fully pinned and hash-verified Python dependency closure, both fictional seed
+environments are idempotently verified, and the exact Secrets Manager sink is
+covered with a secret-safe mocked AWS test. `actionlint` remains explicitly
+deferred to T21.
+
 #### T13 — Add DynamoDB repositories and LangGraph checkpoint persistence
 
 **Files**
@@ -930,7 +989,7 @@ of authorizing writes or altering deterministic values.
 **Verification:** Run mocked unit tests and the real DynamoDB Local integration
 test.
 
-**Dependencies:** T12.
+**Dependencies:** T12A.
 
 **Requirements:** CR-05, CR-13, CR-15, CR-16; spec sections 9.5 and 15.
 
@@ -1817,9 +1876,10 @@ from Git without a Grafana data volume.
    complete named map of all four required project-image digests, build
    provenance, Scout result, dev validation status, and creation time. The
    schema must reject a missing frontend, API, MCP, or StockAI Odoo image.
-- [ ] **Step 2:** Run Python and React tests with JUnit/coverage summaries, builds, Compose
-   validation, Terraform checks/plans, Kustomize/schema checks, secret scans,
-   and action lint on every pull request.
+- [ ] **Step 2:** Add `actionlint` to `make lint` when the workflow files first
+   exist, then run Python and React tests with JUnit/coverage summaries, builds,
+   Compose validation, Terraform checks/plans, Kustomize/schema checks, secret
+   scans, and action lint on every pull request.
 - [ ] **Step 3:** Run Docker Scout on pull requests targeting `main`.
 - [ ] **Step 4:** Authenticate AWS plan jobs through read-only GitHub OIDC.
 - [ ] **Step 5:** Make path-filtered Terraform applies use protected GitHub environments and
