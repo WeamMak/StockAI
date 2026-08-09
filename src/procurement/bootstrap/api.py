@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal, InvalidOperation
+from enum import StrEnum
 from typing import cast
 
 import httpx
@@ -17,7 +18,17 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from mcp.types import CallToolResult, TextContent
 
+from procurement.adapters.aws.bedrock import (
+    BedrockRuntimeClient,
+    BedrockStructuredLlm,
+    create_bedrock_runtime_client,
+)
 from procurement.agent.graph import build_walking_skeleton_graph
+from procurement.agent.recommendation_schema import (
+    RECOMMENDATION_JSON_SCHEMA,
+    load_procurement_system_prompt,
+    validate_recommendation_payload,
+)
 from procurement.api.app import create_app
 from procurement.api.config import ApiSettings
 from procurement.api.observability import create_http_metrics
@@ -45,13 +56,21 @@ _MIN_TOKEN_LENGTH = 32
 _MAX_TOKEN_LENGTH = 512
 
 
+class LlmMode(StrEnum):
+    """Explicit structured-LLM implementation selected by the API process."""
+
+    LOCAL = "local"
+    BEDROCK = "bedrock"
+
+
 @dataclass(frozen=True, slots=True)
 class LocalApiSettings:
-    """Validated local-only dependencies added by the API composition root."""
+    """Validated dependencies selected by the API composition root."""
 
     api: ApiSettings
     mcp_url: str
     mcp_token: str = field(repr=False)
+    llm_mode: LlmMode = LlmMode.LOCAL
     mcp_timeout_seconds: float = 5.0
 
     def __post_init__(self) -> None:
@@ -68,6 +87,8 @@ class LocalApiSettings:
             raise ValueError(
                 "PROCUREMENT_MCP_CLIENT_TIMEOUT_SECONDS must be between 0 and 120"
             )
+        if not isinstance(self.llm_mode, LlmMode):
+            raise ValueError("PROCUREMENT_LLM_MODE must be local or bedrock")
 
     @classmethod
     def from_environment(cls) -> LocalApiSettings:
@@ -76,6 +97,10 @@ class LocalApiSettings:
         mcp_token = os.environ.get("PROCUREMENT_MCP_TOKEN")
         if mcp_token is None:
             raise ValueError("PROCUREMENT_MCP_TOKEN is required")
+        try:
+            llm_mode = LlmMode(os.environ.get("PROCUREMENT_LLM_MODE", "local"))
+        except ValueError as error:
+            raise ValueError("PROCUREMENT_LLM_MODE must be local or bedrock") from error
         return cls(
             api=ApiSettings.from_environment(),
             mcp_url=os.environ.get(
@@ -83,6 +108,7 @@ class LocalApiSettings:
                 "http://127.0.0.1:9000/mcp",
             ),
             mcp_token=mcp_token,
+            llm_mode=llm_mode,
             mcp_timeout_seconds=float(
                 os.environ.get("PROCUREMENT_MCP_CLIENT_TIMEOUT_SECONDS", "5")
             ),
@@ -90,7 +116,7 @@ class LocalApiSettings:
 
 
 class LocalStructuredLlm(StructuredLlmPort):
-    """Deterministic local reasoning substitute until the Bedrock task."""
+    """Deterministic structured-LLM substitute for local and test runs."""
 
     async def recommend(
         self,
@@ -105,6 +131,26 @@ class LocalStructuredLlm(StructuredLlmPort):
             input_tokens=48,
             output_tokens=19,
         )
+
+
+BedrockClientFactory = Callable[[], BedrockRuntimeClient]
+
+
+def _structured_llm(
+    settings: LocalApiSettings,
+    *,
+    bedrock_client_factory: BedrockClientFactory,
+) -> StructuredLlmPort:
+    """Construct exactly the structured-LLM implementation selected by settings."""
+
+    if settings.llm_mode is LlmMode.LOCAL:
+        return LocalStructuredLlm()
+    return BedrockStructuredLlm(
+        client=bedrock_client_factory(),
+        system_prompt=load_procurement_system_prompt(),
+        output_schema=RECOMMENDATION_JSON_SCHEMA,
+        validator=validate_recommendation_payload,
+    )
 
 
 def _safe_error_payload(result: CallToolResult) -> Mapping[str, object] | None:
@@ -232,6 +278,8 @@ class StreamableHttpProcurementMcp(ProcurementMcpPort):
 
 def create_local_api_app(
     settings: LocalApiSettings | None = None,
+    *,
+    bedrock_client_factory: BedrockClientFactory = create_bedrock_runtime_client,
 ) -> FastAPI:
     """Build the local API with only API-owned dependencies and adapters."""
 
@@ -249,7 +297,10 @@ def create_local_api_app(
             bearer_token=resolved.mcp_token,
             timeout_seconds=resolved.mcp_timeout_seconds,
         ),
-        llm=LocalStructuredLlm(),
+        llm=_structured_llm(
+            resolved,
+            bedrock_client_factory=bedrock_client_factory,
+        ),
         metrics=agent_metrics,
         logger=logger,
     )

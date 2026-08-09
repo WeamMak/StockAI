@@ -4,13 +4,14 @@ StockAI is an approval-gated AI procurement agent for a fictional, self-hosted
 Odoo business. The approved design and implementation sequence live in
 [`docs/spec.md`](docs/spec.md) and [`docs/plan.md`](docs/plan.md).
 
-Tasks T01 through T09 establish and package the local walking skeleton: the Python domain,
-FastAPI asynchronous scan API, coded LangGraph, authenticated Procurement MCP
-tool, React polling UI, service-owned observability, and separate runnable API
-and MCP composition roots. Three immutable images and a four-service Compose
-stack run the frontend, API, MCP server, and deterministic fake Odoo gateway as
-separate processes. The local path needs neither AWS nor real Odoo. Real Odoo,
-Bedrock, durable state, and write operations remain later approved plan tasks.
+Tasks T01 through T12 establish the local walking skeleton and its real Odoo and
+Bedrock adapter boundaries: the Python domain, FastAPI asynchronous scan API,
+coded LangGraph, authenticated Procurement MCP tool, React polling UI,
+service-owned observability, and separate runnable API and MCP composition
+roots. The default Compose path remains deterministic and needs neither AWS nor
+real Odoo. Explicit runtime modes can select the validated Odoo JSON-2 and
+Bedrock adapters; durable state and write operations remain later approved plan
+tasks.
 
 ## Prerequisites
 
@@ -78,6 +79,12 @@ If port 5173 is already in use, choose another frontend port with
 The script is intentionally local-only. It uses the deterministic fictional ERP
 and structured-LLM adapters assigned to the walking skeleton; it does not call
 Odoo, Bedrock, or AWS and it does not contain a committed credential.
+
+The API setting `PROCUREMENT_LLM_MODE` accepts only `local` or `bedrock` and
+defaults to `local`. Bedrock mode constructs the approved GPT-OSS adapter using
+the ambient IAM credential chain; no AWS credential is stored in application
+configuration. Its first live deployed invocation remains the T23 dev smoke
+test.
 
 Useful local checks:
 

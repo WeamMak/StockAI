@@ -852,6 +852,12 @@ real, validated Odoo-backed MCP read.
 - Create `tests/unit/adapters/aws/test_bedrock.py`,
   `tests/unit/agent/test_recommendation_schema.py`, and
   `tests/unit/agent/test_prompt_boundary.py`.
+- Update `src/procurement/bootstrap/api.py`, `scripts/run-local-skeleton.sh`,
+  `tests/support/local_skeleton.py`, `compose.yaml`, `.env.example`, and
+  `README.md`, and create `tests/unit/bootstrap/test_api.py` so the API
+  composition root can select and document the deterministic local substitute
+  or the real Bedrock adapter explicitly while existing local paths pin local
+  mode.
 
 **Work and tests**
 
@@ -864,25 +870,39 @@ real, validated Odoo-backed MCP read.
    metric extraction.
 - [x] **Step 4:** Implement the system-prompt sections defined in specification 9.4 without
    requesting or exposing hidden chain-of-thought.
+- [x] **Step 5:** Test an explicit `local|bedrock` API setting, reject every other value, and
+   prove that Bedrock mode constructs the approved client, prompt, schema, and validator
+   while local mode remains deterministic and requires no AWS access.
+- [x] **Step 6:** Exercise API scan creation and polling through LangGraph with a mocked MCP
+   read and mocked boto3 Bedrock boundary; assert the schema-bound advisory result and
+   aggregate LLM success/failure, latency, and token metrics. Keep the first live model call
+   deferred to T23 and the full offer-comparison fallback and its final metrics deferred to
+   T28.
 
-**Verification:** Run all tests with a mocked boto3 Bedrock client. A real model
-call is deferred to the dev smoke test.
+**Verification:** Run the focused adapter, schema, prompt, bootstrap, and graph
+tests with a mocked boto3 Bedrock client, then run the complete local quality
+suite. A real model call is deferred to the dev smoke test.
 
 **Verification result:** `make check` passed lock and format checks, Ruff,
-strict mypy over 95 source files, 5 architecture tests, and all 203 unit tests.
-The focused T12 suite passed 15 mocked-provider tests covering the fixed model
+strict mypy over 97 source files, 5 architecture tests, and all 208 unit tests.
+The focused T12 suite passed 20 mocked-provider tests covering the fixed model
 and region, disabled SDK retries, bounded adapter retries/timeouts, schema
 repair/fallback, strict semantic validation, untrusted-text delimiting, token
-metadata, and hidden-reasoning suppression. A production wheel build also
-confirmed that the version-controlled Markdown system prompt is packaged. No
-live Bedrock call was made, as required by this task.
+metadata, hidden-reasoning suppression, explicit local/Bedrock selection, and
+safe successful, invalid-output, and unavailable API-to-LangGraph paths. Three
+focused real-transport integration regressions passed, and all Compose files
+rendered successfully. A production wheel build also confirmed that the
+version-controlled Markdown system prompt is packaged. No live Bedrock call
+was made, as required by this task.
 
 **Dependencies:** T11B.
 
 **Requirements:** CR-03, CR-05, CR-12, CR-13, CR-15; spec sections 9 and 19.
 
-**Complete when:** Model responses are advisory, schema-bound, observable, and
-incapable of authorizing writes or altering deterministic values.
+**Complete when:** The API composition root can explicitly select the local or
+Bedrock implementation; the Bedrock runtime path is mocked-provider tested
+through LangGraph and remains advisory, schema-bound, observable, and incapable
+of authorizing writes or altering deterministic values.
 
 #### T13 — Add DynamoDB repositories and LangGraph checkpoint persistence
 
