@@ -118,12 +118,12 @@ async def create_manual_scan(request: Request, response: Response) -> ScanRespon
 
 @router.get("")
 async def list_scans(request: Request) -> ScanListResponse:
-    """List the bounded in-memory walking-skeleton scan history."""
+    """List the bounded durable walking-skeleton scan history."""
 
     return ScanListResponse(
         scans=tuple(
             scan_response(snapshot)
-            for snapshot in scan_service_from(request).list_scans()
+            for snapshot in await scan_service_from(request).list_scans()
         )
     )
 
@@ -132,4 +132,4 @@ async def list_scans(request: Request) -> ScanListResponse:
 async def get_scan(scan_id: str, request: Request) -> ScanResponse:
     """Return current progress or the terminal result for one scan."""
 
-    return scan_response(scan_service_from(request).get_scan(scan_id))
+    return scan_response(await scan_service_from(request).get_scan(scan_id))

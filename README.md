@@ -4,14 +4,14 @@ StockAI is an approval-gated AI procurement agent for a fictional, self-hosted
 Odoo business. The approved design and implementation sequence live in
 [`docs/spec.md`](docs/spec.md) and [`docs/plan.md`](docs/plan.md).
 
-Tasks T01 through T12 establish the local walking skeleton and its real Odoo and
-Bedrock adapter boundaries: the Python domain, FastAPI asynchronous scan API,
-coded LangGraph, authenticated Procurement MCP tool, React polling UI,
-service-owned observability, and separate runnable API and MCP composition
-roots. The default Compose path remains deterministic and needs neither AWS nor
-real Odoo. Explicit runtime modes can select the validated Odoo JSON-2 and
-Bedrock adapters; durable state and write operations remain later approved plan
-tasks.
+Tasks T01 through T13 establish the local walking skeleton and its real Odoo,
+Bedrock, and DynamoDB adapter boundaries: the Python domain, FastAPI
+asynchronous scan API, coded LangGraph, authenticated Procurement MCP tool,
+React polling UI, service-owned observability, and separate runnable API and
+MCP composition roots. The default Compose path remains deterministic and
+needs neither AWS nor real Odoo. Explicit runtime modes can select the
+validated Odoo JSON-2, Bedrock, and DynamoDB adapters; write operations remain
+later approved plan tasks.
 
 ## Prerequisites
 
@@ -85,6 +85,14 @@ defaults to `local`. Bedrock mode constructs the approved GPT-OSS adapter using
 the ambient IAM credential chain; no AWS credential is stored in application
 configuration. Its first live deployed invocation remains the T23 dev smoke
 test.
+
+`PROCUREMENT_PERSISTENCE_MODE` accepts only `memory` or `dynamodb` and defaults
+to `memory`. DynamoDB mode uses separate application and LangGraph checkpoint
+tables, the immutable scan/case identifier as `thread_id`, and the ambient AWS
+credential chain. `compose.test.yaml` provides a pinned, local-only DynamoDB
+Local profile used by `tests/integration/test_dynamodb_local.py`; that test
+creates disposable tables, replaces the API process, and verifies that scan
+polling and sanitized graph checkpoints survive the replacement.
 
 Useful local checks:
 

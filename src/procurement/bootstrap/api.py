@@ -9,11 +9,13 @@ from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
-from typing import cast
+from typing import Any, cast
 
 import httpx
 import uvicorn
 from fastapi import FastAPI
+from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.checkpoint.memory import InMemorySaver
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from mcp.types import CallToolResult, TextContent
@@ -22,6 +24,15 @@ from procurement.adapters.aws.bedrock import (
     BedrockRuntimeClient,
     BedrockStructuredLlm,
     create_bedrock_runtime_client,
+)
+from procurement.adapters.aws.checkpointer import (
+    DynamoCheckpointSettings,
+    create_dynamodb_checkpointer,
+)
+from procurement.adapters.aws.dynamodb import (
+    DynamoApplicationRepository,
+    DynamoClient,
+    create_dynamodb_client,
 )
 from procurement.agent.graph import build_walking_skeleton_graph
 from procurement.agent.recommendation_schema import (
@@ -50,6 +61,10 @@ from procurement.ports.mcp import (
     ProcurementMcpPort,
     ReplenishmentCandidate,
 )
+from procurement.ports.repositories import (
+    ApplicationRepository,
+    InMemoryApplicationRepository,
+)
 
 _MCP_TOOL_NAME = "list_replenishment_candidates"
 _MIN_TOKEN_LENGTH = 32
@@ -63,6 +78,13 @@ class LlmMode(StrEnum):
     BEDROCK = "bedrock"
 
 
+class PersistenceMode(StrEnum):
+    """Explicit application and graph persistence implementation."""
+
+    MEMORY = "memory"
+    DYNAMODB = "dynamodb"
+
+
 @dataclass(frozen=True, slots=True)
 class LocalApiSettings:
     """Validated dependencies selected by the API composition root."""
@@ -71,6 +93,11 @@ class LocalApiSettings:
     mcp_url: str
     mcp_token: str = field(repr=False)
     llm_mode: LlmMode = LlmMode.LOCAL
+    persistence_mode: PersistenceMode = PersistenceMode.MEMORY
+    aws_region: str = "us-east-1"
+    dynamodb_application_table: str | None = None
+    dynamodb_checkpoint_table: str | None = None
+    dynamodb_endpoint_url: str | None = None
     mcp_timeout_seconds: float = 5.0
 
     def __post_init__(self) -> None:
@@ -89,6 +116,22 @@ class LocalApiSettings:
             )
         if not isinstance(self.llm_mode, LlmMode):
             raise ValueError("PROCUREMENT_LLM_MODE must be local or bedrock")
+        if not isinstance(self.persistence_mode, PersistenceMode):
+            raise ValueError("PROCUREMENT_PERSISTENCE_MODE must be memory or dynamodb")
+        if not self.aws_region.strip():
+            raise ValueError("PROCUREMENT_AWS_REGION is required")
+        if self.dynamodb_endpoint_url is not None:
+            endpoint = httpx.URL(self.dynamodb_endpoint_url)
+            if endpoint.scheme not in {"http", "https"} or endpoint.host is None:
+                raise ValueError(
+                    "PROCUREMENT_DYNAMODB_ENDPOINT_URL must be an absolute HTTP URL"
+                )
+        if self.persistence_mode is PersistenceMode.DYNAMODB and (
+            not self.dynamodb_application_table or not self.dynamodb_checkpoint_table
+        ):
+            raise ValueError(
+                "DynamoDB persistence requires application and checkpoint tables"
+            )
 
     @classmethod
     def from_environment(cls) -> LocalApiSettings:
@@ -97,18 +140,39 @@ class LocalApiSettings:
         mcp_token = os.environ.get("PROCUREMENT_MCP_TOKEN")
         if mcp_token is None:
             raise ValueError("PROCUREMENT_MCP_TOKEN is required")
+        api = ApiSettings.from_environment()
         try:
             llm_mode = LlmMode(os.environ.get("PROCUREMENT_LLM_MODE", "local"))
         except ValueError as error:
             raise ValueError("PROCUREMENT_LLM_MODE must be local or bedrock") from error
+        try:
+            persistence_mode = PersistenceMode(
+                os.environ.get("PROCUREMENT_PERSISTENCE_MODE", "memory")
+            )
+        except ValueError as error:
+            raise ValueError(
+                "PROCUREMENT_PERSISTENCE_MODE must be memory or dynamodb"
+            ) from error
+        environment_prefix = f"stockai-{api.environment.value}"
         return cls(
-            api=ApiSettings.from_environment(),
+            api=api,
             mcp_url=os.environ.get(
                 "PROCUREMENT_MCP_URL",
                 "http://127.0.0.1:9000/mcp",
             ),
             mcp_token=mcp_token,
             llm_mode=llm_mode,
+            persistence_mode=persistence_mode,
+            aws_region=os.environ.get("PROCUREMENT_AWS_REGION", "us-east-1"),
+            dynamodb_application_table=os.environ.get(
+                "PROCUREMENT_DYNAMODB_APPLICATION_TABLE",
+                f"{environment_prefix}-application",
+            ),
+            dynamodb_checkpoint_table=os.environ.get(
+                "PROCUREMENT_DYNAMODB_CHECKPOINT_TABLE",
+                f"{environment_prefix}-checkpoints",
+            ),
+            dynamodb_endpoint_url=os.environ.get("PROCUREMENT_DYNAMODB_ENDPOINT_URL"),
             mcp_timeout_seconds=float(
                 os.environ.get("PROCUREMENT_MCP_CLIENT_TIMEOUT_SECONDS", "5")
             ),
@@ -134,6 +198,8 @@ class LocalStructuredLlm(StructuredLlmPort):
 
 
 BedrockClientFactory = Callable[[], BedrockRuntimeClient]
+DynamoClientFactory = Callable[..., DynamoClient]
+CheckpointFactory = Callable[[DynamoCheckpointSettings], BaseCheckpointSaver[Any]]
 
 
 def _structured_llm(
@@ -280,6 +346,8 @@ def create_local_api_app(
     settings: LocalApiSettings | None = None,
     *,
     bedrock_client_factory: BedrockClientFactory = create_bedrock_runtime_client,
+    dynamodb_client_factory: DynamoClientFactory = create_dynamodb_client,
+    checkpoint_factory: CheckpointFactory = create_dynamodb_checkpointer,
 ) -> FastAPI:
     """Build the local API with only API-owned dependencies and adapters."""
 
@@ -291,6 +359,34 @@ def create_local_api_app(
     )
     http_metrics = create_http_metrics()
     agent_metrics = create_agent_metrics(http_metrics.registry)
+    application_repository: ApplicationRepository
+    checkpointer: BaseCheckpointSaver[Any]
+    if resolved.persistence_mode is PersistenceMode.MEMORY:
+        application_repository = InMemoryApplicationRepository(
+            environment=resolved.api.environment
+        )
+        checkpointer = InMemorySaver()
+    else:
+        application_table = resolved.dynamodb_application_table
+        checkpoint_table = resolved.dynamodb_checkpoint_table
+        if application_table is None or checkpoint_table is None:
+            raise RuntimeError("DynamoDB table settings were not validated")
+        application_repository = DynamoApplicationRepository(
+            client=dynamodb_client_factory(
+                region_name=resolved.aws_region,
+                endpoint_url=resolved.dynamodb_endpoint_url,
+            ),
+            table_name=application_table,
+            environment=resolved.api.environment,
+        )
+        checkpointer = checkpoint_factory(
+            DynamoCheckpointSettings(
+                environment=resolved.api.environment,
+                table_name=checkpoint_table,
+                region_name=resolved.aws_region,
+                endpoint_url=resolved.dynamodb_endpoint_url,
+            )
+        )
     graph = build_walking_skeleton_graph(
         mcp=StreamableHttpProcurementMcp(
             url=resolved.mcp_url,
@@ -301,6 +397,7 @@ def create_local_api_app(
             resolved,
             bedrock_client_factory=bedrock_client_factory,
         ),
+        checkpointer=checkpointer,
         metrics=agent_metrics,
         logger=logger,
     )
@@ -310,6 +407,7 @@ def create_local_api_app(
         http_metrics=http_metrics,
         agent_metrics=agent_metrics,
         scan_workflow=cast(ScanWorkflow, graph),
+        application_repository=application_repository,
     )
 
 

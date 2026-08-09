@@ -1,7 +1,9 @@
 """Construction of the minimal coded LangGraph workflow."""
 
 import logging
+from typing import Any
 
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
@@ -16,6 +18,7 @@ def build_walking_skeleton_graph(
     *,
     mcp: ProcurementMcpPort,
     llm: StructuredLlmPort,
+    checkpointer: BaseCheckpointSaver[Any] | None = None,
     metrics: AgentMetrics | None = None,
     logger: logging.Logger | None = None,
 ) -> CompiledStateGraph[ScanState, None, ScanState, ScanState]:
@@ -33,4 +36,4 @@ def build_walking_skeleton_graph(
     builder.add_edge(START, "discover_candidates")
     builder.add_edge("discover_candidates", "reason")
     builder.add_edge("reason", END)
-    return builder.compile()
+    return builder.compile(checkpointer=checkpointer)

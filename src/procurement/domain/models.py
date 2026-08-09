@@ -4,6 +4,7 @@ import re
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
+from typing import Self
 
 from procurement.domain.errors import DomainValidationError, FieldError
 from procurement.domain.identifiers import CaseId, Environment, EvidenceId, Revision
@@ -157,6 +158,24 @@ class UtcTimestamp:
                     ),
                 ),
             )
+
+    @classmethod
+    def from_value(cls, value: str) -> Self:
+        """Parse the repository's ISO-8601 UTC representation."""
+
+        try:
+            parsed = datetime.fromisoformat(value)
+        except (TypeError, ValueError) as error:
+            raise DomainValidationError(
+                "The timestamp is invalid.",
+                field_errors=(
+                    FieldError(
+                        field="timestamp",
+                        message="Timestamp must be ISO-8601 UTC.",
+                    ),
+                ),
+            ) from error
+        return cls(parsed)
 
 
 @dataclass(frozen=True, slots=True)

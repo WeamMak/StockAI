@@ -28,6 +28,7 @@ from procurement.observability.metrics import (
     AgentMetrics,
     create_agent_metrics,
 )
+from procurement.ports.repositories import ApplicationRepository
 
 
 def create_app(
@@ -38,6 +39,7 @@ def create_app(
     http_metrics: HttpMetrics | None = None,
     scan_workflow: ScanWorkflow | None = None,
     scan_service: ScanService | None = None,
+    application_repository: ApplicationRepository | None = None,
     agent_metrics: AgentMetrics | None = None,
 ) -> FastAPI:
     """Create an isolated procurement API application."""
@@ -54,6 +56,7 @@ def create_app(
     scan_service = scan_service or ScanService(
         workflow=scan_workflow or UnconfiguredScanWorkflow(),
         environment=resolved_settings.environment,
+        repository=application_repository,
         metrics=agent_metrics,
         logger=resolved_logger,
     )

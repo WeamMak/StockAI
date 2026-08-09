@@ -8,6 +8,8 @@ from decimal import Decimal
 from io import StringIO
 
 import pytest
+from langchain_core.runnables import RunnableConfig
+from langgraph.checkpoint.memory import InMemorySaver
 from prometheus_client import generate_latest
 from tests.support.fakes.llm import FakeStructuredLlm
 
@@ -117,6 +119,50 @@ async def test_graph_returns_one_approval_ready_read_only_result() -> None:
     assert '"event":"agent_mcp_call_completed"' in stream.getvalue()
     assert '"event":"llm_call_completed"' in stream.getvalue()
     assert "Fictional Safety Gloves" not in stream.getvalue()
+
+
+@pytest.mark.anyio
+async def test_checkpoint_retains_result_but_not_transient_odoo_data() -> None:
+    saver = InMemorySaver()
+    mcp = FakeMcp(
+        page=CandidatePage(
+            environment=Environment.DEV,
+            candidates=(_candidate(),),
+            next_cursor=None,
+        )
+    )
+    llm = FakeStructuredLlm(
+        response=StructuredRecommendation(
+            decision=RecommendationDecision.RECOMMEND,
+            product_id="product-101",
+            rationale="Stock is below the configured minimum.",
+            risk_flags=("LIMITED_WALKING_SKELETON_EVIDENCE",),
+            input_tokens=10,
+            output_tokens=5,
+        )
+    )
+    config: RunnableConfig = {"configurable": {"thread_id": "scan-immutable-case-001"}}
+    first_graph = build_walking_skeleton_graph(
+        mcp=mcp,
+        llm=llm,
+        checkpointer=saver,
+    )
+
+    await first_graph.ainvoke(
+        {"scan_id": "scan-immutable-case-001", "environment": Environment.DEV},
+        config=config,
+    )
+    restarted_graph = build_walking_skeleton_graph(
+        mcp=mcp,
+        llm=llm,
+        checkpointer=saver,
+    )
+    snapshot = await restarted_graph.aget_state(config)
+
+    assert snapshot.values["scan_id"] == "scan-immutable-case-001"
+    assert isinstance(snapshot.values["result"], ApprovalReadyResult)
+    assert "candidates" not in snapshot.values
+    assert "recommendation" not in snapshot.values
 
 
 @pytest.mark.anyio

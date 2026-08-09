@@ -444,6 +444,20 @@ wheels = [
 ]
 
 [[package]]
+name = "langgraph-checkpoint-aws"
+version = "1.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "boto3" },
+    { name = "langgraph" },
+    { name = "langgraph-checkpoint" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/21/78/272c3fa062eb0fc6f2b23fe49100b6e419a84a807ed62412a578a8f3f60a/langgraph_checkpoint_aws-1.2.0.tar.gz", hash = "sha256:ba9070335eee056452d6a1608ae45ceca9c7b95f83901eafaa43e26c56c9abe3", size = 305525, upload-time = "2026-07-02T20:41:10.361Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/37/8c/a3f43da031c4eeb497a4e83d9d5a243e11ff544e17a56017cdbcae1c4c23/langgraph_checkpoint_aws-1.2.0-py3-none-any.whl", hash = "sha256:a8868d908546832cbfafc460e66b0528606692fb6df6838aa60641c0a17ce269", size = 168149, upload-time = "2026-07-02T20:41:09.082Z" },
+]
+
+[[package]]
 name = "langgraph-prebuilt"
 version = "1.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -983,6 +997,7 @@ dependencies = [
     { name = "fastapi" },
     { name = "httpx" },
     { name = "langgraph" },
+    { name = "langgraph-checkpoint-aws" },
     { name = "mcp" },
     { name = "prometheus-client" },
     { name = "pydantic" },
@@ -1004,6 +1019,7 @@ requires-dist = [
     { name = "fastapi", specifier = "==0.141.1" },
     { name = "httpx", specifier = "==0.28.1" },
     { name = "langgraph", specifier = "==1.2.10" },
+    { name = "langgraph-checkpoint-aws", specifier = "==1.2.0" },
     { name = "mcp", specifier = "==1.29.0" },
     { name = "prometheus-client", specifier = "==0.25.0" },
     { name = "pydantic", specifier = "==2.13.4" },
