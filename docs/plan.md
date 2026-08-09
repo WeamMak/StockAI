@@ -13,17 +13,17 @@ ORM-bootstrap contracts selected after T10 discovery.
 
 **Tech Stack:** Python 3.12, FastAPI, LangGraph, Python MCP SDK, React, TypeScript, Vite, Odoo 19 Community, PostgreSQL, Terraform, AWS EC2/Auto Scaling/SSM/EventBridge/Lambda/EBS/ALB/ACM/Route 53, kubeadm Kubernetes, Kustomize, Argo CD, Prometheus, Grafana, Loki, Alertmanager, GitHub Actions.
 
-**Status:** T11B implementation complete; awaiting task review
+**Status:** T12 implementation complete; awaiting task review
 
 **Date:** 2026-08-09
 
 **Source design:** User- and course-staff-approved `docs/spec.md` dated 2026-08-07
 
 **Current gate:** The user approved the exact 2026-08-07 revision, confirmed
-course-staff approval, and explicitly authorized implementation to resume. T10
-and T11A are approved and merged. The user explicitly authorized T11B on
-2026-08-09; its implementation and real-Odoo verification are complete. T12
-must not begin until T11B is approved and merged.
+course-staff approval, and explicitly authorized implementation to resume. T10,
+T11A, and T11B are approved and merged. The user explicitly authorized T12 on
+2026-08-09; its implementation and mocked-Bedrock verification are complete.
+T13 must not begin until T12 is approved and merged.
 
 ## 1. Approval status and purpose
 
@@ -852,28 +852,57 @@ real, validated Odoo-backed MCP read.
 - Create `tests/unit/adapters/aws/test_bedrock.py`,
   `tests/unit/agent/test_recommendation_schema.py`, and
   `tests/unit/agent/test_prompt_boundary.py`.
+- Update `src/procurement/bootstrap/api.py`, `scripts/run-local-skeleton.sh`,
+  `tests/support/local_skeleton.py`, `compose.yaml`, `.env.example`, and
+  `README.md`, and create `tests/unit/bootstrap/test_api.py` so the API
+  composition root can select and document the deterministic local substitute
+  or the real Bedrock adapter explicitly while existing local paths pin local
+  mode.
 
 **Work and tests**
 
-- [ ] **Step 1:** Test that only `openai.gpt-oss-20b-1:0` can be invoked.
-- [ ] **Step 2:** Test the 30-second attempt timeout, at most two transient retries with
+- [x] **Step 1:** Test that only `openai.gpt-oss-20b-1:0` can be invoked.
+- [x] **Step 2:** Test the 30-second attempt timeout, at most two transient retries with
    exponential backoff/jitter, one schema-repair attempt, and final safe
    fallback.
-- [ ] **Step 3:** Test ineligible identifiers, changed arithmetic, missing budget
+- [x] **Step 3:** Test ineligible identifiers, changed arithmetic, missing budget
    acknowledgement, oversized text, injection-like business data, and token
    metric extraction.
-- [ ] **Step 4:** Implement the system-prompt sections defined in specification 9.4 without
+- [x] **Step 4:** Implement the system-prompt sections defined in specification 9.4 without
    requesting or exposing hidden chain-of-thought.
+- [x] **Step 5:** Test an explicit `local|bedrock` API setting, reject every other value, and
+   prove that Bedrock mode constructs the approved client, prompt, schema, and validator
+   while local mode remains deterministic and requires no AWS access.
+- [x] **Step 6:** Exercise API scan creation and polling through LangGraph with a mocked MCP
+   read and mocked boto3 Bedrock boundary; assert the schema-bound advisory result and
+   aggregate LLM success/failure, latency, and token metrics. Keep the first live model call
+   deferred to T23 and the full offer-comparison fallback and its final metrics deferred to
+   T28.
 
-**Verification:** Run all tests with a mocked boto3 Bedrock client. A real model
-call is deferred to the dev smoke test.
+**Verification:** Run the focused adapter, schema, prompt, bootstrap, and graph
+tests with a mocked boto3 Bedrock client, then run the complete local quality
+suite. A real model call is deferred to the dev smoke test.
+
+**Verification result:** `make check` passed lock and format checks, Ruff,
+strict mypy over 97 source files, 5 architecture tests, and all 208 unit tests.
+The focused T12 suite passed 20 mocked-provider tests covering the fixed model
+and region, disabled SDK retries, bounded adapter retries/timeouts, schema
+repair/fallback, strict semantic validation, untrusted-text delimiting, token
+metadata, hidden-reasoning suppression, explicit local/Bedrock selection, and
+safe successful, invalid-output, and unavailable API-to-LangGraph paths. Three
+focused real-transport integration regressions passed, and all Compose files
+rendered successfully. A production wheel build also confirmed that the
+version-controlled Markdown system prompt is packaged. No live Bedrock call
+was made, as required by this task.
 
 **Dependencies:** T11B.
 
 **Requirements:** CR-03, CR-05, CR-12, CR-13, CR-15; spec sections 9 and 19.
 
-**Complete when:** Model responses are advisory, schema-bound, observable, and
-incapable of authorizing writes or altering deterministic values.
+**Complete when:** The API composition root can explicitly select the local or
+Bedrock implementation; the Bedrock runtime path is mocked-provider tested
+through LangGraph and remains advisory, schema-bound, observable, and incapable
+of authorizing writes or altering deterministic values.
 
 #### T13 — Add DynamoDB repositories and LangGraph checkpoint persistence
 
@@ -2669,6 +2698,7 @@ The original planning gate and subsequent approved revisions authorized T01
 through T09, which are complete. T10 triggered its approved stop condition.
 The user approved the exact remediation revision, confirmed course-staff
 approval, and explicitly authorized T10 implementation to resume on 2026-08-07.
-T10 and T11A are approved and merged. The user explicitly authorized T11B on
-2026-08-09. T11B's implementation and real-Odoo verification are complete and
-await user review. T12 must not start until T11B is approved and merged.
+T10, T11A, and T11B are approved and merged. The user explicitly authorized
+T12 on 2026-08-09. T12's implementation and mocked-Bedrock verification are
+complete and await user review. T13 must not start until T12 is approved and
+merged.

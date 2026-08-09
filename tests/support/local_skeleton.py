@@ -87,6 +87,7 @@ def run_local_skeleton(
         **os.environ,
         "PROCUREMENT_ENVIRONMENT": "dev",
         "PROCUREMENT_LOG_LEVEL": "INFO",
+        "PROCUREMENT_LLM_MODE": "local",
         "PROCUREMENT_MCP_URL": f"{mcp_base_url}/mcp",
         "PROCUREMENT_MCP_TOKEN": bearer_token,
         "PROCUREMENT_LOCAL_ERP_MODE": erp_mode,
