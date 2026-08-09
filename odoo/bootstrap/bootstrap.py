@@ -1,4 +1,4 @@
-# ruff: noqa: F821
+# ruff: noqa: E402, F821
 """Finite, idempotent Odoo-shell bootstrap for the StockAI integration key."""
 
 from __future__ import annotations
@@ -7,25 +7,17 @@ import calendar
 import datetime
 import json
 import os
-import re
-from pathlib import Path
+import sys
 
 from odoo.fields import Command
+
+sys.path.insert(0, "/opt/stockai")
+from sinks import sink_from_environment
 
 GROUP_XML_ID = "stockai_procurement.group_stockai_procurement_integration"
 DEFAULT_LOGIN = "stockai-integration@example.invalid"
 DEFAULT_KEY_NAME = "stockai-procurement-integration"
 DEFAULT_EXPIRY_DAYS = 30
-SECRET_ARN_PATTERN = re.compile(
-    r"^arn:(?:aws|aws-us-gov|aws-cn):secretsmanager:[^:]+:\d{12}:secret:[A-Za-z0-9/_+=.@-]+$"
-)
-
-
-def _required_environment(name: str) -> str:
-    value = os.environ.get(name, "").strip()
-    if not value:
-        raise RuntimeError(f"required bootstrap setting is missing: {name}")
-    return value
 
 
 def _boolean_environment(name: str, default: bool = False) -> bool:
@@ -61,86 +53,6 @@ def _expiration_date() -> datetime.datetime:
     if expiration > _add_calendar_months(now, 3):
         raise RuntimeError("bootstrap key expiry cannot exceed three calendar months")
     return expiration
-
-
-class _FileSink:
-    kind = "file"
-
-    def __init__(self, path: str) -> None:
-        self.path = Path(path)
-        if not self.path.is_absolute() or not self.path.is_relative_to("/run"):
-            raise RuntimeError("the local bootstrap sink must be an absolute /run path")
-
-    def read(self) -> str | None:
-        if not self.path.exists():
-            return None
-        if self.path.is_symlink():
-            raise RuntimeError("the local bootstrap sink cannot be a symbolic link")
-        if self.path.stat().st_mode & 0o777 != 0o600:
-            raise RuntimeError("the local bootstrap sink must use mode 0600")
-        value = self.path.read_text(encoding="utf-8").strip()
-        if not value:
-            raise RuntimeError("the local bootstrap sink is empty")
-        return value
-
-    def write(self, value: str) -> None:
-        if not self.path.parent.is_dir():
-            raise RuntimeError("the local bootstrap sink parent does not exist")
-        if self.path.is_symlink():
-            raise RuntimeError("the local bootstrap sink cannot be a symbolic link")
-        temporary_path = self.path.with_name(f".{self.path.name}.{os.getpid()}.tmp")
-        descriptor = os.open(
-            temporary_path,
-            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
-            0o600,
-        )
-        try:
-            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-                stream.write(value)
-                stream.flush()
-                os.fsync(stream.fileno())
-            os.replace(temporary_path, self.path)
-        finally:
-            if temporary_path.exists():
-                temporary_path.unlink()
-
-
-class _SecretsManagerSink:
-    kind = "secretsmanager"
-
-    def __init__(self, arn: str) -> None:
-        if not SECRET_ARN_PATTERN.fullmatch(arn):
-            raise RuntimeError(
-                "the bootstrap secret must be an exact Secrets Manager ARN"
-            )
-        import boto3
-
-        self.arn = arn
-        self.client = boto3.client("secretsmanager", region_name=arn.split(":")[3])
-
-    def read(self) -> str | None:
-        try:
-            response = self.client.get_secret_value(SecretId=self.arn)
-        except self.client.exceptions.ResourceNotFoundException:
-            return None
-        value = response.get("SecretString")
-        if not isinstance(value, str) or not value.strip():
-            raise RuntimeError("the bootstrap secret must contain a non-empty string")
-        return value.strip()
-
-    def write(self, value: str) -> None:
-        self.client.put_secret_value(SecretId=self.arn, SecretString=value)
-
-
-def _sink():
-    kind = os.environ.get("STOCKAI_ODOO_BOOTSTRAP_SINK", "secretsmanager").strip()
-    if kind == "file":
-        return _FileSink(_required_environment("STOCKAI_ODOO_BOOTSTRAP_KEY_FILE"))
-    if kind == "secretsmanager":
-        return _SecretsManagerSink(
-            _required_environment("STOCKAI_ODOO_BOOTSTRAP_SECRET_ARN")
-        )
-    raise RuntimeError("bootstrap sink must be file or secretsmanager")
 
 
 def _active_keys(user_id: int):
@@ -201,7 +113,7 @@ key_name = os.environ.get("STOCKAI_ODOO_BOOTSTRAP_KEY_NAME", DEFAULT_KEY_NAME).s
 if not login or not key_name:
     raise RuntimeError("bootstrap login and key name cannot be empty")
 rotate = _boolean_environment("STOCKAI_ODOO_BOOTSTRAP_ROTATE")
-secret_sink = _sink()
+secret_sink = sink_from_environment()
 user, user_created = _find_or_create_user(login)
 active_keys = _active_keys(user.id)
 stored_key = secret_sink.read()

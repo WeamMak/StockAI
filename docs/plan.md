@@ -922,28 +922,28 @@ and does not change the approved architecture.
 
 **Work and tests**
 
-- [ ] **Step 1:** Add a failing Makefile contract test proving that `make lint`
+- [x] **Step 1:** Add a failing Makefile contract test proving that `make lint`
    invokes the existing `npm --prefix frontend run lint` command, then add that
    command without changing the frontend toolchain. Keep `actionlint` assigned
    to T21, where the workflow files first exist.
-- [ ] **Step 2:** Replace the Dockerfile's direct `boto3==1.43.62` installation
+- [x] **Step 2:** Replace the Dockerfile's direct `boto3==1.43.62` installation
    with a Python 3.12 lock generated from the single direct requirement in
    `docker/odoo-requirements.in` by `uv pip compile --generate-hashes`. Install
    `docker/odoo-requirements.txt` with pip `--require-hashes`; test that every
    resolved distribution is exactly pinned and hashed, the Dockerfile consumes
    only that lock, and the derived image still builds from the approved Odoo
    digest.
-- [ ] **Step 3:** Extract only the existing file and Secrets Manager sink
+- [x] **Step 3:** Extract only the existing file and Secrets Manager sink
    boundary into `odoo/bootstrap/sinks.py`. With a mocked boto3 client, test
    exact-ARN validation, ARN-derived region selection, missing-secret reads,
    non-empty reads, and writes whose `SecretId` is exactly the configured ARN.
    Assert invalid or empty responses fail safely and the raw secret never
    appears in stdout, stderr, or logs.
-- [ ] **Step 4:** Parameterize the real-Odoo seed contract over both `dev` and
+- [x] **Step 4:** Parameterize the real-Odoo seed contract over both `dev` and
    `prod`. For each environment, run seed and verification twice, assert stable
    summaries and counts, and assert distinct `STOCKAI-DEV` and `STOCKAI-PROD`
    fictional references.
-- [ ] **Step 5:** Run the focused configuration and sink unit tests, frontend
+- [x] **Step 5:** Run the focused configuration and sink unit tests, frontend
    lint, the clean derived-image/Odoo contract suite, and `make check`; record
    the executed evidence and any remaining named deferrals in
    `docs/implementation-status.md`.
@@ -952,6 +952,18 @@ and does not change the approved architecture.
 `make odoo-contract`, and `make check`. The Odoo contract must rebuild the
 derived image from the hash-locked dependency file and exercise both seed
 environments. No live AWS call is made.
+
+**Verification result:** `make check` passed lock and format checks, Ruff,
+strict mypy over 100 source files, frontend ESLint, 5 architecture tests, and
+all 219 unit tests. The 18 focused Makefile, image, bootstrap-composition, and
+mocked sink tests passed. The first clean image build exposed Debian's
+record-less `urllib3`; the final image installs the seven exactly pinned,
+SHA-256-hashed distributions into `/usr/local` with `--ignore-installed`
+instead of mutating Debian-managed packages. The final `make odoo-contract`
+run rebuilt that image and passed all 23 tests in 399.82 seconds, including
+bootstrap rotation, two stable runs for each distinct fictional `dev` and
+`prod` seed, and the authenticated real MCP/Odoo interaction. No live AWS call
+was made.
 
 **Dependencies:** T11A and T12.
 

@@ -14,7 +14,7 @@ help:
 	@echo "  lock-check    Verify uv.lock matches pyproject.toml"
 	@echo "  format        Format Python source and tests"
 	@echo "  format-check  Check Python formatting without changing files"
-	@echo "  lint          Run Ruff, mypy, and architecture checks"
+	@echo "  lint          Run Ruff, mypy, ESLint, and architecture checks"
 	@echo "  test-unit     Run unit tests with JUnit and coverage reports"
 	@echo "  test-integration Run real-transport integration tests"
 	@echo "  test-e2e      Run the four deterministic local Compose scenarios"
@@ -43,6 +43,7 @@ format-check:
 lint:
 	$(UV) run ruff check $(PYTHON_PATHS)
 	$(UV) run mypy
+	npm --prefix frontend run lint
 	$(UV) run pytest -q tests/unit/test_architecture.py
 
 test-unit:

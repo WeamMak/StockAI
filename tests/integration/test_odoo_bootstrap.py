@@ -6,6 +6,7 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
 from scripts.odoo.probe_contract import Json2Client, ProbeError
 
 from tests.contract.conftest import OdooContractStack, _run, running_odoo_contract
@@ -163,32 +164,34 @@ def test_bootstrap_is_idempotent_authenticates_and_rotates_without_disclosure(
     assert rotated_key not in combined_logs
 
 
+@pytest.mark.parametrize("seed_environment", ["dev", "prod"])
 def test_seed_and_verification_are_stable_across_reruns(
     running_odoo_contract: OdooContractStack,
+    seed_environment: str,
 ) -> None:
     first_seed = _shell_job(
         running_odoo_contract,
         "/opt/stockai/seed.py",
-        extra_environment={"STOCKAI_ODOO_SEED_ENVIRONMENT": "dev"},
+        extra_environment={"STOCKAI_ODOO_SEED_ENVIRONMENT": seed_environment},
     )
     assert first_seed.returncode == 0, first_seed.stderr
     first_verification = _shell_job(
         running_odoo_contract,
         "/opt/stockai/verify_seed.py",
-        extra_environment={"STOCKAI_ODOO_SEED_ENVIRONMENT": "dev"},
+        extra_environment={"STOCKAI_ODOO_SEED_ENVIRONMENT": seed_environment},
     )
     assert first_verification.returncode == 0, first_verification.stderr
 
     second_seed = _shell_job(
         running_odoo_contract,
         "/opt/stockai/seed.py",
-        extra_environment={"STOCKAI_ODOO_SEED_ENVIRONMENT": "dev"},
+        extra_environment={"STOCKAI_ODOO_SEED_ENVIRONMENT": seed_environment},
     )
     assert second_seed.returncode == 0, second_seed.stderr
     second_verification = _shell_job(
         running_odoo_contract,
         "/opt/stockai/verify_seed.py",
-        extra_environment={"STOCKAI_ODOO_SEED_ENVIRONMENT": "dev"},
+        extra_environment={"STOCKAI_ODOO_SEED_ENVIRONMENT": seed_environment},
     )
     assert second_verification.returncode == 0, second_verification.stderr
 
@@ -196,10 +199,18 @@ def test_seed_and_verification_are_stable_across_reruns(
     second = _summary(second_verification.stdout)
     assert first == second
     assert first["status"] == "ok"
+    assert first["environment"] == seed_environment
+    references = first["references"]
     scenarios = first["scenarios"]
     counts = first["counts"]
+    assert isinstance(references, dict)
     assert isinstance(scenarios, list)
     assert isinstance(counts, dict)
+    assert all(
+        isinstance(reference, str)
+        and reference.startswith(f"STOCKAI-{seed_environment.upper()}-")
+        for reference in references.values()
+    )
     assert set(scenarios) == {
         "happy",
         "no-valid-offer",
