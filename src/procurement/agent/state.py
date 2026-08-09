@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import TypedDict
+from dataclasses import dataclass
+from typing import Annotated, TypedDict
+
+from langgraph.channels import UntrackedValue
 
 from procurement.domain.errors import ErrorCode
 from procurement.domain.identifiers import Environment
@@ -19,7 +21,12 @@ class ApprovalReadyResult:
     product_name: str
     rationale: str
     risk_flags: tuple[str, ...]
-    read_only: bool = field(default=True, init=False)
+
+    @property
+    def read_only(self) -> bool:
+        """Make the advisory-only boundary explicit without checkpoint state."""
+
+        return True
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,6 +47,6 @@ class ScanState(TypedDict, total=False):
 
     scan_id: str
     environment: Environment
-    candidates: tuple[ReplenishmentCandidate, ...]
-    recommendation: StructuredRecommendation
+    candidates: Annotated[tuple[ReplenishmentCandidate, ...], UntrackedValue]
+    recommendation: Annotated[StructuredRecommendation, UntrackedValue]
     result: ScanResult

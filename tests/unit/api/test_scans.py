@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import cast
 
 import anyio
@@ -11,15 +12,30 @@ from httpx2 import ASGITransport, AsyncClient
 from procurement.agent.state import ApprovalReadyResult, ScanState
 from procurement.api.app import create_app
 from procurement.api.config import ApiSettings
-from procurement.api.services.scans import ScanService
-from procurement.domain.errors import ErrorCode
-from procurement.domain.identifiers import Environment
+from procurement.api.services.scans import ScanService, ScanTrigger
+from procurement.domain.errors import DomainError, ErrorCode
+from procurement.domain.identifiers import Environment, Revision
+from procurement.domain.models import UtcTimestamp
+from procurement.ports.repositories import (
+    CaseRecord,
+    InMemoryApplicationRepository,
+    RevisionConflictError,
+)
 
 
 class SuccessfulWorkflow:
     """Complete one fictional read-only scan without external dependencies."""
 
-    async def ainvoke(self, state: ScanState) -> ScanState:
+    def __init__(self) -> None:
+        self.configs: list[Mapping[str, object]] = []
+
+    async def ainvoke(
+        self,
+        state: ScanState,
+        *,
+        config: Mapping[str, object],
+    ) -> ScanState:
+        self.configs.append(config)
         return {
             **state,
             "result": ApprovalReadyResult(
@@ -36,17 +52,52 @@ class BlockingWorkflow(SuccessfulWorkflow):
         self.started = anyio.Event()
         self.release = anyio.Event()
 
-    async def ainvoke(self, state: ScanState) -> ScanState:
+    async def ainvoke(
+        self,
+        state: ScanState,
+        *,
+        config: Mapping[str, object],
+    ) -> ScanState:
         self.started.set()
         await self.release.wait()
-        return await super().ainvoke(state)
+        return await super().ainvoke(state, config=config)
 
 
 class NeverFinishesWorkflow:
-    async def ainvoke(self, state: ScanState) -> ScanState:
+    async def ainvoke(
+        self,
+        state: ScanState,
+        *,
+        config: Mapping[str, object],
+    ) -> ScanState:
         del state
+        del config
         await anyio.sleep_forever()
         raise AssertionError("unreachable")
+
+
+class FailFirstUpdateRepository(InMemoryApplicationRepository):
+    """Simulate one conditional persistence failure before workflow entry."""
+
+    def __init__(self) -> None:
+        super().__init__(environment=Environment.DEV)
+        self._failures_remaining = 1
+
+    async def update_case(
+        self,
+        record: CaseRecord,
+        *,
+        expected_revision: Revision,
+        expires_at: UtcTimestamp,
+    ) -> CaseRecord:
+        if self._failures_remaining:
+            self._failures_remaining -= 1
+            raise RevisionConflictError("simulated revision conflict")
+        return await super().update_case(
+            record,
+            expected_revision=expected_revision,
+            expires_at=expires_at,
+        )
 
 
 async def _poll_until_finished(
@@ -64,7 +115,8 @@ async def _poll_until_finished(
 
 @pytest.mark.anyio
 async def test_manual_scan_returns_202_and_can_be_polled_to_completion() -> None:
-    application = create_app(scan_workflow=SuccessfulWorkflow())
+    workflow = SuccessfulWorkflow()
+    application = create_app(scan_workflow=workflow)
     transport = ASGITransport(app=application)
 
     async with AsyncClient(
@@ -100,6 +152,77 @@ async def test_manual_scan_returns_202_and_can_be_polled_to_completion() -> None
     assert (
         'procurement_scan_results_total{error_code="none",outcome="approval_ready"} 1.0'
     ) in metrics.text
+    assert workflow.configs == [
+        {"configurable": {"thread_id": scan_id}},
+    ]
+
+
+@pytest.mark.anyio
+async def test_scan_record_survives_a_new_api_service_instance() -> None:
+    repository = InMemoryApplicationRepository(environment=Environment.DEV)
+    first_service = ScanService(
+        workflow=SuccessfulWorkflow(),
+        environment=Environment.DEV,
+        repository=repository,
+    )
+    first_application = create_app(scan_service=first_service)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=first_application),
+        base_url="http://first-process",
+    ) as client:
+        accepted = await client.post("/api/v1/scans")
+        scan_id = accepted.json()["scan_id"]
+        finished = await _poll_until_finished(client, scan_id)
+
+    second_service = ScanService(
+        workflow=SuccessfulWorkflow(),
+        environment=Environment.DEV,
+        repository=repository,
+    )
+    second_application = create_app(scan_service=second_service)
+    async with AsyncClient(
+        transport=ASGITransport(app=second_application),
+        base_url="http://second-process",
+    ) as client:
+        restored = await client.get(f"/api/v1/scans/{scan_id}")
+        listed = await client.get("/api/v1/scans")
+
+    assert finished["status"] == "succeeded"
+    assert restored.status_code == 200
+    assert restored.json() == finished
+    assert listed.json()["scans"][0]["scan_id"] == scan_id
+
+
+@pytest.mark.anyio
+async def test_persistence_failure_releases_the_local_scan_slot() -> None:
+    service = ScanService(
+        workflow=SuccessfulWorkflow(),
+        environment=Environment.DEV,
+        repository=FailFirstUpdateRepository(),
+    )
+
+    first = await service.start_scan(trigger=ScanTrigger.MANUAL)
+    for _ in range(50):
+        try:
+            second = await service.start_scan(trigger=ScanTrigger.MANUAL)
+        except DomainError as error:
+            assert error.error_code is ErrorCode.SCAN_ALREADY_RUNNING
+            await anyio.sleep(0.01)
+            continue
+        break
+    else:
+        raise AssertionError("persistence failure did not release the scan slot")
+
+    assert second.scan_id != first.scan_id
+    for _ in range(50):
+        finished = await service.get_scan(second.scan_id)
+        if finished.status.value not in {"queued", "running"}:
+            break
+        await anyio.sleep(0.01)
+    else:
+        raise AssertionError("replacement scan did not finish")
+    assert finished.status.value == "succeeded"
 
 
 @pytest.mark.anyio

@@ -13,7 +13,7 @@ ORM-bootstrap contracts selected after T10 discovery.
 
 **Tech Stack:** Python 3.12, FastAPI, LangGraph, Python MCP SDK, React, TypeScript, Vite, Odoo 19 Community, PostgreSQL, Terraform, AWS EC2/Auto Scaling/SSM/EventBridge/Lambda/EBS/ALB/ACM/Route 53, kubeadm Kubernetes, Kustomize, Argo CD, Prometheus, Grafana, Loki, Alertmanager, GitHub Actions.
 
-**Status:** T12 implementation complete; awaiting task review
+**Status:** T13 implementation complete; awaiting task review
 
 **Date:** 2026-08-09
 
@@ -23,7 +23,8 @@ ORM-bootstrap contracts selected after T10 discovery.
 course-staff approval, and explicitly authorized implementation to resume. T10,
 T11A, and T11B are approved and merged. The user explicitly authorized T12 on
 2026-08-09; its implementation and mocked-Bedrock verification are complete.
-T13 must not begin until T12 is approved and merged.
+T12A is approved and merged. The user explicitly authorized T13 on 2026-08-09;
+its implementation and local DynamoDB restart verification are complete.
 
 ## 1. Approval status and purpose
 
@@ -987,19 +988,43 @@ deferred to T21.
   `tests/unit/adapters/aws/test_checkpointer.py`,
   `tests/unit/domain/test_audit.py`, and
   `tests/integration/test_dynamodb_local.py`.
-- Add a DynamoDB Local test profile to `compose.test.yaml`.
+- Update `pyproject.toml`, `uv.lock`, `src/procurement/agent/graph.py`,
+  `src/procurement/agent/state.py`, `src/procurement/domain/models.py`,
+  `src/procurement/api/services/scans.py`, `src/procurement/api/app.py`,
+  `src/procurement/api/routes/scans.py`, `src/procurement/bootstrap/api.py`,
+  `.env.example`, `compose.yaml`, `compose.test.yaml`, `README.md`,
+  `docs/implementation-status.md`, `tests/support/local_skeleton.py`, and the
+  affected graph, API, bootstrap, integration, and Compose topology tests to
+  pin the approved checkpoint package, select memory or DynamoDB persistence
+  explicitly, and wire the selected repositories and checkpointer through the
+  real API runtime path.
+- Add a pinned DynamoDB Local service to the Compose test profile.
 
 **Work and tests**
 
-- [ ] **Step 1:** Test environment-prefixed keys, conditional case creation, idempotency,
+- [x] **Step 1:** Test environment-prefixed keys, conditional case creation, idempotency,
    optimistic revisions, strongly consistent approval reads, audit
    immutability, TTL fields, and pagination.
-- [ ] **Step 2:** Implement separate checkpoint and application repositories behind ports.
-- [ ] **Step 3:** Persist sanitized graph state without duplicating Odoo master data.
-- [ ] **Step 4:** Verify graph resume after API process restart using DynamoDB Local.
+- [x] **Step 2:** Implement separate checkpoint and application repositories behind ports,
+   with an explicit in-memory substitute retained for deterministic local unit tests.
+- [x] **Step 3:** Pass the immutable procurement case ID as the LangGraph `thread_id` and
+   persist only sanitized graph state without duplicating Odoo master data.
+- [x] **Step 4:** Wire the DynamoDB application repository and checkpoint saver through the
+   API composition root and verify scan polling plus graph resume after API process
+   restart using DynamoDB Local.
 
 **Verification:** Run mocked unit tests and the real DynamoDB Local integration
 test.
+
+**Verification result:** `make check` passed lock and format checks, Ruff,
+strict mypy over 108 source files, ESLint, 5 architecture tests, and all 242
+unit tests. Eight relevant real-process integration regressions passed in
+21.96 seconds, including two tests against the pinned DynamoDB Local 3.3.0
+profile: a completed API scan and its sanitized LangGraph checkpoint survived
+API process replacement, and real conditional writes returned the original
+case for an identical idempotent request while rejecting conflicting reuse.
+The base, test, and explicit DynamoDB-profile Compose models rendered, and the
+default-versus-profile topology contract passed. No live AWS call was made.
 
 **Dependencies:** T12A.
 
@@ -2770,7 +2795,7 @@ The original planning gate and subsequent approved revisions authorized T01
 through T09, which are complete. T10 triggered its approved stop condition.
 The user approved the exact remediation revision, confirmed course-staff
 approval, and explicitly authorized T10 implementation to resume on 2026-08-07.
-T10, T11A, and T11B are approved and merged. The user explicitly authorized
-T12 on 2026-08-09. T12's implementation and mocked-Bedrock verification are
-complete and await user review. T13 must not start until T12 is approved and
-merged.
+T10 through T12A are approved and merged. The user explicitly authorized T13
+on 2026-08-09. T13's implementation and DynamoDB Local restart verification
+are complete and await user review. T14 must not start until T13 is approved
+and merged.

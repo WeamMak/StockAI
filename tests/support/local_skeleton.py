@@ -7,7 +7,7 @@ import secrets
 import socket
 import subprocess
 import sys
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,6 +27,7 @@ class RunningLocalSkeleton:
     api_log_path: Path
     mcp_log_path: Path
     bearer_token: str
+    restart_api: Callable[[], None]
 
 
 def _unused_port() -> int:
@@ -75,6 +76,10 @@ def run_local_skeleton(
     temporary_directory: Path,
     *,
     erp_mode: str = "success",
+    persistence_mode: str = "memory",
+    dynamodb_endpoint_url: str | None = None,
+    dynamodb_application_table: str = "stockai-dev-application",
+    dynamodb_checkpoint_table: str = "stockai-dev-checkpoints",
 ) -> Iterator[RunningLocalSkeleton]:
     """Start the real local MCP and API composition roots on unused ports."""
 
@@ -88,13 +93,21 @@ def run_local_skeleton(
         "PROCUREMENT_ENVIRONMENT": "dev",
         "PROCUREMENT_LOG_LEVEL": "INFO",
         "PROCUREMENT_LLM_MODE": "local",
+        "PROCUREMENT_PERSISTENCE_MODE": persistence_mode,
+        "PROCUREMENT_AWS_REGION": "us-east-1",
+        "PROCUREMENT_DYNAMODB_APPLICATION_TABLE": dynamodb_application_table,
+        "PROCUREMENT_DYNAMODB_CHECKPOINT_TABLE": dynamodb_checkpoint_table,
         "PROCUREMENT_MCP_URL": f"{mcp_base_url}/mcp",
         "PROCUREMENT_MCP_TOKEN": bearer_token,
         "PROCUREMENT_LOCAL_ERP_MODE": erp_mode,
         "PROCUREMENT_MCP_READ_TIMEOUT_SECONDS": "0.01",
         "PROCUREMENT_MCP_MAX_RETRIES": "2",
         "PROCUREMENT_MCP_RETRY_DELAY_SECONDS": "0",
+        "AWS_ACCESS_KEY_ID": "DUMMYIDEXAMPLE",
+        "AWS_SECRET_ACCESS_KEY": "DUMMYEXAMPLEKEY",
     }
+    if dynamodb_endpoint_url is not None:
+        environment["PROCUREMENT_DYNAMODB_ENDPOINT_URL"] = dynamodb_endpoint_url
     api_log_path = temporary_directory / "api.log"
     mcp_log_path = temporary_directory / "mcp.log"
     command_prefix = [sys.executable, "-m", "uvicorn"]
@@ -124,13 +137,9 @@ def run_local_skeleton(
             stderr=subprocess.STDOUT,
         )
         api_process: subprocess.Popen[bytes] | None = None
-        try:
-            _wait_until_ready(
-                url=f"{mcp_base_url}/metrics",
-                process=mcp_process,
-                log_path=mcp_log_path,
-            )
-            api_process = subprocess.Popen(
+
+        def start_api() -> subprocess.Popen[bytes]:
+            process = subprocess.Popen(
                 [
                     *command_prefix,
                     "procurement.bootstrap.api:app",
@@ -145,15 +154,32 @@ def run_local_skeleton(
             )
             _wait_until_ready(
                 url=f"{api_url}/health/live",
-                process=api_process,
+                process=process,
                 log_path=api_log_path,
             )
+            return process
+
+        def restart_api() -> None:
+            nonlocal api_process
+            if api_process is None:
+                raise RuntimeError("API process has not started")
+            _stop(api_process)
+            api_process = start_api()
+
+        try:
+            _wait_until_ready(
+                url=f"{mcp_base_url}/metrics",
+                process=mcp_process,
+                log_path=mcp_log_path,
+            )
+            api_process = start_api()
             yield RunningLocalSkeleton(
                 api_url=api_url,
                 mcp_url=mcp_base_url,
                 api_log_path=api_log_path,
                 mcp_log_path=mcp_log_path,
                 bearer_token=bearer_token,
+                restart_api=restart_api,
             )
         finally:
             if api_process is not None:

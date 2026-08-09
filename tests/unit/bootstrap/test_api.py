@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Mapping
+from dataclasses import replace
 from datetime import date
 from decimal import Decimal
 from typing import Any, cast
@@ -13,6 +14,8 @@ import anyio
 import pytest
 from botocore.exceptions import ClientError  # type: ignore[import-untyped]
 from httpx2 import ASGITransport, AsyncClient
+from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.checkpoint.memory import InMemorySaver
 
 _FICTIONAL_MCP_TOKEN = "fictional-bootstrap-mcp-token-at-least-32-characters"
 os.environ.setdefault("PROCUREMENT_MCP_TOKEN", _FICTIONAL_MCP_TOKEN)
@@ -21,6 +24,10 @@ from procurement.adapters.aws.bedrock import (  # noqa: E402
     APPROVED_MODEL_ID,
     BedrockRuntimeClient,
 )
+from procurement.adapters.aws.checkpointer import (  # noqa: E402
+    DynamoCheckpointSettings,
+)
+from procurement.adapters.aws.dynamodb import DynamoClient  # noqa: E402
 from procurement.agent.recommendation_schema import (  # noqa: E402
     load_procurement_system_prompt,
 )
@@ -28,6 +35,7 @@ from procurement.api.config import ApiSettings  # noqa: E402
 from procurement.bootstrap.api import (  # noqa: E402
     LlmMode,
     LocalApiSettings,
+    PersistenceMode,
     StreamableHttpProcurementMcp,
     create_local_api_app,
 )
@@ -147,6 +155,108 @@ def test_local_mode_never_constructs_an_aws_client() -> None:
     )
 
     assert application.state.scan_service is not None
+
+
+def test_api_settings_select_only_explicit_memory_or_dynamodb_modes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PROCUREMENT_MCP_TOKEN", _FICTIONAL_MCP_TOKEN)
+    monkeypatch.delenv("PROCUREMENT_PERSISTENCE_MODE", raising=False)
+
+    default = LocalApiSettings.from_environment()
+
+    assert default.persistence_mode is PersistenceMode.MEMORY
+
+    monkeypatch.setenv("PROCUREMENT_PERSISTENCE_MODE", "dynamodb")
+    configured = LocalApiSettings.from_environment()
+
+    assert configured.persistence_mode is PersistenceMode.DYNAMODB
+    assert configured.dynamodb_application_table == "stockai-dev-application"
+    assert configured.dynamodb_checkpoint_table == "stockai-dev-checkpoints"
+
+    monkeypatch.setenv("PROCUREMENT_PERSISTENCE_MODE", "unsupported")
+    with pytest.raises(
+        ValueError,
+        match="PROCUREMENT_PERSISTENCE_MODE must be memory or dynamodb",
+    ):
+        LocalApiSettings.from_environment()
+
+
+def test_memory_persistence_never_constructs_a_dynamodb_dependency() -> None:
+    def unexpected_client(**_kwargs: object) -> DynamoClient:
+        raise AssertionError("memory mode attempted to construct DynamoDB")
+
+    def unexpected_checkpointer(
+        _settings: DynamoCheckpointSettings,
+    ) -> BaseCheckpointSaver[Any]:
+        raise AssertionError("memory mode attempted to construct a DynamoDB saver")
+
+    application = create_local_api_app(
+        _settings(LlmMode.LOCAL),
+        dynamodb_client_factory=unexpected_client,
+        checkpoint_factory=unexpected_checkpointer,
+    )
+
+    assert application.state.scan_service is not None
+
+
+def test_dynamodb_persistence_constructs_both_separate_runtime_boundaries() -> None:
+    settings = replace(
+        _settings(LlmMode.LOCAL),
+        persistence_mode=PersistenceMode.DYNAMODB,
+        aws_region="us-east-1",
+        dynamodb_endpoint_url="http://dynamodb-local:8000",
+        dynamodb_application_table="stockai-dev-application",
+        dynamodb_checkpoint_table="stockai-dev-checkpoints",
+    )
+    client_calls: list[dict[str, object]] = []
+    checkpoint_calls: list[DynamoCheckpointSettings] = []
+
+    class UnusedDynamoClient:
+        """Construction-only fake; no repository operation belongs in this test."""
+
+        def transact_write_items(self, **_request: Any) -> Mapping[str, Any]:
+            raise AssertionError("unexpected repository operation")
+
+        def get_item(self, **_request: Any) -> Mapping[str, Any]:
+            raise AssertionError("unexpected repository operation")
+
+        def update_item(self, **_request: Any) -> Mapping[str, Any]:
+            raise AssertionError("unexpected repository operation")
+
+        def put_item(self, **_request: Any) -> Mapping[str, Any]:
+            raise AssertionError("unexpected repository operation")
+
+        def query(self, **_request: Any) -> Mapping[str, Any]:
+            raise AssertionError("unexpected repository operation")
+
+    def client_factory(**kwargs: object) -> DynamoClient:
+        client_calls.append(kwargs)
+        return UnusedDynamoClient()
+
+    def checkpoint_factory(
+        checkpoint_settings: DynamoCheckpointSettings,
+    ) -> InMemorySaver:
+        checkpoint_calls.append(checkpoint_settings)
+        return InMemorySaver()
+
+    application = create_local_api_app(
+        settings,
+        dynamodb_client_factory=client_factory,
+        checkpoint_factory=checkpoint_factory,
+    )
+
+    assert application.state.scan_service is not None
+    assert client_calls == [
+        {
+            "region_name": "us-east-1",
+            "endpoint_url": "http://dynamodb-local:8000",
+        }
+    ]
+    assert len(checkpoint_calls) == 1
+    checkpoint_settings = checkpoint_calls[0]
+    assert checkpoint_settings.table_name == "stockai-dev-checkpoints"
+    assert checkpoint_settings.endpoint_url == "http://dynamodb-local:8000"
 
 
 @pytest.mark.anyio

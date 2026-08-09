@@ -1,11 +1,12 @@
-"""In-process asynchronous scan orchestration for the walking skeleton."""
+"""Asynchronous scan orchestration backed by an application repository."""
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass
-from datetime import UTC, datetime
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from time import perf_counter
 from typing import Protocol
@@ -17,13 +18,23 @@ from procurement.agent.state import (
     ScanState,
     UnresolvedResult,
 )
+from procurement.domain.audit import AuditEvent
 from procurement.domain.errors import DomainError, ErrorCode
-from procurement.domain.identifiers import Environment
+from procurement.domain.identifiers import CaseId, Environment, Revision
+from procurement.domain.models import UtcTimestamp
 from procurement.observability.logging import log_event
 from procurement.observability.metrics import AgentMetrics, create_agent_metrics
+from procurement.ports.repositories import (
+    ApplicationRepository,
+    CaseRecord,
+    FailureRecord,
+    InMemoryApplicationRepository,
+    RecommendationRecord,
+)
 
 DEFAULT_WORKFLOW_TIMEOUT_SECONDS = 120.0
 MAX_SCAN_HISTORY = 100
+_RETENTION_DAYS = {Environment.DEV: 30, Environment.PROD: 365}
 
 
 class ScanStatus(StrEnum):
@@ -54,7 +65,7 @@ class ScanFailure:
 
 @dataclass(frozen=True, slots=True)
 class ScanSnapshot:
-    """Immutable view of one in-memory scan record."""
+    """Immutable API view of one durable scan record."""
 
     scan_id: str
     status: ScanStatus
@@ -66,41 +77,28 @@ class ScanSnapshot:
     error: ScanFailure | None
 
 
-@dataclass(slots=True)
-class _ScanRecord:
-    scan_id: str
-    status: ScanStatus
-    trigger: ScanTrigger
-    created_at: datetime
-    started_at: datetime | None = None
-    completed_at: datetime | None = None
-    result: ApprovalReadyResult | None = None
-    error: ScanFailure | None = None
-
-    def snapshot(self) -> ScanSnapshot:
-        return ScanSnapshot(
-            scan_id=self.scan_id,
-            status=self.status,
-            trigger=self.trigger,
-            created_at=self.created_at,
-            started_at=self.started_at,
-            completed_at=self.completed_at,
-            result=self.result,
-            error=self.error,
-        )
-
-
 class ScanWorkflow(Protocol):
     """Compiled graph operation needed by the scan service."""
 
-    async def ainvoke(self, state: ScanState) -> ScanState:
+    async def ainvoke(
+        self,
+        state: ScanState,
+        *,
+        config: Mapping[str, object],
+    ) -> ScanState:
         """Run one non-human workflow to a terminal result."""
 
 
 class UnconfiguredScanWorkflow:
     """Safe default until the API composition root wires real adapters."""
 
-    async def ainvoke(self, state: ScanState) -> ScanState:
+    async def ainvoke(
+        self,
+        state: ScanState,
+        *,
+        config: Mapping[str, object],
+    ) -> ScanState:
+        del config
         return {
             **state,
             "result": UnresolvedResult(
@@ -119,6 +117,7 @@ class ScanService:
         *,
         workflow: ScanWorkflow,
         environment: Environment,
+        repository: ApplicationRepository | None = None,
         workflow_timeout_seconds: float = DEFAULT_WORKFLOW_TIMEOUT_SECONDS,
         metrics: AgentMetrics | None = None,
         logger: logging.Logger | None = None,
@@ -129,12 +128,14 @@ class ScanService:
             raise ValueError("workflow_timeout_seconds must be positive")
         self._workflow = workflow
         self._environment = environment
+        self._repository = repository or InMemoryApplicationRepository(
+            environment=environment
+        )
         self._workflow_timeout_seconds = workflow_timeout_seconds
         self._metrics = metrics or create_agent_metrics()
         self._logger = logger or logging.getLogger(__name__)
         self._guard = asyncio.Lock()
         self._active_scan_id: str | None = None
-        self._records: dict[str, _ScanRecord] = {}
         self._tasks: set[asyncio.Task[None]] = set()
 
     async def start_scan(self, *, trigger: ScanTrigger) -> ScanSnapshot:
@@ -148,91 +149,139 @@ class ScanService:
                     error_code=ErrorCode.SCAN_ALREADY_RUNNING,
                     safe_message="A procurement scan is already running.",
                 )
-            scan_id = f"scan-{uuid4().hex}"
-            record = _ScanRecord(
-                scan_id=scan_id,
-                status=ScanStatus.QUEUED,
-                trigger=trigger,
-                created_at=datetime.now(tz=UTC),
+            created_at = datetime.now(tz=UTC)
+            scan_id = f"scan-{created_at.strftime('%Y%m%dT%H%M%S%fZ')}-{uuid4().hex}"
+            timestamp = UtcTimestamp(created_at)
+            record = CaseRecord(
+                case_id=CaseId(self._environment, scan_id),
+                revision=Revision(1),
+                status=ScanStatus.QUEUED.value,
+                trigger=trigger.value,
+                created_at=timestamp,
+                updated_at=timestamp,
             )
-            self._records[scan_id] = record
+            created = await self._repository.create_case(
+                record,
+                idempotency_key=scan_id,
+                expires_at=self._expires_at(record),
+            )
+            if not created.created:
+                return self._snapshot(created.record)
+            await self._append_audit(record)
             self._active_scan_id = scan_id
             task = asyncio.create_task(self._run_scan(record))
             self._tasks.add(task)
             task.add_done_callback(self._tasks.discard)
-            return record.snapshot()
+            return self._snapshot(record)
 
-    def list_scans(self) -> tuple[ScanSnapshot, ...]:
-        """Return bounded newest-first in-memory scan history."""
+    async def list_scans(self) -> tuple[ScanSnapshot, ...]:
+        """Return bounded newest-first durable scan history."""
 
-        records = sorted(
-            self._records.values(),
-            key=lambda record: record.created_at,
-            reverse=True,
+        page = await self._repository.list_cases(
+            limit=MAX_SCAN_HISTORY,
         )
-        return tuple(record.snapshot() for record in records[:MAX_SCAN_HISTORY])
+        return tuple(self._snapshot(record) for record in page.records)
 
-    def get_scan(self, scan_id: str) -> ScanSnapshot:
+    async def get_scan(self, scan_id: str) -> ScanSnapshot:
         """Return one scan or a stable safe not-found error."""
 
-        record = self._records.get(scan_id)
+        try:
+            case_id = CaseId(self._environment, scan_id)
+        except DomainError:
+            case_id = None
+        record = (
+            await self._repository.get_case(case_id) if case_id is not None else None
+        )
         if record is None:
             raise DomainError(
                 error_code=ErrorCode.VALIDATION_FAILED,
                 safe_message="The requested scan was not found.",
             )
-        return record.snapshot()
+        return self._snapshot(record)
 
-    async def _run_scan(self, record: _ScanRecord) -> None:
+    async def _run_scan(self, record: CaseRecord) -> None:
         started_at = perf_counter()
-        record.status = ScanStatus.RUNNING
-        record.started_at = datetime.now(tz=UTC)
+        running_at = UtcTimestamp(datetime.now(tz=UTC))
+        running = replace(
+            record,
+            revision=record.revision.next(),
+            status=ScanStatus.RUNNING.value,
+            started_at=running_at,
+            updated_at=running_at,
+        )
         try:
-            async with asyncio.timeout(self._workflow_timeout_seconds):
-                state = await self._workflow.ainvoke(
-                    {
-                        "scan_id": record.scan_id,
-                        "environment": self._environment,
-                    }
+            running = await self._repository.update_case(
+                running,
+                expected_revision=record.revision,
+                expires_at=self._expires_at(record),
+            )
+            await self._append_audit(running)
+            try:
+                async with asyncio.timeout(self._workflow_timeout_seconds):
+                    state = await self._workflow.ainvoke(
+                        {
+                            "scan_id": record.case_id.value,
+                            "environment": self._environment,
+                        },
+                        config={
+                            "configurable": {"thread_id": record.case_id.value},
+                        },
+                    )
+                terminal = self._apply_result(running, state.get("result"))
+            except TimeoutError:
+                terminal = self._fail(
+                    running,
+                    error_code=ErrorCode.MCP_TIMEOUT,
+                    message="The procurement scan exceeded its workflow deadline.",
+                    retryable=True,
                 )
-            self._apply_result(record, state.get("result"))
-        except TimeoutError:
-            self._fail(
-                record,
-                error_code=ErrorCode.MCP_TIMEOUT,
-                message="The procurement scan exceeded its workflow deadline.",
-                retryable=True,
+            except Exception:
+                terminal = self._fail(
+                    running,
+                    error_code=ErrorCode.LLM_UNAVAILABLE,
+                    message="The procurement scan could not be completed.",
+                    retryable=True,
+                )
+            completed_at = UtcTimestamp(datetime.now(tz=UTC))
+            terminal = replace(
+                terminal,
+                revision=running.revision.next(),
+                completed_at=completed_at,
+                updated_at=completed_at,
             )
-        except Exception:
-            self._fail(
-                record,
-                error_code=ErrorCode.LLM_UNAVAILABLE,
-                message="The procurement scan could not be completed.",
-                retryable=True,
+            terminal = await self._repository.update_case(
+                terminal,
+                expected_revision=running.revision,
+                expires_at=self._expires_at(record),
             )
-        finally:
-            record.completed_at = datetime.now(tz=UTC)
+            await self._append_audit(terminal)
             duration_seconds = perf_counter() - started_at
-            error_code = record.error.error_code if record.error is not None else None
+            error_code = (
+                ErrorCode(terminal.error.error_code)
+                if terminal.error is not None
+                else None
+            )
             self._metrics.observe_scan(
-                trigger=record.trigger.value,
+                trigger=terminal.trigger,
                 status=(
-                    "success" if record.status is ScanStatus.SUCCEEDED else "error"
+                    "success"
+                    if terminal.status == ScanStatus.SUCCEEDED.value
+                    else "error"
                 ),
                 duration_seconds=duration_seconds,
                 outcome=(
                     "approval_ready"
-                    if record.status is ScanStatus.SUCCEEDED
+                    if terminal.status == ScanStatus.SUCCEEDED.value
                     else "unresolved"
                 ),
                 error_code=error_code,
             )
             fields: dict[str, object] = {
-                "scan_id": record.scan_id,
-                "status": record.status.value,
+                "scan_id": terminal.case_id.value,
+                "status": terminal.status,
                 "duration_ms": round(duration_seconds * 1000, 3),
                 "retry_count": (
-                    record.error.retry_count if record.error is not None else 0
+                    terminal.error.retry_count if terminal.error is not None else 0
                 ),
             }
             if error_code is not None:
@@ -242,30 +291,60 @@ class ScanService:
                 "scan_completed",
                 level=(
                     logging.INFO
-                    if record.status is ScanStatus.SUCCEEDED
+                    if terminal.status == ScanStatus.SUCCEEDED.value
                     else logging.ERROR
                 ),
                 **fields,
             )
+        except Exception:
+            duration_seconds = perf_counter() - started_at
+            self._metrics.observe_scan(
+                trigger=record.trigger,
+                status="error",
+                duration_seconds=duration_seconds,
+                outcome="unresolved",
+                error_code=ErrorCode.RECONCILIATION_REQUIRED,
+            )
+            log_event(
+                self._logger,
+                "scan_persistence_failed",
+                level=logging.ERROR,
+                scan_id=record.case_id.value,
+                status=record.status,
+                duration_ms=round(duration_seconds * 1000, 3),
+                retry_count=0,
+                error_code=ErrorCode.RECONCILIATION_REQUIRED.value,
+            )
+        finally:
             async with self._guard:
-                if self._active_scan_id == record.scan_id:
+                if self._active_scan_id == record.case_id.value:
                     self._active_scan_id = None
 
-    def _apply_result(self, record: _ScanRecord, result: ScanResult | None) -> None:
+    def _apply_result(
+        self,
+        record: CaseRecord,
+        result: ScanResult | None,
+    ) -> CaseRecord:
         if isinstance(result, ApprovalReadyResult):
-            record.status = ScanStatus.SUCCEEDED
-            record.result = result
-            return
+            return replace(
+                record,
+                status=ScanStatus.SUCCEEDED.value,
+                result=RecommendationRecord(
+                    product_id=result.product_id,
+                    product_name=result.product_name,
+                    rationale=result.rationale,
+                    risk_flags=result.risk_flags,
+                ),
+            )
         if isinstance(result, UnresolvedResult):
-            self._fail(
+            return self._fail(
                 record,
                 error_code=result.error_code,
                 message=result.message,
                 retryable=result.retryable,
                 retry_count=result.retry_count,
             )
-            return
-        self._fail(
+        return self._fail(
             record,
             error_code=ErrorCode.LLM_OUTPUT_INVALID,
             message="The procurement scan returned an invalid result.",
@@ -274,17 +353,78 @@ class ScanService:
 
     @staticmethod
     def _fail(
-        record: _ScanRecord,
+        record: CaseRecord,
         *,
         error_code: ErrorCode,
         message: str,
         retryable: bool,
         retry_count: int = 0,
-    ) -> None:
-        record.status = ScanStatus.FAILED
-        record.error = ScanFailure(
-            error_code=error_code,
-            message=message,
-            retryable=retryable,
-            retry_count=retry_count,
+    ) -> CaseRecord:
+        return replace(
+            record,
+            status=ScanStatus.FAILED.value,
+            error=FailureRecord(
+                error_code=error_code.value,
+                message=message,
+                retryable=retryable,
+                retry_count=retry_count,
+            ),
+        )
+
+    async def _append_audit(self, record: CaseRecord) -> None:
+        event = AuditEvent(
+            event_id=f"{record.case_id.value}-r{record.revision.value}",
+            case_id=record.case_id,
+            event_type="scan_state_changed",
+            actor_id=f"system:{record.trigger}-scan",
+            occurred_at=record.updated_at,
+            correlation_id=record.case_id.value,
+            source_revision=record.revision,
+            outcome=record.status,
+        )
+        await self._repository.append_audit(
+            event,
+            expires_at=self._expires_at(record),
+        )
+
+    def _expires_at(self, record: CaseRecord) -> UtcTimestamp:
+        return UtcTimestamp(
+            record.created_at.value + timedelta(days=_RETENTION_DAYS[self._environment])
+        )
+
+    @staticmethod
+    def _snapshot(record: CaseRecord) -> ScanSnapshot:
+        result = (
+            ApprovalReadyResult(
+                product_id=record.result.product_id,
+                product_name=record.result.product_name,
+                rationale=record.result.rationale,
+                risk_flags=record.result.risk_flags,
+            )
+            if record.result is not None
+            else None
+        )
+        error = (
+            ScanFailure(
+                error_code=ErrorCode(record.error.error_code),
+                message=record.error.message,
+                retryable=record.error.retryable,
+                retry_count=record.error.retry_count,
+            )
+            if record.error is not None
+            else None
+        )
+        return ScanSnapshot(
+            scan_id=record.case_id.value,
+            status=ScanStatus(record.status),
+            trigger=ScanTrigger(record.trigger),
+            created_at=record.created_at.value,
+            started_at=(
+                record.started_at.value if record.started_at is not None else None
+            ),
+            completed_at=(
+                record.completed_at.value if record.completed_at is not None else None
+            ),
+            result=result,
+            error=error,
         )

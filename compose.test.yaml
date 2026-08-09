@@ -1,8 +1,46 @@
 services:
   api:
+    depends_on:
+      dynamodb-local:
+        condition: service_healthy
+        required: false
     environment:
       PROCUREMENT_LOG_LEVEL: ERROR
       PROCUREMENT_MCP_CLIENT_TIMEOUT_SECONDS: "1"
+      PROCUREMENT_PERSISTENCE_MODE: ${PROCUREMENT_PERSISTENCE_MODE:-memory}
+
+  dynamodb-local:
+    image: amazon/dynamodb-local:3.3.0
+    profiles: ["dynamodb"]
+    command: ["-jar", "DynamoDBLocal.jar", "-sharedDb", "-inMemory"]
+    ports:
+      - target: 8000
+        published: ${PROCUREMENT_DYNAMODB_LOCAL_PORT:-8000}
+        host_ip: 127.0.0.1
+        protocol: tcp
+    networks:
+      - backend
+      - edge
+    read_only: true
+    tmpfs:
+      # DynamoDB Local extracts and loads its SQLite native library here.
+      - /tmp:rw,exec,nosuid,size=32m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 384M
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/8000'"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+      start_period: 5s
+    stop_grace_period: 10s
 
   mcp:
     environment:

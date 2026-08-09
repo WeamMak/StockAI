@@ -65,10 +65,17 @@ def _run(
     )
 
 
-def _rendered_compose() -> dict[str, object]:
+def _rendered_compose(*, dynamodb: bool = False) -> dict[str, object]:
     environment = _environment(scenario="success", frontend_port=18080)
+    profile = ["--profile", "dynamodb"] if dynamodb else []
     completed = _run(
-        [*_compose_prefix("stockai-t09-config"), "config", "--format", "json"],
+        [
+            *_compose_prefix("stockai-t09-config"),
+            *profile,
+            "config",
+            "--format",
+            "json",
+        ],
         environment=environment,
     )
     rendered = json.loads(completed.stdout)
@@ -76,7 +83,7 @@ def _rendered_compose() -> dict[str, object]:
     return rendered
 
 
-def test_compose_defines_the_bounded_four_service_topology() -> None:
+def test_compose_defines_the_bounded_core_and_persistence_test_topology() -> None:
     rendered = _rendered_compose()
     services = rendered["services"]
     networks = rendered["networks"]
@@ -106,6 +113,27 @@ def test_compose_defines_the_bounded_four_service_topology() -> None:
     assert services["api"]["depends_on"]["mcp"]["condition"] == "service_healthy"
     assert services["mcp"]["depends_on"]["fake-odoo"]["condition"] == "service_healthy"
     assert services["frontend"]["depends_on"]["api"]["condition"] == "service_healthy"
+
+    profiled = _rendered_compose(dynamodb=True)
+    profiled_services = profiled["services"]
+    assert isinstance(profiled_services, dict)
+    assert set(profiled_services) == {
+        "frontend",
+        "api",
+        "mcp",
+        "fake-odoo",
+        "dynamodb-local",
+    }
+    dynamodb = profiled_services["dynamodb-local"]
+    assert dynamodb["image"] == "amazon/dynamodb-local:3.3.0"
+    assert dynamodb["read_only"] is True
+    assert set(dynamodb["networks"]) == {"backend", "edge"}
+    assert dynamodb["healthcheck"]["test"]
+    assert dynamodb["ports"][0]["host_ip"] == "127.0.0.1"
+    assert profiled_services["api"]["depends_on"]["dynamodb-local"] == {
+        "condition": "service_healthy",
+        "required": False,
+    }
 
 
 @dataclass(frozen=True, slots=True)
