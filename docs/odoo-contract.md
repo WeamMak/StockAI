@@ -2,9 +2,9 @@
 
 **Investigation date:** 2026-08-07
 
-**Tasks:** T10 and T11A
+**Tasks:** T10, T11A, and T11B
 
-**Status:** **T10 and T11A verified**
+**Status:** **T10, T11A, and T11B verified**
 
 This note records both official Odoo documentation/source evidence and the
 completed clean-database probe against the pinned runtime. It does not invent
@@ -59,6 +59,13 @@ use HTTP `422`, and the API-key table's private `index` column is not an ORM
 field. The final clean `make odoo-contract` run passed all 19 tests in 166.84
 seconds and removed its database, containers, networks, volumes, and temporary
 key material during teardown.
+
+T11B adds the narrow production JSON-2 read adapter. The final
+`make odoo-contract` run passed all 20 tests in 237.30 seconds. Its added test
+seeded a real orderpoint and product, called `list_replenishment_candidates`
+over authenticated MCP Streamable HTTP, completed the existing LangGraph scan,
+observed successful bounded Odoo and MCP metrics, and verified that captured
+logs contained neither the API key nor the database password.
 
 ## 2. Runtime under investigation
 
@@ -333,8 +340,9 @@ JSON-2 adds no authorization bypass. Relevant official ACL defaults include:
 The clean probe verified reads and PO/receipt actions while vendor,
 supplier-pricelist, reorder-rule, and user mutations were denied. Standard
 Purchase, Stock, and Analytic roles are nevertheless broader than MCP's desired
-operation surface. T11A now applies the narrower project groups and read-only
-analytic ACLs; T11B still owns the strict MCP operation allowlist.
+operation surface. T11A applies the narrower project groups and read-only
+analytic ACLs; T11B enforces fixed candidate-search and product-read operations
+without exposing a generic model or method passthrough.
 
 Sources: [purchase ACLs](https://github.com/odoo/odoo/blob/19.0/addons/purchase/security/ir.model.access.csv),
 [purchase record rules](https://github.com/odoo/odoo/blob/19.0/addons/purchase/security/purchase_security.xml),
@@ -397,6 +405,11 @@ claims from one newly created database:
     output.
 12. Idempotent fictional dev/prod seed references for happy, over-budget,
     no-valid-offer, receipt/return, monthly budgets, and open POs.
+13. A strict company-bound candidate mapping over the real JSON-2 transport,
+    authenticated MCP invocation, LangGraph consumption, bounded retries and
+    response size, safe malformed-data handling, sanitized logs, and bounded
+    Odoo/MCP metrics.
 
-T11B owns adapter-level aggregation, supplier-selection, UoM/rounding,
-multi-company, timeout, malformed-response, and ambiguous-write contracts.
+T11B completes the approved replenishment-candidate read boundary. Supplier
+selection, UoM/rounding policy, budget arithmetic, and revision-bound write
+operations remain assigned to their later MCP vertical slices.

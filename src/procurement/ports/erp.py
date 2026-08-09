@@ -51,3 +51,17 @@ class ErpPort(Protocol):
 
 class ErpUnavailableError(Exception):
     """Safe adapter signal for a temporarily unavailable ERP read."""
+
+    safe_message = "The procurement source is unavailable."
+
+    def __init__(
+        self,
+        private_detail: object = None,
+        *,
+        retry_count: int = 0,
+    ) -> None:
+        del private_detail
+        if type(retry_count) is not int or not 0 <= retry_count <= 2:
+            raise ValueError("retry_count must be between zero and two")
+        super().__init__(self.safe_message)
+        self.retry_count = retry_count

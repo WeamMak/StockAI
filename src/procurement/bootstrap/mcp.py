@@ -12,9 +12,15 @@ from decimal import Decimal, InvalidOperation
 
 import httpx
 import uvicorn
-from starlette.types import ASGIApp
+from starlette.types import ASGIApp, Receive, Scope, Send
 
+from procurement.adapters.odoo.client import (
+    OdooErpAdapter,
+    OdooJson2Client,
+    create_odoo_metrics,
+)
 from procurement.domain.identifiers import Environment
+from procurement.mcp_server.observability import create_mcp_metrics
 from procurement.mcp_server.server import SERVICE_NAME, create_mcp_server
 from procurement.observability.logging import configure_json_logging
 from procurement.ports.erp import (
@@ -25,12 +31,12 @@ from procurement.ports.erp import (
     ReplenishmentCandidatesQuery,
 )
 
-_SUPPORTED_MODES = frozenset({"success", "timeout"})
+_SUPPORTED_MODES = frozenset({"success", "timeout", "odoo"})
 
 
 @dataclass(frozen=True, slots=True)
 class LocalMcpSettings:
-    """Validated process settings for the local deterministic MCP service."""
+    """Validated dependencies for deterministic or real-Odoo MCP operation."""
 
     environment: Environment
     bearer_token: str = field(repr=False)
@@ -40,10 +46,16 @@ class LocalMcpSettings:
     read_timeout_seconds: float = 10.0
     max_retries: int = 2
     retry_delay_seconds: float = 0.05
+    odoo_url: str | None = None
+    odoo_database: str | None = None
+    odoo_api_key: str | None = field(default=None, repr=False)
+    odoo_company_id: int | None = None
 
     def __post_init__(self) -> None:
         if self.erp_mode not in _SUPPORTED_MODES:
-            raise ValueError("PROCUREMENT_LOCAL_ERP_MODE must be success or timeout")
+            raise ValueError(
+                "PROCUREMENT_LOCAL_ERP_MODE must be success, timeout, or odoo"
+            )
         if self.erp_url is not None:
             parsed_url = httpx.URL(self.erp_url)
             if parsed_url.scheme not in {"http", "https"} or parsed_url.host is None:
@@ -60,6 +72,34 @@ class LocalMcpSettings:
             raise ValueError(
                 "PROCUREMENT_MCP_RETRY_DELAY_SECONDS must be between 0 and 10"
             )
+        if self.erp_mode == "odoo":
+            if (
+                self.odoo_url is None
+                or self.odoo_database is None
+                or self.odoo_api_key is None
+                or self.odoo_company_id is None
+            ):
+                raise ValueError("real Odoo mode requires all Odoo settings")
+            parsed_odoo_url = httpx.URL(self.odoo_url)
+            if (
+                parsed_odoo_url.scheme not in {"http", "https"}
+                or parsed_odoo_url.host is None
+            ):
+                raise ValueError("PROCUREMENT_ODOO_URL must be an absolute HTTP URL")
+            if (
+                not 1 <= len(self.odoo_database) <= 128
+                or not self.odoo_database.isascii()
+                or any(character.isspace() for character in self.odoo_database)
+            ):
+                raise ValueError("PROCUREMENT_ODOO_DATABASE is invalid")
+            if (
+                not 32 <= len(self.odoo_api_key) <= 512
+                or not self.odoo_api_key.isascii()
+                or any(character.isspace() for character in self.odoo_api_key)
+            ):
+                raise ValueError("PROCUREMENT_ODOO_API_KEY is invalid")
+            if type(self.odoo_company_id) is not int or self.odoo_company_id <= 0:
+                raise ValueError("PROCUREMENT_ODOO_COMPANY_ID must be positive")
 
     @classmethod
     def from_environment(cls) -> LocalMcpSettings:
@@ -86,6 +126,7 @@ class LocalMcpSettings:
             log_level = log_levels[raw_log_level]
         except KeyError as error:
             raise ValueError("PROCUREMENT_LOG_LEVEL is invalid") from error
+        raw_odoo_company_id = os.environ.get("PROCUREMENT_ODOO_COMPANY_ID")
         return cls(
             environment=environment,
             bearer_token=bearer_token,
@@ -98,6 +139,12 @@ class LocalMcpSettings:
             max_retries=int(os.environ.get("PROCUREMENT_MCP_MAX_RETRIES", "2")),
             retry_delay_seconds=float(
                 os.environ.get("PROCUREMENT_MCP_RETRY_DELAY_SECONDS", "0.05")
+            ),
+            odoo_url=os.environ.get("PROCUREMENT_ODOO_URL"),
+            odoo_database=os.environ.get("PROCUREMENT_ODOO_DATABASE"),
+            odoo_api_key=os.environ.get("PROCUREMENT_ODOO_API_KEY"),
+            odoo_company_id=(
+                int(raw_odoo_company_id) if raw_odoo_company_id is not None else None
             ),
         )
 
@@ -228,35 +275,72 @@ def create_local_mcp_app(
         environment=resolved.environment.value,
         level=resolved.log_level,
     )
-    erp: ErpPort = (
-        LocalHttpFictionalErp(
+    metrics = create_mcp_metrics()
+    if resolved.erp_mode == "odoo":
+        if (
+            resolved.odoo_url is None
+            or resolved.odoo_database is None
+            or resolved.odoo_api_key is None
+            or resolved.odoo_company_id is None
+        ):  # pragma: no cover - settings validation guarantees this
+            raise RuntimeError("real Odoo settings are incomplete")
+        erp: ErpPort = OdooErpAdapter(
+            client=OdooJson2Client(
+                base_url=resolved.odoo_url,
+                database=resolved.odoo_database,
+                api_key=resolved.odoo_api_key,
+                timeout_seconds=resolved.read_timeout_seconds,
+                max_retries=resolved.max_retries,
+                retry_delay_seconds=resolved.retry_delay_seconds,
+                metrics=create_odoo_metrics(metrics.registry),
+                logger=logger,
+            ),
+            company_id=resolved.odoo_company_id,
+        )
+        tool_max_retries = 0
+    elif resolved.erp_url is not None:
+        erp = LocalHttpFictionalErp(
             base_url=resolved.erp_url,
             timeout_seconds=resolved.read_timeout_seconds,
         )
-        if resolved.erp_url is not None
-        else LocalFictionalErp(mode=resolved.erp_mode)
-    )
+        tool_max_retries = resolved.max_retries
+    else:
+        erp = LocalFictionalErp(mode=resolved.erp_mode)
+        tool_max_retries = resolved.max_retries
     server = create_mcp_server(
         erp=erp,
         environment=resolved.environment,
         bearer_token=resolved.bearer_token,
         host="0.0.0.0",  # noqa: S104 - accept the private container-network host
         logger=logger,
+        metrics=metrics,
         read_timeout_seconds=resolved.read_timeout_seconds,
-        max_retries=resolved.max_retries,
+        max_retries=tool_max_retries,
         retry_delay_seconds=resolved.retry_delay_seconds,
     )
     return server.streamable_http_app()
 
 
-app = create_local_mcp_app()
+class _LazyLocalMcpApp:
+    """Defer environment loading until an ASGI server starts the app."""
+
+    def __init__(self) -> None:
+        self._resolved_app: ASGIApp | None = None
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if self._resolved_app is None:
+            self._resolved_app = create_local_mcp_app()
+        await self._resolved_app(scope, receive, send)
+
+
+app: ASGIApp = _LazyLocalMcpApp()
 
 
 def run() -> None:
     """Run only the configured MCP composition root."""
 
     uvicorn.run(
-        app,
+        create_local_mcp_app(),
         host="0.0.0.0",  # noqa: S104 - required inside the container boundary
         port=9000,
         log_level="warning",

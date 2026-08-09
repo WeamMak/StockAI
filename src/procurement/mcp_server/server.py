@@ -86,8 +86,7 @@ def create_mcp_server(
         name=candidates.TOOL_NAME,
         title="List replenishment candidates",
         description=(
-            "List one bounded page of fictional ERP products that may need "
-            "replenishment."
+            "List one bounded page of ERP products that may need replenishment."
         ),
         annotations=ToolAnnotations(
             readOnlyHint=True,
