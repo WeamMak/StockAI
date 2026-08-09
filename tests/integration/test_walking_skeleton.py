@@ -7,13 +7,19 @@ from time import monotonic, sleep
 
 import httpx
 
+from tests.support.local_identity import sign_in_sync
 from tests.support.local_skeleton import run_local_skeleton
 
 
-def _poll_scan(client: httpx.Client, location: str) -> httpx.Response:
+def _poll_scan(
+    client: httpx.Client,
+    location: str,
+    *,
+    headers: dict[str, str],
+) -> httpx.Response:
     deadline = monotonic() + 5
     while monotonic() < deadline:
-        response = client.get(location)
+        response = client.get(location, headers=headers)
         if response.json()["status"] not in {"queued", "running"}:
             return response
         sleep(0.01)
@@ -25,8 +31,13 @@ def test_local_processes_run_langgraph_over_real_mcp_transport(
 ) -> None:
     with run_local_skeleton(tmp_path) as skeleton:
         with httpx.Client(base_url=skeleton.api_url, timeout=5) as client:
-            accepted = client.post("/api/v1/scans")
-            detail = _poll_scan(client, accepted.headers["location"])
+            auth_headers = sign_in_sync(client)
+            accepted = client.post("/api/v1/scans", headers=auth_headers)
+            detail = _poll_scan(
+                client,
+                accepted.headers["location"],
+                headers=auth_headers,
+            )
             api_metrics = client.get("/metrics").text
         mcp_metrics = httpx.get(
             f"{skeleton.mcp_url}/metrics",

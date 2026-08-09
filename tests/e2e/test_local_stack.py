@@ -16,6 +16,8 @@ from uuid import uuid4
 import httpx
 import pytest
 
+from tests.support.local_identity import sign_in_sync
+
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 COMPOSE_FILES = (PROJECT_ROOT / "compose.yaml", PROJECT_ROOT / "compose.test.yaml")
 FICTIONAL_MCP_TOKEN = "fictional-compose-mcp-token-at-least-32-characters"
@@ -187,10 +189,15 @@ def _running_stack(scenario: str) -> Iterator[RunningComposeStack]:
         assert FICTIONAL_CRON_TOKEN not in logs
 
 
-def _poll_scan(client: httpx.Client, location: str) -> httpx.Response:
+def _poll_scan(
+    client: httpx.Client,
+    location: str,
+    *,
+    headers: dict[str, str],
+) -> httpx.Response:
     deadline = monotonic() + 15
     while monotonic() < deadline:
-        response = client.get(location)
+        response = client.get(location, headers=headers)
         if response.json()["status"] in TERMINAL_SCAN_STATUSES:
             return response
         sleep(0.05)
@@ -214,8 +221,13 @@ def test_local_stack_scenarios_cross_frontend_api_mcp_and_fake_odoo(
     with _running_stack(scenario) as stack:
         with httpx.Client(base_url=stack.public_url, timeout=5) as client:
             frontend = client.get("/")
-            accepted = client.post("/api/v1/scans")
-            detail = _poll_scan(client, accepted.headers["location"])
+            auth_headers = sign_in_sync(client)
+            accepted = client.post("/api/v1/scans", headers=auth_headers)
+            detail = _poll_scan(
+                client,
+                accepted.headers["location"],
+                headers=auth_headers,
+            )
 
     payload = detail.json()
     assert frontend.status_code == 200

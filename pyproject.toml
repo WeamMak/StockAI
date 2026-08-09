@@ -16,12 +16,14 @@ dependencies = [
   "langgraph-checkpoint-aws==1.2.0",
   "mcp==1.29.0",
   "prometheus-client==0.25.0",
+  "PyJWT[crypto]==2.13.0",
   "pydantic==2.13.4",
   "uvicorn==0.52.1",
 ]
 
 [project.scripts]
 stockai-api = "procurement.bootstrap.api:run"
+stockai-cognito-bootstrap = "procurement.bootstrap.cognito:run"
 stockai-mcp = "procurement.bootstrap.mcp:run"
 
 [dependency-groups]

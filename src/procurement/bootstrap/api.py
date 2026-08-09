@@ -41,6 +41,11 @@ from procurement.agent.recommendation_schema import (
     validate_recommendation_payload,
 )
 from procurement.api.app import create_app
+from procurement.api.auth.cognito import (
+    CognitoIdentityProvider,
+    CognitoSettings,
+    IdentityProvider,
+)
 from procurement.api.config import ApiSettings
 from procurement.api.observability import create_http_metrics
 from procurement.api.services.scans import ScanWorkflow
@@ -85,6 +90,13 @@ class PersistenceMode(StrEnum):
     DYNAMODB = "dynamodb"
 
 
+class AuthenticationMode(StrEnum):
+    """Runtime authentication selection without a local bypass option."""
+
+    DISABLED = "disabled"
+    COGNITO = "cognito"
+
+
 @dataclass(frozen=True, slots=True)
 class LocalApiSettings:
     """Validated dependencies selected by the API composition root."""
@@ -94,11 +106,17 @@ class LocalApiSettings:
     mcp_token: str = field(repr=False)
     llm_mode: LlmMode = LlmMode.LOCAL
     persistence_mode: PersistenceMode = PersistenceMode.MEMORY
+    authentication_mode: AuthenticationMode = AuthenticationMode.DISABLED
     aws_region: str = "us-east-1"
     dynamodb_application_table: str | None = None
     dynamodb_checkpoint_table: str | None = None
     dynamodb_endpoint_url: str | None = None
     mcp_timeout_seconds: float = 5.0
+    cognito_domain_url: str | None = None
+    cognito_user_pool_id: str | None = None
+    cognito_client_id: str | None = None
+    cognito_client_secret: str | None = field(default=None, repr=False)
+    cognito_redirect_uri: str | None = None
 
     def __post_init__(self) -> None:
         parsed_url = httpx.URL(self.mcp_url)
@@ -118,6 +136,10 @@ class LocalApiSettings:
             raise ValueError("PROCUREMENT_LLM_MODE must be local or bedrock")
         if not isinstance(self.persistence_mode, PersistenceMode):
             raise ValueError("PROCUREMENT_PERSISTENCE_MODE must be memory or dynamodb")
+        if not isinstance(self.authentication_mode, AuthenticationMode):
+            raise ValueError(
+                "PROCUREMENT_AUTHENTICATION_MODE must be disabled or cognito"
+            )
         if not self.aws_region.strip():
             raise ValueError("PROCUREMENT_AWS_REGION is required")
         if self.dynamodb_endpoint_url is not None:
@@ -132,6 +154,30 @@ class LocalApiSettings:
             raise ValueError(
                 "DynamoDB persistence requires application and checkpoint tables"
             )
+        if self.authentication_mode is AuthenticationMode.COGNITO:
+            if self.persistence_mode is not PersistenceMode.DYNAMODB:
+                raise ValueError("Cognito authentication requires DynamoDB persistence")
+            self.cognito_settings()
+
+    def cognito_settings(self) -> CognitoSettings:
+        """Build validated provider settings only for explicit Cognito mode."""
+
+        required = {
+            "domain URL": self.cognito_domain_url,
+            "user pool ID": self.cognito_user_pool_id,
+            "client ID": self.cognito_client_id,
+            "redirect URI": self.cognito_redirect_uri,
+        }
+        if any(value is None for value in required.values()):
+            raise ValueError("Cognito mode requires domain, pool, client, and redirect")
+        return CognitoSettings(
+            domain_url=cast(str, self.cognito_domain_url),
+            region=self.aws_region,
+            user_pool_id=cast(str, self.cognito_user_pool_id),
+            client_id=cast(str, self.cognito_client_id),
+            client_secret=self.cognito_client_secret,
+            redirect_uri=cast(str, self.cognito_redirect_uri),
+        )
 
     @classmethod
     def from_environment(cls) -> LocalApiSettings:
@@ -153,6 +199,14 @@ class LocalApiSettings:
             raise ValueError(
                 "PROCUREMENT_PERSISTENCE_MODE must be memory or dynamodb"
             ) from error
+        try:
+            authentication_mode = AuthenticationMode(
+                os.environ.get("PROCUREMENT_AUTHENTICATION_MODE", "disabled")
+            )
+        except ValueError as error:
+            raise ValueError(
+                "PROCUREMENT_AUTHENTICATION_MODE must be disabled or cognito"
+            ) from error
         environment_prefix = f"stockai-{api.environment.value}"
         return cls(
             api=api,
@@ -163,6 +217,7 @@ class LocalApiSettings:
             mcp_token=mcp_token,
             llm_mode=llm_mode,
             persistence_mode=persistence_mode,
+            authentication_mode=authentication_mode,
             aws_region=os.environ.get("PROCUREMENT_AWS_REGION", "us-east-1"),
             dynamodb_application_table=os.environ.get(
                 "PROCUREMENT_DYNAMODB_APPLICATION_TABLE",
@@ -176,6 +231,13 @@ class LocalApiSettings:
             mcp_timeout_seconds=float(
                 os.environ.get("PROCUREMENT_MCP_CLIENT_TIMEOUT_SECONDS", "5")
             ),
+            cognito_domain_url=os.environ.get("PROCUREMENT_COGNITO_DOMAIN_URL"),
+            cognito_user_pool_id=os.environ.get("PROCUREMENT_COGNITO_USER_POOL_ID"),
+            cognito_client_id=os.environ.get("PROCUREMENT_COGNITO_CLIENT_ID"),
+            cognito_client_secret=(
+                os.environ.get("PROCUREMENT_COGNITO_CLIENT_SECRET") or None
+            ),
+            cognito_redirect_uri=os.environ.get("PROCUREMENT_COGNITO_REDIRECT_URI"),
         )
 
 
@@ -200,6 +262,13 @@ class LocalStructuredLlm(StructuredLlmPort):
 BedrockClientFactory = Callable[[], BedrockRuntimeClient]
 DynamoClientFactory = Callable[..., DynamoClient]
 CheckpointFactory = Callable[[DynamoCheckpointSettings], BaseCheckpointSaver[Any]]
+IdentityProviderFactory = Callable[[CognitoSettings], IdentityProvider]
+
+
+def create_cognito_identity_provider(settings: CognitoSettings) -> IdentityProvider:
+    """Construct the production Cognito adapter at the API composition edge."""
+
+    return CognitoIdentityProvider(settings=settings)
 
 
 def _structured_llm(
@@ -348,6 +417,10 @@ def create_local_api_app(
     bedrock_client_factory: BedrockClientFactory = create_bedrock_runtime_client,
     dynamodb_client_factory: DynamoClientFactory = create_dynamodb_client,
     checkpoint_factory: CheckpointFactory = create_dynamodb_checkpointer,
+    identity_provider_factory: IdentityProviderFactory = (
+        create_cognito_identity_provider
+    ),
+    identity_provider_override: IdentityProvider | None = None,
 ) -> FastAPI:
     """Build the local API with only API-owned dependencies and adapters."""
 
@@ -401,6 +474,12 @@ def create_local_api_app(
         metrics=agent_metrics,
         logger=logger,
     )
+    identity_provider = identity_provider_override
+    if (
+        identity_provider is None
+        and resolved.authentication_mode is AuthenticationMode.COGNITO
+    ):
+        identity_provider = identity_provider_factory(resolved.cognito_settings())
     return create_app(
         settings=resolved.api,
         logger=logger,
@@ -408,6 +487,7 @@ def create_local_api_app(
         agent_metrics=agent_metrics,
         scan_workflow=cast(ScanWorkflow, graph),
         application_repository=application_repository,
+        identity_provider=identity_provider,
     )
 
 

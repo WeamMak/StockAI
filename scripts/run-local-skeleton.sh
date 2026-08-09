@@ -55,6 +55,7 @@ trap cleanup EXIT INT TERM
 export PROCUREMENT_ENVIRONMENT="dev"
 export PROCUREMENT_LOG_LEVEL="INFO"
 export PROCUREMENT_LLM_MODE="local"
+export PROCUREMENT_AUTHENTICATION_MODE="disabled"
 export PROCUREMENT_MCP_URL="http://127.0.0.1:9000/mcp"
 export PROCUREMENT_MCP_TOKEN
 PROCUREMENT_MCP_TOKEN="$(
@@ -75,7 +76,7 @@ uv run uvicorn procurement.bootstrap.mcp:app \
 mcp_pid="$!"
 wait_for_url "Procurement MCP" "http://127.0.0.1:9000/metrics" "${mcp_pid}"
 
-uv run uvicorn procurement.bootstrap.api:app \
+uv run uvicorn tests.support.authenticated_api:app \
   --host 127.0.0.1 \
   --port 8000 \
   --log-level warning \

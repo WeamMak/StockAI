@@ -2,8 +2,10 @@
 
 import pytest
 from httpx2 import ASGITransport, AsyncClient
+from tests.support.local_identity import LocalIdentityProvider, sign_in
 
 from procurement.api.app import create_app
+from procurement.api.auth.session import UserRole
 
 
 @pytest.mark.anyio
@@ -45,12 +47,15 @@ async def test_readiness_tracks_the_application_lifecycle() -> None:
 
 @pytest.mark.anyio
 async def test_dependency_health_is_explicit_before_dependencies_are_added() -> None:
-    application = create_app()
+    application = create_app(
+        identity_provider=LocalIdentityProvider(role=UserRole.OFFICER)
+    )
     transport = ASGITransport(app=application)
     async with AsyncClient(
         transport=transport,
-        base_url="http://testserver",
+        base_url="https://testserver",
     ) as client:
+        await sign_in(client)
         response = await client.get("/health/dependencies")
 
     assert response.status_code == 200

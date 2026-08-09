@@ -26,6 +26,7 @@ from procurement.adapters.aws.dynamodb import DynamoApplicationRepository
 from procurement.domain.identifiers import CaseId, Environment, Revision
 from procurement.domain.models import UtcTimestamp
 from procurement.ports.repositories import CaseRecord, IdempotencyConflictError
+from tests.support.local_identity import sign_in_sync
 from tests.support.local_skeleton import run_local_skeleton
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -151,10 +152,15 @@ def _running_dynamodb_local() -> Iterator[tuple[str, Any]]:
         )
 
 
-def _poll_scan(client: httpx.Client, location: str) -> dict[str, object]:
+def _poll_scan(
+    client: httpx.Client,
+    location: str,
+    *,
+    headers: dict[str, str],
+) -> dict[str, object]:
     deadline = monotonic() + 15
     while monotonic() < deadline:
-        response = client.get(location)
+        response = client.get(location, headers=headers)
         payload = cast(dict[str, object], response.json())
         if payload["status"] not in {"queued", "running"}:
             return payload
@@ -174,9 +180,10 @@ def test_scan_and_graph_state_survive_api_process_restart(
             dynamodb_checkpoint_table=CHECKPOINT_TABLE,
         ) as skeleton:
             with httpx.Client(base_url=skeleton.api_url, timeout=5) as api:
-                accepted = api.post("/api/v1/scans")
+                auth_headers = sign_in_sync(api)
+                accepted = api.post("/api/v1/scans", headers=auth_headers)
                 location = accepted.headers["location"]
-                finished = _poll_scan(api, location)
+                finished = _poll_scan(api, location, headers=auth_headers)
 
             scan_id = str(finished["scan_id"])
             checkpoint_items = client.query(
@@ -200,11 +207,22 @@ def test_scan_and_graph_state_survive_api_process_restart(
                 "running",
                 "succeeded",
             }
+            session_items = client.query(
+                TableName=APPLICATION_TABLE,
+                KeyConditionExpression="PK = :pk AND begins_with(SK, :prefix)",
+                ExpressionAttributeValues={
+                    ":pk": {"S": "ENV#dev"},
+                    ":prefix": {"S": "SESSION#"},
+                },
+            )["Items"]
+            assert len(session_items) == 1
+            assert "access_token" not in session_items[0]
+            assert "id_token" not in session_items[0]
 
             skeleton.restart_api()
             with httpx.Client(base_url=skeleton.api_url, timeout=5) as restarted_api:
-                restored = restarted_api.get(location)
-                listed = restarted_api.get("/api/v1/scans")
+                restored = restarted_api.get(location, headers=auth_headers)
+                listed = restarted_api.get("/api/v1/scans", headers=auth_headers)
 
             assert accepted.status_code == 202
             assert finished["status"] == "succeeded"

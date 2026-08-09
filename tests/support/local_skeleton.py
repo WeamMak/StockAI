@@ -142,7 +142,7 @@ def run_local_skeleton(
             process = subprocess.Popen(
                 [
                     *command_prefix,
-                    "procurement.bootstrap.api:app",
+                    "tests.support.authenticated_api:app",
                     *server_options,
                     "--port",
                     str(api_port),

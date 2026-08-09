@@ -154,11 +154,23 @@ h2 {
 }
 
 .primary-button {
+  display: inline-block;
   min-width: 10.5rem;
   padding: 0.8rem 1.1rem;
   color: #ffffff;
   background: #2847a1;
   box-shadow: 0 8px 20px rgb(40 71 161 / 20%);
+  text-align: center;
+  text-decoration: none;
+}
+
+.sign-in-page {
+  max-width: 42rem;
+  margin-inline: auto;
+}
+
+.sign-in-button {
+  margin-top: 1.5rem;
 }
 
 .primary-button:hover:not(:disabled) {

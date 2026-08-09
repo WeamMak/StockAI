@@ -4,14 +4,14 @@ StockAI is an approval-gated AI procurement agent for a fictional, self-hosted
 Odoo business. The approved design and implementation sequence live in
 [`docs/spec.md`](docs/spec.md) and [`docs/plan.md`](docs/plan.md).
 
-Tasks T01 through T13 establish the local walking skeleton and its real Odoo,
-Bedrock, and DynamoDB adapter boundaries: the Python domain, FastAPI
+Tasks T01 through T14 establish the local walking skeleton and its real Odoo,
+Bedrock, DynamoDB, and Cognito adapter boundaries: the Python domain, FastAPI
 asynchronous scan API, coded LangGraph, authenticated Procurement MCP tool,
 React polling UI, service-owned observability, and separate runnable API and
-MCP composition roots. The default Compose path remains deterministic and
-needs neither AWS nor real Odoo. Explicit runtime modes can select the
-validated Odoo JSON-2, Bedrock, and DynamoDB adapters; write operations remain
-later approved plan tasks.
+MCP composition roots. The local test path remains deterministic and needs
+neither AWS nor real Odoo. Explicit runtime modes can select the validated Odoo
+JSON-2, Bedrock, DynamoDB, and Cognito adapters; write operations remain later
+approved plan tasks.
 
 ## Prerequisites
 
@@ -50,10 +50,14 @@ Then build and start the complete local stack with one command:
 make compose-up
 ```
 
-Open <http://127.0.0.1:8080>, select **Run manual scan**, and inspect the
-fictional read-only recommendation. Compose waits for fake Odoo, MCP, API, and
-frontend health before returning. Stop the stack and remove its disposable
-runtime mounts with:
+Open <http://127.0.0.1:8080>, select **Sign in with Cognito**, then select
+**Run manual scan** and inspect the fictional read-only recommendation. This
+local command layers `compose.test.yaml` over the deployable topology, so the
+sign-in redirect uses the test-only fictional identity adapter. That adapter is
+not selectable through application environment configuration and is not part
+of dev or prod deployment configuration. Compose waits for fake Odoo, MCP,
+API, and frontend health before returning. Stop the stack and remove its
+disposable runtime mounts with:
 
 ```bash
 make compose-down
@@ -70,15 +74,18 @@ Task T10 before the real adapter is implemented.
 ```
 
 The command generates one ephemeral local MCP bearer token, starts the MCP and
-API as separate processes, and starts the React development server. Open
-<http://127.0.0.1:5173>, select **Run manual scan**, and inspect the fictional
-read-only recommendation. Press Ctrl+C once to stop all three processes.
+API as separate processes, and starts the React development server. It uses the
+same test-only fictional identity adapter as the local Compose command. Open
+<http://127.0.0.1:5173>, sign in, select **Run manual scan**, and inspect the
+fictional read-only recommendation. Press Ctrl+C once to stop all three
+processes.
 If port 5173 is already in use, choose another frontend port with
 `PROCUREMENT_FRONTEND_PORT=5174 ./scripts/run-local-skeleton.sh`.
 
-The script is intentionally local-only. It uses the deterministic fictional ERP
-and structured-LLM adapters assigned to the walking skeleton; it does not call
-Odoo, Bedrock, or AWS and it does not contain a committed credential.
+The script is intentionally local-only. It uses deterministic fictional
+identity, ERP, and structured-LLM adapters assigned to the test walking
+skeleton; it does not call Cognito, Odoo, Bedrock, or AWS and it does not
+contain a committed credential.
 
 The API setting `PROCUREMENT_LLM_MODE` accepts only `local` or `bedrock` and
 defaults to `local`. Bedrock mode constructs the approved GPT-OSS adapter using
@@ -94,11 +101,24 @@ Local profile used by `tests/integration/test_dynamodb_local.py`; that test
 creates disposable tables, replaces the API process, and verifies that scan
 polling and sanitized graph checkpoints survive the replacement.
 
+`PROCUREMENT_AUTHENTICATION_MODE` accepts only `disabled` or `cognito` and
+defaults to `disabled`. Disabled mode grants no identity and every protected
+route fails closed. Cognito mode requires DynamoDB persistence plus an HTTPS
+domain, user-pool ID, client ID, and callback URI; an app-client secret is
+optional. It uses authorization code with PKCE, verifies the ID-token signature,
+issuer, audience, token use, nonce, and exact officer/manager group, then stores
+only a hashed opaque session record in DynamoDB. Cognito tokens never enter the
+browser session or application table. The `stockai-cognito-bootstrap` command
+idempotently creates the two fictional groups and users after verifying that
+self-signup is disabled; temporary passwords must be injected into that finite
+process and are never printed.
+
 Useful local checks:
 
 ```bash
 curl http://127.0.0.1:8000/health/live
 curl http://127.0.0.1:8000/health/ready
+# Requires an authenticated manager session:
 curl http://127.0.0.1:8000/health/dependencies
 curl http://127.0.0.1:8000/metrics
 ```
@@ -106,9 +126,10 @@ curl http://127.0.0.1:8000/metrics
 The T05 scan contract is:
 
 ```text
-POST /api/v1/scans          -> 202 Accepted
-GET  /api/v1/scans          -> bounded newest-first scan list
-GET  /api/v1/scans/{id}     -> progress, read-only result, or safe failure
+GET  /api/v1/session        -> current bounded user and role
+POST /api/v1/scans          -> 202 Accepted; officer/manager session plus CSRF
+GET  /api/v1/scans          -> bounded newest-first list; officer/manager
+GET  /api/v1/scans/{id}     -> progress/result/failure; officer/manager
 POST /internal/v1/scans     -> 202 with the separate Cron bearer credential
 ```
 

@@ -4,6 +4,8 @@ from fastapi import APIRouter, Request, status
 from fastapi.responses import JSONResponse, Response
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
+from procurement.api.auth.rbac import OfficerPrincipalDep
+
 router = APIRouter(tags=["health"])
 
 
@@ -30,7 +32,7 @@ async def ready(request: Request) -> JSONResponse:
 
 
 @router.get("/health/dependencies")
-async def dependencies() -> dict[str, object]:
+async def dependencies(_principal: OfficerPrincipalDep) -> dict[str, object]:
     """Report bounded dependency states without exposing upstream details."""
 
     return {
