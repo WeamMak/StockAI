@@ -1,4 +1,6 @@
 const SCANS_PATH = "/api/v1/scans";
+const SESSION_PATH = "/api/v1/session";
+const CSRF_COOKIE_NAME = "stockai_csrf";
 const MAX_SCAN_LIST_LENGTH = 100;
 
 export type ScanStatus = "queued" | "running" | "succeeded" | "failed";
@@ -29,6 +31,12 @@ export interface Scan {
   completed_at: string | null;
   result: ApprovalReadyResult | null;
   error: ScanFailure | null;
+}
+
+export interface Session {
+  user_id: string;
+  email: string;
+  role: "officer" | "manager";
 }
 
 interface RequestOptions {
@@ -184,8 +192,11 @@ async function request(
   try {
     response = await fetch(path, {
       credentials: "same-origin",
-      headers: { Accept: "application/json" },
       ...init,
+      headers: {
+        Accept: "application/json",
+        ...(init.headers as Record<string, string> | undefined),
+      },
     });
   } catch (error) {
     if (isAbortError(error)) {
@@ -210,11 +221,46 @@ async function request(
   return { body, status: response.status };
 }
 
+function cookieValue(name: string): string | null {
+  const prefix = `${name}=`;
+  for (const entry of document.cookie.split(";")) {
+    const candidate = entry.trim();
+    if (candidate.startsWith(prefix)) {
+      return decodeURIComponent(candidate.slice(prefix.length));
+    }
+  }
+  return null;
+}
+
+export async function getSession(
+  options: RequestOptions = {},
+): Promise<Session> {
+  const response = await request(SESSION_PATH, {
+    method: "GET",
+    signal: options.signal,
+  });
+  if (
+    !isRecord(response.body) ||
+    typeof response.body.user_id !== "string" ||
+    typeof response.body.email !== "string" ||
+    !["officer", "manager"].includes(String(response.body.role))
+  ) {
+    return invalidResponse();
+  }
+  return {
+    user_id: response.body.user_id,
+    email: response.body.email,
+    role: response.body.role as Session["role"],
+  };
+}
+
 export async function createManualScan(
   options: RequestOptions = {},
 ): Promise<Scan> {
+  const csrfToken = cookieValue(CSRF_COOKIE_NAME);
   const response = await request(SCANS_PATH, {
     method: "POST",
+    headers: csrfToken === null ? {} : { "X-CSRF-Token": csrfToken },
     signal: options.signal,
   });
   if (response.status !== 202) {

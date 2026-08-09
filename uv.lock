@@ -1001,6 +1001,7 @@ dependencies = [
     { name = "mcp" },
     { name = "prometheus-client" },
     { name = "pydantic" },
+    { name = "pyjwt", extra = ["crypto"] },
     { name = "uvicorn" },
 ]
 
@@ -1023,6 +1024,7 @@ requires-dist = [
     { name = "mcp", specifier = "==1.29.0" },
     { name = "prometheus-client", specifier = "==0.25.0" },
     { name = "pydantic", specifier = "==2.13.4" },
+    { name = "pyjwt", extras = ["crypto"], specifier = "==2.13.0" },
     { name = "uvicorn", specifier = "==0.52.1" },
 ]
 

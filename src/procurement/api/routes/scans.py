@@ -5,16 +5,21 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from fastapi import APIRouter, Request, Response, status
+from fastapi import APIRouter, Depends, Request, Response, status
 from pydantic import BaseModel, ConfigDict
 
+from procurement.api.auth.rbac import require_csrf, require_officer
 from procurement.api.services.scans import (
     ScanService,
     ScanSnapshot,
     ScanTrigger,
 )
 
-router = APIRouter(prefix="/api/v1/scans", tags=["scans"])
+router = APIRouter(
+    prefix="/api/v1/scans",
+    tags=["scans"],
+    dependencies=[Depends(require_officer)],
+)
 _RESPONSE_CONFIG = ConfigDict(extra="forbid")
 
 
@@ -107,7 +112,11 @@ def scan_response(snapshot: ScanSnapshot) -> ScanResponse:
     )
 
 
-@router.post("", status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "",
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(require_csrf)],
+)
 async def create_manual_scan(request: Request, response: Response) -> ScanResponse:
     """Schedule an authorized manual scan without holding the request open."""
 

@@ -25,8 +25,10 @@ from procurement.ports.repositories import (
     FailureRecord,
     IdempotencyConflictError,
     ImmutableRecordError,
+    LoginTransactionRecord,
     RecommendationRecord,
     RevisionConflictError,
+    SessionRecord,
 )
 
 MAX_PAGE_SIZE = 100
@@ -46,6 +48,8 @@ class DynamoClient(Protocol):
     def put_item(self, **request: Any) -> Mapping[str, Any]: ...
 
     def query(self, **request: Any) -> Mapping[str, Any]: ...
+
+    def delete_item(self, **request: Any) -> Mapping[str, Any]: ...
 
 
 def create_dynamodb_client(
@@ -288,6 +292,102 @@ class DynamoApplicationRepository(ApplicationRepository):
                 raise ImmutableRecordError("The audit event already exists.") from None
             raise
 
+    async def put_login_transaction(self, record: LoginTransactionRecord) -> None:
+        self._validate_digest(record.transaction_id_hash, name="login transaction")
+        item = {
+            **self._auth_key("LOGIN", record.transaction_id_hash),
+            "entity_type": {"S": "login_transaction"},
+            "transaction_id_hash": {"S": record.transaction_id_hash},
+            "state_hash": {"S": record.state_hash},
+            "nonce": {"S": record.nonce},
+            "code_verifier": {"S": record.code_verifier},
+            "expires_at": {"S": record.expires_at.value.isoformat()},
+            "ttl": self._ttl(record.expires_at),
+        }
+        await self._conditional_auth_put(item, duplicate="login transaction")
+
+    async def consume_login_transaction(
+        self,
+        transaction_id_hash: str,
+    ) -> LoginTransactionRecord | None:
+        self._validate_digest(transaction_id_hash, name="login transaction")
+        response = self._client.delete_item(
+            TableName=self._table_name,
+            Key=self._auth_key("LOGIN", transaction_id_hash),
+            ReturnValues="ALL_OLD",
+        )
+        item = cast(Mapping[str, Any] | None, response.get("Attributes"))
+        if item is None:
+            return None
+        return LoginTransactionRecord(
+            transaction_id_hash=self._string(item, "transaction_id_hash"),
+            state_hash=self._string(item, "state_hash"),
+            nonce=self._string(item, "nonce"),
+            code_verifier=self._string(item, "code_verifier"),
+            expires_at=UtcTimestamp.from_value(self._string(item, "expires_at")),
+        )
+
+    async def put_session(self, record: SessionRecord) -> None:
+        self._validate_digest(record.session_id_hash, name="session")
+        self._validate_digest(record.csrf_token_hash, name="CSRF token")
+        item = {
+            **self._auth_key("SESSION", record.session_id_hash),
+            "entity_type": {"S": "session"},
+            "session_id_hash": {"S": record.session_id_hash},
+            "user_id": {"S": record.user_id},
+            "email": {"S": record.email},
+            "role": {"S": record.role},
+            "csrf_token_hash": {"S": record.csrf_token_hash},
+            "created_at": {"S": record.created_at.value.isoformat()},
+            "expires_at": {"S": record.expires_at.value.isoformat()},
+            "ttl": self._ttl(record.expires_at),
+        }
+        await self._conditional_auth_put(item, duplicate="session")
+
+    async def get_session(self, session_id_hash: str) -> SessionRecord | None:
+        self._validate_digest(session_id_hash, name="session")
+        response = self._client.get_item(
+            TableName=self._table_name,
+            Key=self._auth_key("SESSION", session_id_hash),
+            ConsistentRead=True,
+        )
+        item = cast(Mapping[str, Any] | None, response.get("Item"))
+        if item is None:
+            return None
+        return SessionRecord(
+            session_id_hash=self._string(item, "session_id_hash"),
+            user_id=self._string(item, "user_id"),
+            email=self._string(item, "email"),
+            role=self._string(item, "role"),
+            csrf_token_hash=self._string(item, "csrf_token_hash"),
+            created_at=UtcTimestamp.from_value(self._string(item, "created_at")),
+            expires_at=UtcTimestamp.from_value(self._string(item, "expires_at")),
+        )
+
+    async def delete_session(self, session_id_hash: str) -> None:
+        self._validate_digest(session_id_hash, name="session")
+        self._client.delete_item(
+            TableName=self._table_name,
+            Key=self._auth_key("SESSION", session_id_hash),
+        )
+
+    async def _conditional_auth_put(
+        self,
+        item: Mapping[str, Any],
+        *,
+        duplicate: str,
+    ) -> None:
+        try:
+            self._client.put_item(
+                TableName=self._table_name,
+                Item=item,
+                ConditionExpression=_CONDITIONAL_CREATE,
+            )
+        except ClientError as error:
+            if self._error_code(error) == "ConditionalCheckFailedException":
+                raise ImmutableRecordError(f"The {duplicate} already exists.") from None
+            raise
+
     async def _resolve_idempotent_create(
         self,
         record: CaseRecord,
@@ -417,6 +517,12 @@ class DynamoApplicationRepository(ApplicationRepository):
             "SK": {"S": f"CASE#{case_id.value}"},
         }
 
+    def _auth_key(self, prefix: str, digest: str) -> dict[str, Any]:
+        return {
+            "PK": {"S": self._partition_key},
+            "SK": {"S": f"{prefix}#{digest}"},
+        }
+
     def _validate_case(self, record: CaseRecord) -> None:
         if not isinstance(record, CaseRecord):
             raise ValueError("record must be a CaseRecord")
@@ -438,6 +544,11 @@ class DynamoApplicationRepository(ApplicationRepository):
     def _validate_key(value: str, *, name: str) -> None:
         if _SAFE_KEY_PATTERN.fullmatch(value) is None:
             raise ValueError(f"{name} must be bounded safe identifier text")
+
+    @staticmethod
+    def _validate_digest(value: str, *, name: str) -> None:
+        if re.fullmatch(r"[0-9a-f]{64}", value, re.ASCII) is None:
+            raise ValueError(f"{name} digest is invalid")
 
     @staticmethod
     def _ttl(expires_at: UtcTimestamp) -> dict[str, str]:

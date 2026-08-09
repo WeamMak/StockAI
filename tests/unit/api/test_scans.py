@@ -8,9 +8,11 @@ from typing import cast
 import anyio
 import pytest
 from httpx2 import ASGITransport, AsyncClient
+from tests.support.local_identity import LocalIdentityProvider, sign_in
 
 from procurement.agent.state import ApprovalReadyResult, ScanState
 from procurement.api.app import create_app
+from procurement.api.auth.session import UserRole
 from procurement.api.config import ApiSettings
 from procurement.api.services.scans import ScanService, ScanTrigger
 from procurement.domain.errors import DomainError, ErrorCode
@@ -116,14 +118,18 @@ async def _poll_until_finished(
 @pytest.mark.anyio
 async def test_manual_scan_returns_202_and_can_be_polled_to_completion() -> None:
     workflow = SuccessfulWorkflow()
-    application = create_app(scan_workflow=workflow)
+    application = create_app(
+        scan_workflow=workflow,
+        identity_provider=LocalIdentityProvider(),
+    )
     transport = ASGITransport(app=application)
 
     async with AsyncClient(
         transport=transport,
-        base_url="http://testserver",
+        base_url="https://testserver",
     ) as client:
-        accepted = await client.post("/api/v1/scans")
+        csrf_headers = await sign_in(client)
+        accepted = await client.post("/api/v1/scans", headers=csrf_headers)
         accepted_body = accepted.json()
         scan_id = accepted_body["scan_id"]
         finished = await _poll_until_finished(client, scan_id)
@@ -165,13 +171,17 @@ async def test_scan_record_survives_a_new_api_service_instance() -> None:
         environment=Environment.DEV,
         repository=repository,
     )
-    first_application = create_app(scan_service=first_service)
+    first_application = create_app(
+        scan_service=first_service,
+        identity_provider=LocalIdentityProvider(),
+    )
 
     async with AsyncClient(
         transport=ASGITransport(app=first_application),
-        base_url="http://first-process",
+        base_url="https://first-process",
     ) as client:
-        accepted = await client.post("/api/v1/scans")
+        csrf_headers = await sign_in(client)
+        accepted = await client.post("/api/v1/scans", headers=csrf_headers)
         scan_id = accepted.json()["scan_id"]
         finished = await _poll_until_finished(client, scan_id)
 
@@ -180,11 +190,15 @@ async def test_scan_record_survives_a_new_api_service_instance() -> None:
         environment=Environment.DEV,
         repository=repository,
     )
-    second_application = create_app(scan_service=second_service)
+    second_application = create_app(
+        scan_service=second_service,
+        identity_provider=LocalIdentityProvider(),
+    )
     async with AsyncClient(
         transport=ASGITransport(app=second_application),
-        base_url="http://second-process",
+        base_url="https://second-process",
     ) as client:
+        await sign_in(client)
         restored = await client.get(f"/api/v1/scans/{scan_id}")
         listed = await client.get("/api/v1/scans")
 
@@ -228,16 +242,20 @@ async def test_persistence_failure_releases_the_local_scan_slot() -> None:
 @pytest.mark.anyio
 async def test_only_one_local_scan_can_run_at_a_time() -> None:
     workflow = BlockingWorkflow()
-    application = create_app(scan_workflow=workflow)
+    application = create_app(
+        scan_workflow=workflow,
+        identity_provider=LocalIdentityProvider(),
+    )
     transport = ASGITransport(app=application)
 
     async with AsyncClient(
         transport=transport,
-        base_url="http://testserver",
+        base_url="https://testserver",
     ) as client:
-        first = await client.post("/api/v1/scans")
+        csrf_headers = await sign_in(client)
+        first = await client.post("/api/v1/scans", headers=csrf_headers)
         await workflow.started.wait()
-        duplicate = await client.post("/api/v1/scans")
+        duplicate = await client.post("/api/v1/scans", headers=csrf_headers)
         workflow.release.set()
         await _poll_until_finished(client, first.json()["scan_id"])
 
@@ -248,13 +266,17 @@ async def test_only_one_local_scan_can_run_at_a_time() -> None:
 
 @pytest.mark.anyio
 async def test_unknown_scan_returns_the_safe_error_envelope() -> None:
-    application = create_app(scan_workflow=SuccessfulWorkflow())
+    application = create_app(
+        scan_workflow=SuccessfulWorkflow(),
+        identity_provider=LocalIdentityProvider(),
+    )
     transport = ASGITransport(app=application)
 
     async with AsyncClient(
         transport=transport,
-        base_url="http://testserver",
+        base_url="https://testserver",
     ) as client:
+        await sign_in(client)
         response = await client.get("/api/v1/scans/scan-does-not-exist")
 
     assert response.status_code == 422
@@ -268,13 +290,15 @@ async def test_internal_scan_requires_its_separate_narrow_cron_credential() -> N
     application = create_app(
         settings=ApiSettings(cron_token=cron_token),
         scan_workflow=SuccessfulWorkflow(),
+        identity_provider=LocalIdentityProvider(role=UserRole.MANAGER),
     )
     transport = ASGITransport(app=application)
 
     async with AsyncClient(
         transport=transport,
-        base_url="http://testserver",
+        base_url="https://testserver",
     ) as client:
+        await sign_in(client)
         missing = await client.post("/internal/v1/scans")
         wrong = await client.post(
             "/internal/v1/scans",
@@ -310,14 +334,18 @@ async def test_non_human_workflow_has_a_bounded_deadline() -> None:
         environment=Environment.DEV,
         workflow_timeout_seconds=0.01,
     )
-    application = create_app(scan_service=service)
+    application = create_app(
+        scan_service=service,
+        identity_provider=LocalIdentityProvider(),
+    )
     transport = ASGITransport(app=application)
 
     async with AsyncClient(
         transport=transport,
-        base_url="http://testserver",
+        base_url="https://testserver",
     ) as client:
-        accepted = await client.post("/api/v1/scans")
+        csrf_headers = await sign_in(client)
+        accepted = await client.post("/api/v1/scans", headers=csrf_headers)
         finished = await _poll_until_finished(client, accepted.json()["scan_id"])
 
     assert finished["status"] == "failed"

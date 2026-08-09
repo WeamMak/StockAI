@@ -38,6 +38,7 @@ from procurement.ports.mcp import (
 )
 from tests.support.fake_odoo.adapter import FakeOdooAdapter
 from tests.support.fakes.llm import FakeStructuredLlm
+from tests.support.local_identity import LocalIdentityProvider, sign_in
 
 BEARER_TOKEN = "fictional-dev-mcp-token-at-least-32-characters"
 
@@ -206,13 +207,15 @@ async def test_api_scan_runs_langgraph_and_real_mcp_transport() -> None:
             http_metrics=http_metrics,
             agent_metrics=agent_metrics,
             scan_workflow=cast(ScanWorkflow, graph),
+            identity_provider=LocalIdentityProvider(),
         )
         transport = ASGITransport(app=application)
         async with AsyncClient(
             transport=transport,
-            base_url="http://testserver",
+            base_url="https://testserver",
         ) as client:
-            accepted = await client.post("/api/v1/scans")
+            csrf_headers = await sign_in(client)
+            accepted = await client.post("/api/v1/scans", headers=csrf_headers)
             scan_id = accepted.json()["scan_id"]
             for _ in range(100):
                 detail = await client.get(f"/api/v1/scans/{scan_id}")

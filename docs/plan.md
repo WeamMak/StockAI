@@ -13,7 +13,7 @@ ORM-bootstrap contracts selected after T10 discovery.
 
 **Tech Stack:** Python 3.12, FastAPI, LangGraph, Python MCP SDK, React, TypeScript, Vite, Odoo 19 Community, PostgreSQL, Terraform, AWS EC2/Auto Scaling/SSM/EventBridge/Lambda/EBS/ALB/ACM/Route 53, kubeadm Kubernetes, Kustomize, Argo CD, Prometheus, Grafana, Loki, Alertmanager, GitHub Actions.
 
-**Status:** T13 implementation complete; awaiting task review
+**Status:** T14 implementation complete; awaiting task review
 
 **Date:** 2026-08-09
 
@@ -23,8 +23,9 @@ ORM-bootstrap contracts selected after T10 discovery.
 course-staff approval, and explicitly authorized implementation to resume. T10,
 T11A, and T11B are approved and merged. The user explicitly authorized T12 on
 2026-08-09; its implementation and mocked-Bedrock verification are complete.
-T12A is approved and merged. The user explicitly authorized T13 on 2026-08-09;
-its implementation and local DynamoDB restart verification are complete.
+T12A is approved and merged. T13 is approved and merged through PR #17 at
+`cca7208`. The user explicitly authorized T14 on 2026-08-09; its implementation
+and local session-restart verification are complete.
 
 ## 1. Approval status and purpose
 
@@ -1048,24 +1049,49 @@ writes prevent duplicate case creation.
   `tests/unit/api/auth/test_csrf.py`, and
   `tests/unit/api/auth/test_rbac.py`.
 - Create `tests/unit/bootstrap/test_cognito.py`.
-- Update `frontend/src/api/client.ts` and add
-  `frontend/src/pages/SignInPage.tsx`.
+- Create `tests/support/local_identity.py` and
+  `tests/support/authenticated_api.py` as test-only composition helpers that
+  cannot be selected by runtime environment configuration.
+- Update `src/procurement/api/app.py`, `src/procurement/api/routes/health.py`,
+  `src/procurement/api/routes/scans.py`, `src/procurement/bootstrap/api.py`,
+  `src/procurement/ports/repositories.py`, and
+  `src/procurement/adapters/aws/dynamodb.py` to wire authentication through the
+  real API composition root and persist sessions in the application table.
+- Update `pyproject.toml`, `uv.lock`, `.env.example`, `compose.yaml`,
+  `compose.test.yaml`, `Makefile`, `scripts/run-local-skeleton.sh`, `README.md`,
+  `docs/implementation-status.md`, and affected unit, integration, and Compose
+  tests.
+- Update `frontend/src/App.tsx`, `frontend/src/api/client.ts`, and
+  `frontend/src/styles.css`; create `frontend/src/pages/SignInPage.tsx` and
+  `frontend/tests/auth.test.tsx`; update the affected frontend client tests.
 
 **Work and tests**
 
-- [ ] **Step 1:** Test authorization-code state/nonce validation, callback errors, secure
+- [x] **Step 1:** Test authorization-code state/nonce validation, callback errors, secure
    cookies, session rotation/expiry/logout, CSRF, disabled self-signup
    assumptions, and officer/manager roles.
-- [ ] **Step 2:** Store only opaque browser cookies; store session records in DynamoDB.
-- [ ] **Step 3:** Keep a test-only local identity adapter that cannot be enabled in dev or
+- [x] **Step 2:** Store only opaque browser cookies; store session records in DynamoDB.
+- [x] **Step 3:** Keep a test-only local identity adapter that cannot be enabled in dev or
    prod configuration.
-- [ ] **Step 4:** Protect manual scan and dependency-health endpoints and add
+- [x] **Step 4:** Protect manual scan and dependency-health endpoints and add
    `/api/v1/session`.
-- [ ] **Step 5:** Add an idempotent bootstrap command for fictional officer and manager users
+- [x] **Step 5:** Add an idempotent bootstrap command for fictional officer and manager users
    and groups without emitting temporary credentials.
 
 **Verification:** Run API and frontend auth tests and inspect the production
 bundle for tokens or secret configuration.
+
+**Verification result:** `make check` passed lock and format checks, Ruff,
+strict mypy over 123 source files, ESLint, 5 architecture tests, and all 258
+unit tests. All 17 frontend tests, TypeScript checking, ESLint, and the
+production Vite build passed. The production bundle scan found no Cognito
+configuration or token/secret names. Eight real-process integration tests
+passed, including two against pinned DynamoDB Local 3.3.0 proving that a hashed
+opaque session contains no Cognito tokens and remains valid after API process
+replacement. All 5 Compose checks passed in 139.70 seconds across the rendered
+topology and four deterministic frontend-to-Odoo scenarios. Base, test, and
+DynamoDB-profile Compose models rendered successfully. No live AWS call was
+made.
 
 **Dependencies:** T13.
 
@@ -2795,7 +2821,9 @@ The original planning gate and subsequent approved revisions authorized T01
 through T09, which are complete. T10 triggered its approved stop condition.
 The user approved the exact remediation revision, confirmed course-staff
 approval, and explicitly authorized T10 implementation to resume on 2026-08-07.
-T10 through T12A are approved and merged. The user explicitly authorized T13
-on 2026-08-09. T13's implementation and DynamoDB Local restart verification
-are complete and await user review. T14 must not start until T13 is approved
-and merged.
+T10 through T13 are approved and merged; T13 merged through PR #17 at
+`cca7208`. The user explicitly authorized T14 on 2026-08-09. T14's
+implementation, opaque-session restart verification, and local authenticated
+walking-skeleton regressions are complete and await user review. T15 must not
+start until T14 is approved and merged; its Terraform apply also retains the
+separate explicit infrastructure approval gate.

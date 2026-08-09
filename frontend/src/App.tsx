@@ -1,10 +1,33 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
+import { ApiError, getSession, isAbortError, type Session } from "./api/client";
 import { OverviewPage } from "./pages/OverviewPage";
 import { ScanPage } from "./pages/ScanPage";
+import { SignInPage } from "./pages/SignInPage";
 
 export function App() {
   const [selectedScanId, setSelectedScanId] = useState<string | null>(null);
+  const [session, setSession] = useState<Session | null | undefined>(undefined);
+  const [sessionError, setSessionError] = useState<string | undefined>();
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void getSession({ signal: controller.signal })
+      .then((currentSession) => {
+        setSession(currentSession);
+        setSessionError(undefined);
+      })
+      .catch((error: unknown) => {
+        if (isAbortError(error)) {
+          return;
+        }
+        setSession(null);
+        if (!(error instanceof ApiError) || error.code !== "AUTH_REQUIRED") {
+          setSessionError("The session service is temporarily unavailable.");
+        }
+      });
+    return () => controller.abort();
+  }, []);
 
   return (
     <>
@@ -23,11 +46,19 @@ export function App() {
           >
             StockAI <span>Procurement</span>
           </a>
-          <span className="environment-label">Fictional data</span>
+          {session === undefined || session === null ? (
+            <span className="environment-label">Fictional data</span>
+          ) : (
+            <span className="environment-label">{session.email}</span>
+          )}
         </div>
       </header>
       <main className="app-shell" id="main-content">
-        {selectedScanId === null ? (
+        {session === undefined ? (
+          <p role="status">Loading session…</p>
+        ) : session === null ? (
+          <SignInPage message={sessionError} />
+        ) : selectedScanId === null ? (
           <OverviewPage onSelectScan={setSelectedScanId} />
         ) : (
           <ScanPage

@@ -89,6 +89,30 @@ class ApprovalRecord:
     approved_at: UtcTimestamp
 
 
+@dataclass(frozen=True, slots=True)
+class LoginTransactionRecord:
+    """One-use server-side OAuth transaction with bounded retention."""
+
+    transaction_id_hash: str
+    state_hash: str
+    nonce: str
+    code_verifier: str
+    expires_at: UtcTimestamp
+
+
+@dataclass(frozen=True, slots=True)
+class SessionRecord:
+    """Revocable application session addressed by an opaque-token digest."""
+
+    session_id_hash: str
+    user_id: str
+    email: str
+    role: str
+    csrf_token_hash: str
+    created_at: UtcTimestamp
+    expires_at: UtcTimestamp
+
+
 class ApplicationRepository(Protocol):
     """Application persistence operations independent of DynamoDB."""
 
@@ -132,6 +156,24 @@ class ApplicationRepository(Protocol):
     ) -> None:
         """Append one immutable audit event."""
 
+    async def put_login_transaction(self, record: LoginTransactionRecord) -> None:
+        """Persist a one-use OAuth login transaction."""
+
+    async def consume_login_transaction(
+        self,
+        transaction_id_hash: str,
+    ) -> LoginTransactionRecord | None:
+        """Atomically remove and return one OAuth transaction."""
+
+    async def put_session(self, record: SessionRecord) -> None:
+        """Persist a new opaque application session."""
+
+    async def get_session(self, session_id_hash: str) -> SessionRecord | None:
+        """Load a session by opaque-token digest."""
+
+    async def delete_session(self, session_id_hash: str) -> None:
+        """Revoke a session if it exists."""
+
 
 class InMemoryApplicationRepository(ApplicationRepository):
     """Deterministic process-local substitute for local and unit-test modes."""
@@ -144,6 +186,8 @@ class InMemoryApplicationRepository(ApplicationRepository):
         self._idempotency: dict[str, tuple[str, CaseRecord]] = {}
         self._approvals: dict[str, ApprovalRecord] = {}
         self._audit: dict[str, AuditEvent] = {}
+        self._login_transactions: dict[str, LoginTransactionRecord] = {}
+        self._sessions: dict[str, SessionRecord] = {}
         self._guard = asyncio.Lock()
 
     async def create_case(
@@ -239,6 +283,32 @@ class InMemoryApplicationRepository(ApplicationRepository):
             if event.event_id in self._audit:
                 raise ImmutableRecordError("The audit event already exists.")
             self._audit[event.event_id] = event
+
+    async def put_login_transaction(self, record: LoginTransactionRecord) -> None:
+        async with self._guard:
+            if record.transaction_id_hash in self._login_transactions:
+                raise ImmutableRecordError("The login transaction already exists.")
+            self._login_transactions[record.transaction_id_hash] = record
+
+    async def consume_login_transaction(
+        self,
+        transaction_id_hash: str,
+    ) -> LoginTransactionRecord | None:
+        async with self._guard:
+            return self._login_transactions.pop(transaction_id_hash, None)
+
+    async def put_session(self, record: SessionRecord) -> None:
+        async with self._guard:
+            if record.session_id_hash in self._sessions:
+                raise ImmutableRecordError("The session already exists.")
+            self._sessions[record.session_id_hash] = record
+
+    async def get_session(self, session_id_hash: str) -> SessionRecord | None:
+        return self._sessions.get(session_id_hash)
+
+    async def delete_session(self, session_id_hash: str) -> None:
+        async with self._guard:
+            self._sessions.pop(session_id_hash, None)
 
     def _validate_case(self, record: CaseRecord) -> None:
         if not isinstance(record, CaseRecord):

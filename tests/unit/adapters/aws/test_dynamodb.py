@@ -18,7 +18,9 @@ from procurement.ports.repositories import (
     CaseRecord,
     IdempotencyConflictError,
     ImmutableRecordError,
+    LoginTransactionRecord,
     RevisionConflictError,
+    SessionRecord,
 )
 
 TABLE_NAME = "stockai-dev-application"
@@ -60,6 +62,9 @@ class RecordingDynamoClient:
 
     def query(self, **request: Any) -> Mapping[str, Any]:
         return self._call("query", request)
+
+    def delete_item(self, **request: Any) -> Mapping[str, Any]:
+        return self._call("delete_item", request)
 
 
 def _record(*, revision: int = 1, status: str = "queued") -> CaseRecord:
@@ -360,3 +365,107 @@ async def test_case_listing_is_bounded_newest_first_and_uses_an_opaque_cursor() 
     assert "ExclusiveStartKey" not in first_request
     assert client.calls[1][1]["ExclusiveStartKey"] == last_key
     assert second.records == (_record(),)
+
+
+@pytest.mark.anyio
+async def test_session_is_environment_scoped_consistent_and_revocable() -> None:
+    client = RecordingDynamoClient()
+    repository = DynamoApplicationRepository(
+        client=client,
+        table_name=TABLE_NAME,
+        environment=Environment.DEV,
+    )
+    record = SessionRecord(
+        session_id_hash="a" * 64,
+        user_id="cognito-user-001",
+        email="officer@example.invalid",
+        role="officer",
+        csrf_token_hash="b" * 64,
+        created_at=CREATED_AT,
+        expires_at=EXPIRES_AT,
+    )
+    client.queue(
+        "get_item",
+        {
+            "Item": {
+                "PK": {"S": "ENV#dev"},
+                "SK": {"S": f"SESSION#{'a' * 64}"},
+                "entity_type": {"S": "session"},
+                "session_id_hash": {"S": "a" * 64},
+                "user_id": {"S": "cognito-user-001"},
+                "email": {"S": "officer@example.invalid"},
+                "role": {"S": "officer"},
+                "csrf_token_hash": {"S": "b" * 64},
+                "created_at": {"S": CREATED_AT.value.isoformat()},
+                "expires_at": {"S": EXPIRES_AT.value.isoformat()},
+                "ttl": {"N": str(int(EXPIRES_AT.value.timestamp()))},
+            }
+        },
+    )
+
+    await repository.put_session(record)
+    restored = await repository.get_session(record.session_id_hash)
+    await repository.delete_session(record.session_id_hash)
+
+    put_request = client.calls[0][1]
+    assert put_request["ConditionExpression"] == (
+        "attribute_not_exists(PK) AND attribute_not_exists(SK)"
+    )
+    assert put_request["Item"]["PK"] == {"S": "ENV#dev"}
+    assert put_request["Item"]["SK"] == {"S": f"SESSION#{'a' * 64}"}
+    assert put_request["Item"]["ttl"] == {"N": str(int(EXPIRES_AT.value.timestamp()))}
+    assert client.calls[1][1]["ConsistentRead"] is True
+    assert client.calls[2] == (
+        "delete_item",
+        {
+            "TableName": TABLE_NAME,
+            "Key": {
+                "PK": {"S": "ENV#dev"},
+                "SK": {"S": f"SESSION#{'a' * 64}"},
+            },
+        },
+    )
+    assert restored == record
+
+
+@pytest.mark.anyio
+async def test_login_transaction_is_conditionally_written_and_atomically_consumed() -> (
+    None
+):
+    client = RecordingDynamoClient()
+    repository = DynamoApplicationRepository(
+        client=client,
+        table_name=TABLE_NAME,
+        environment=Environment.DEV,
+    )
+    record = LoginTransactionRecord(
+        transaction_id_hash="c" * 64,
+        state_hash="d" * 64,
+        nonce="opaque-nonce",
+        code_verifier="opaque-code-verifier-at-least-forty-three-characters",
+        expires_at=EXPIRES_AT,
+    )
+    client.queue(
+        "delete_item",
+        {
+            "Attributes": {
+                "transaction_id_hash": {"S": "c" * 64},
+                "state_hash": {"S": "d" * 64},
+                "nonce": {"S": "opaque-nonce"},
+                "code_verifier": {
+                    "S": "opaque-code-verifier-at-least-forty-three-characters"
+                },
+                "expires_at": {"S": EXPIRES_AT.value.isoformat()},
+            }
+        },
+    )
+
+    await repository.put_login_transaction(record)
+    consumed = await repository.consume_login_transaction(record.transaction_id_hash)
+
+    assert client.calls[0][1]["ConditionExpression"] == (
+        "attribute_not_exists(PK) AND attribute_not_exists(SK)"
+    )
+    assert client.calls[0][1]["Item"]["SK"] == {"S": f"LOGIN#{'c' * 64}"}
+    assert client.calls[1][1]["ReturnValues"] == "ALL_OLD"
+    assert consumed == record

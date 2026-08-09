@@ -4,6 +4,7 @@ import {
   ApiError,
   createManualScan,
   getScan,
+  getSession,
   listScans,
 } from "../src/api/client";
 
@@ -31,6 +32,7 @@ afterEach(() => {
 
 describe("scan API client", () => {
   it("accepts only the documented 202 manual-scan response", async () => {
+    document.cookie = "stockai_csrf=opaque-csrf-token; path=/";
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(QUEUED_SCAN, 202));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -39,9 +41,31 @@ describe("scan API client", () => {
       "/api/v1/scans",
       expect.objectContaining({
         credentials: "same-origin",
+        headers: expect.objectContaining({
+          "X-CSRF-Token": "opaque-csrf-token",
+        }),
         method: "POST",
       }),
     );
+  });
+
+  it("parses only the bounded current-session view", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          user_id: "cognito-user-001",
+          email: "officer@example.invalid",
+          role: "officer",
+        }),
+      ),
+    );
+
+    await expect(getSession()).resolves.toEqual({
+      user_id: "cognito-user-001",
+      email: "officer@example.invalid",
+      role: "officer",
+    });
   });
 
   it("parses bounded scan-list and detail responses", async () => {

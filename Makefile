@@ -24,7 +24,7 @@ help:
 	@echo "  odoo-seed     Seed fictional Odoo data in the running contract stack"
 	@echo "  odoo-verify-seed Verify the running Odoo fictional seed"
 	@echo "  compose-validate Validate base, test, and Odoo Compose configurations"
-	@echo "  compose-up    Build and start the healthy local four-service stack"
+	@echo "  compose-up    Build and start the local test-authenticated stack"
 	@echo "  compose-down  Stop and remove the local Compose stack"
 	@echo "  check         Run the complete Python verification suite"
 
@@ -92,9 +92,9 @@ compose-validate:
 	docker compose -f compose.odoo.yaml config --quiet
 
 compose-up:
-	docker compose -f compose.yaml up --build --detach --wait --wait-timeout 180
+	docker compose -f compose.yaml -f compose.test.yaml up --build --detach --wait --wait-timeout 180
 
 compose-down:
-	docker compose -f compose.yaml down --volumes --remove-orphans
+	docker compose -f compose.yaml -f compose.test.yaml down --volumes --remove-orphans
 
 check: lock-check format-check lint test-unit
