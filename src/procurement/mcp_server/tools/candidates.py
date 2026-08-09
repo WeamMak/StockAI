@@ -201,6 +201,9 @@ async def list_replenishment_candidates(
             break
         except (TimeoutError, ErpUnavailableError) as error:
             is_timeout = isinstance(error, TimeoutError)
+            adapter_retry_count = getattr(error, "retry_count", 0)
+            if type(adapter_retry_count) is int and 0 <= adapter_retry_count <= 2:
+                retry_count = max(retry_count, adapter_retry_count)
             if is_timeout:
                 metrics.record_timeout(tool=TOOL_NAME)
             if retry_count >= max_retries:

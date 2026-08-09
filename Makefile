@@ -74,6 +74,7 @@ odoo-contract:
 	mkdir -p reports/junit
 	$(UV) run pytest tests/config/test_odoo_image_contract.py tests/contract \
 		tests/integration/test_odoo_bootstrap.py \
+		tests/integration/test_mcp_real_odoo.py \
 		--junitxml=reports/junit/contract.xml
 
 odoo-seed:

@@ -13,17 +13,17 @@ ORM-bootstrap contracts selected after T10 discovery.
 
 **Tech Stack:** Python 3.12, FastAPI, LangGraph, Python MCP SDK, React, TypeScript, Vite, Odoo 19 Community, PostgreSQL, Terraform, AWS EC2/Auto Scaling/SSM/EventBridge/Lambda/EBS/ALB/ACM/Route 53, kubeadm Kubernetes, Kustomize, Argo CD, Prometheus, Grafana, Loki, Alertmanager, GitHub Actions.
 
-**Status:** T11A implementation complete; awaiting task review
+**Status:** T11B implementation complete; awaiting task review
 
 **Date:** 2026-08-09
 
 **Source design:** User- and course-staff-approved `docs/spec.md` dated 2026-08-07
 
 **Current gate:** The user approved the exact 2026-08-07 revision, confirmed
-course-staff approval, and explicitly authorized T10 implementation to resume.
-T10 is approved and merged. The user explicitly authorized T11A on 2026-08-08;
-its implementation and clean Docker/Odoo verification are complete. T11B must
-not begin until T11A is approved and merged.
+course-staff approval, and explicitly authorized implementation to resume. T10
+and T11A are approved and merged. The user explicitly authorized T11B on
+2026-08-09; its implementation and real-Odoo verification are complete. T12
+must not begin until T11B is approved and merged.
 
 ## 1. Approval status and purpose
 
@@ -806,24 +806,32 @@ budget/action/security contracts pass against real Odoo.
 
 **Work and tests**
 
-- [ ] **Step 1:** Test JSON-2 bearer/database headers, 10-second read timeout,
+- [x] **Step 1:** Test JSON-2 bearer/database headers, 10-second read timeout,
    at most two transient retries with bounded backoff, no retry on permanent
    errors, safe Odoo-error mapping, and response-size limits.
-- [ ] **Step 2:** Test strict mapping and rejection of missing, mistyped,
+- [x] **Step 2:** Test strict mapping and rejection of missing, mistyped,
    cross-company, malformed-decimal, malformed-datetime, and unexpected-state
    Odoo output.
-- [ ] **Step 3:** Implement the narrow client and mappers against only the
+- [x] **Step 3:** Implement the narrow client and mappers against only the
    executable T10 contracts; do not expose generic model/method passthrough to
    MCP tools.
-- [ ] **Step 4:** Replace the fixture implementation of
+- [x] **Step 4:** Replace the fixture implementation of
    `list_replenishment_candidates` with the real adapter in the MCP composition
    root while retaining the deterministic fake for unit and E2E scenarios.
-- [ ] **Step 5:** Call the candidate tool over authenticated Streamable HTTP
+- [x] **Step 5:** Call the candidate tool over authenticated Streamable HTTP
    against the seeded StockAI Odoo image and verify sanitized logs and bounded
    Odoo/MCP metrics.
 
 **Verification:** Run unit tests, the real-Odoo adapter integration, and one
 walking-skeleton scan whose MCP call reads a seeded candidate over JSON-2.
+
+**Verification result:** `make check` passed Ruff, strict mypy over 89 source
+files, 5 architecture tests, and all 188 unit tests. `make test-integration`
+passed all 9 tests in 150.38 seconds. `make odoo-contract` passed all 20 tests
+in 237.30 seconds and wrote `reports/junit/contract.xml`. The real-Odoo test
+seeded the derived StockAI image, read a candidate through authenticated MCP
+Streamable HTTP and JSON-2, completed the existing LangGraph walking skeleton,
+observed bounded Odoo/MCP metrics, and found no credential in captured logs.
 
 **Dependencies:** T11A.
 
@@ -2661,6 +2669,6 @@ The original planning gate and subsequent approved revisions authorized T01
 through T09, which are complete. T10 triggered its approved stop condition.
 The user approved the exact remediation revision, confirmed course-staff
 approval, and explicitly authorized T10 implementation to resume on 2026-08-07.
-T10's executable contract is approved and merged. T11A's implementation and
-clean Docker/Odoo contract are complete and await user review. T11B must not
-start until T11A is approved and merged.
+T10 and T11A are approved and merged. The user explicitly authorized T11B on
+2026-08-09. T11B's implementation and real-Odoo verification are complete and
+await user review. T12 must not start until T11B is approved and merged.

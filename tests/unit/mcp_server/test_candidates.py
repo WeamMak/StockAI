@@ -264,6 +264,33 @@ async def test_transient_erp_unavailability_retries_without_timeout_metric() -> 
 
 
 @pytest.mark.anyio
+async def test_adapter_owned_retries_are_reported_without_a_second_retry_loop() -> None:
+    adapter = FakeOdooAdapter(
+        page=CandidatePage(items=(_candidate(),), next_cursor=None),
+        failures=(ErpUnavailableError(retry_count=2),),
+    )
+
+    with pytest.raises(SafeMcpToolError) as raised:
+        await list_replenishment_candidates(
+            request=_request(),
+            erp=adapter,
+            server_environment=Environment.DEV,
+            metrics=create_mcp_metrics(),
+            logger=configure_json_logging(
+                service="procurement-mcp",
+                environment="dev",
+                logger_name="procurement.test.mcp.adapter-retries",
+            ),
+            max_retries=0,
+            retry_delay_seconds=0,
+        )
+
+    assert len(adapter.queries) == 1
+    assert raised.value.error_code is ErrorCode.ODOO_UNAVAILABLE
+    assert raised.value.retry_count == 2
+
+
+@pytest.mark.anyio
 async def test_request_environment_must_match_the_server_environment() -> None:
     adapter = FakeOdooAdapter(
         page=CandidatePage(items=(_candidate(),), next_cursor=None)
