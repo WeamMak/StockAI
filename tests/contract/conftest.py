@@ -18,6 +18,7 @@ CONTRACT_DATABASE = "stockai_t10_contract"
 CONTRACT_LOGIN = "stockai-contract@example.invalid"
 FICTIONAL_DATABASE_PASSWORD = "fictional-t10-postgres-password"
 KEY_FILE = "/run/stockai-contract/api-key"
+CONFIGURATION_KEY_FILE = "/run/stockai-contract/config-api-key"
 
 
 @dataclass(frozen=True)
@@ -27,9 +28,13 @@ class OdooContractStack:
     base_url: str
     database: str
     api_key: str
+    configuration_api_key: str
     key_mode: str
+    configuration_key_mode: str
     first_bootstrap: dict[str, object]
     second_bootstrap: dict[str, object]
+    compose_command: tuple[str, ...]
+    environment: Mapping[str, str]
 
 
 def _run(
@@ -96,11 +101,20 @@ def running_odoo_contract() -> Generator[OdooContractStack]:
         ),
     ]
     api_key = ""
+    configuration_api_key = ""
     setup_succeeded = False
 
     try:
         started = _run(
-            [*compose, "up", "--detach", "--wait", "--wait-timeout", "300"],
+            [
+                *compose,
+                "up",
+                "--build",
+                "--detach",
+                "--wait",
+                "--wait-timeout",
+                "300",
+            ],
             environment=environment,
             check=False,
         )
@@ -144,8 +158,36 @@ def running_odoo_contract() -> Generator[OdooContractStack]:
             ],
             environment=environment,
         ).stdout.strip()
+        configuration_api_key = _run(
+            [
+                *compose,
+                "exec",
+                "-T",
+                "odoo",
+                "python3",
+                "-c",
+                (
+                    "from pathlib import Path; "
+                    f"print(Path({CONFIGURATION_KEY_FILE!r}).read_text())"
+                ),
+            ],
+            environment=environment,
+        ).stdout.strip()
         key_mode = _run(
             [*compose, "exec", "-T", "odoo", "stat", "-c", "%a", KEY_FILE],
+            environment=environment,
+        ).stdout.strip()
+        configuration_key_mode = _run(
+            [
+                *compose,
+                "exec",
+                "-T",
+                "odoo",
+                "stat",
+                "-c",
+                "%a",
+                CONFIGURATION_KEY_FILE,
+            ],
             environment=environment,
         ).stdout.strip()
         setup_succeeded = True
@@ -154,9 +196,13 @@ def running_odoo_contract() -> Generator[OdooContractStack]:
             base_url=f"http://127.0.0.1:{published_port}",
             database=CONTRACT_DATABASE,
             api_key=api_key,
+            configuration_api_key=configuration_api_key,
             key_mode=key_mode,
+            configuration_key_mode=configuration_key_mode,
             first_bootstrap=_parse_summary(first.stdout),
             second_bootstrap=_parse_summary(second.stdout),
+            compose_command=tuple(compose),
+            environment=environment,
         )
     finally:
         logs = _run(
@@ -172,6 +218,8 @@ def running_odoo_contract() -> Generator[OdooContractStack]:
         if setup_succeeded:
             combined_logs = logs.stdout + logs.stderr
             assert api_key
+            assert configuration_api_key
             assert api_key not in combined_logs
+            assert configuration_api_key not in combined_logs
             assert FICTIONAL_DATABASE_PASSWORD not in combined_logs
             assert down.returncode == 0, down.stderr

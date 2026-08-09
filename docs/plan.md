@@ -13,15 +13,17 @@ ORM-bootstrap contracts selected after T10 discovery.
 
 **Tech Stack:** Python 3.12, FastAPI, LangGraph, Python MCP SDK, React, TypeScript, Vite, Odoo 19 Community, PostgreSQL, Terraform, AWS EC2/Auto Scaling/SSM/EventBridge/Lambda/EBS/ALB/ACM/Route 53, kubeadm Kubernetes, Kustomize, Argo CD, Prometheus, Grafana, Loki, Alertmanager, GitHub Actions.
 
-**Status:** T10 implementation complete; awaiting task review
+**Status:** T11A implementation complete; awaiting task review
 
-**Date:** 2026-08-07
+**Date:** 2026-08-09
 
 **Source design:** User- and course-staff-approved `docs/spec.md` dated 2026-08-07
 
 **Current gate:** The user approved the exact 2026-08-07 revision, confirmed
 course-staff approval, and explicitly authorized T10 implementation to resume.
-T10 is complete and awaits review; T11A has not started.
+T10 is approved and merged. The user explicitly authorized T11A on 2026-08-08;
+its implementation and clean Docker/Odoo verification are complete. T11B must
+not begin until T11A is approved and merged.
 
 ## 1. Approval status and purpose
 
@@ -736,43 +738,43 @@ task and executable acceptance contract.
 
 **Work and tests**
 
-- [ ] **Step 1:** Test a `stockai.procurement.budget` record with required
+- [x] **Step 1:** Test a `stockai.procurement.budget` record with required
    company, product category, analytic account, first-of-month period, company
    currency, non-negative amount, active flag, tracked changes, and uniqueness
    for company/category/month. Test that only the configuration administrator
    can create, update, or archive it and the integration user is read-only.
-- [ ] **Step 2:** Implement the minimum budget model, configuration and
+- [x] **Step 2:** Implement the minimum budget model, configuration and
    integration groups, ACLs, and record rules. Keep manifest dependencies to
    the verified `purchase_stock`, `account`, `analytic`, and `mail` modules; do
    not implement budget arithmetic, React administration, preference models,
    or MCP budget tools in this task.
-- [ ] **Step 3:** Test and implement one-record-only public methods
+- [x] **Step 3:** Test and implement one-record-only public methods
    `action_stockai_update_draft(expected, changes)`,
    `action_stockai_cancel_draft(expected)`, and
    `action_stockai_confirm(expected)`. Under a row lock, each must compare the
    expected `write_date`, state, vendor, currency, and total, reject stale or
    unauthorized calls without a write, allowlist update fields, and invoke the
    standard Odoo business method instead of assigning `state`.
-- [ ] **Step 4:** Test a concurrent write between snapshot and action, direct
+- [x] **Step 4:** Test a concurrent write between snapshot and action, direct
    method calls by unauthorized users, multi-record calls, invalid states,
    a repeat after an already-committed action, standard-method failures, and
    bounded conflict results with no duplicate transition.
-- [ ] **Step 5:** Build one non-root StockAI Odoo image from the approved
+- [x] **Step 5:** Build one non-root StockAI Odoo image from the approved
    official digest. Copy only the add-on and finite bootstrap code, retain the
    upstream entrypoint, install only the existing locked `boto3==1.43.62`
    bootstrap dependency, expose no secret in layers, and make local Compose
    use this image.
-- [ ] **Step 6:** Implement the finite ORM bootstrap Job contract: find/create
+- [x] **Step 6:** Implement the finite ORM bootstrap Job contract: find/create
    the stable integration login, enforce only the approved group, generate a
    named key with an expiry no later than three calendar months only when absent
    or explicitly rotating, send the raw key to an injected local test sink or
    exact environment Secrets Manager ARN without stdout/stderr exposure, and
    remove temporary authority on every exit path.
-- [ ] **Step 7:** Run bootstrap twice and assert one user, one active named key,
+- [x] **Step 7:** Run bootstrap twice and assert one user, one active named key,
    unchanged secret on the second run, functional JSON-2 authentication, and no
    secret material in container output. Test explicit rotation creates and
    verifies the replacement before revoking the old key.
-- [ ] **Step 8:** Seed idempotent fictional dev/prod records for the happy path,
+- [x] **Step 8:** Seed idempotent fictional dev/prod records for the happy path,
    over-budget path, no-valid-offer path, receipts, returns, and open POs,
    including monthly budget rows, then rerun and compare stable record counts
    and references.
@@ -2659,5 +2661,6 @@ The original planning gate and subsequent approved revisions authorized T01
 through T09, which are complete. T10 triggered its approved stop condition.
 The user approved the exact remediation revision, confirmed course-staff
 approval, and explicitly authorized T10 implementation to resume on 2026-08-07.
-T10's executable contract is complete. The next gate is task review; T11A must
-not start until the user accepts T10 and explicitly asks to continue.
+T10's executable contract is approved and merged. T11A's implementation and
+clean Docker/Odoo contract are complete and await user review. T11B must not
+start until T11A is approved and merged.

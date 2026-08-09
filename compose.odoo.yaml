@@ -39,7 +39,10 @@ services:
     stop_grace_period: 20s
 
   odoo:
-    image: odoo@sha256:4872f23288454b724fd2d26c176a418276c2b3552e9aa752f9396b59d864b3a0
+    image: ${ODOO_CONTRACT_IMAGE:-stockai-odoo:t11a-local}
+    build:
+      context: .
+      dockerfile: docker/odoo.Dockerfile
     depends_on:
       postgres:
         condition: service_healthy
@@ -47,7 +50,7 @@ services:
       - odoo
       - server
       - --database=${ODOO_CONTRACT_DATABASE:-stockai_t10_contract}
-      - --init=purchase,stock,purchase_stock,contacts,account,analytic
+      - --init=purchase,stock,purchase_stock,contacts,account,analytic,stockai_procurement
       - --without-demo=true
       - --db-filter=^${ODOO_CONTRACT_DATABASE:-stockai_t10_contract}$
       - --no-database-list
@@ -62,6 +65,14 @@ services:
       ODOO_CONTRACT_DATABASE: ${ODOO_CONTRACT_DATABASE:-stockai_t10_contract}
       ODOO_CONTRACT_LOGIN: ${ODOO_CONTRACT_LOGIN:-stockai-contract@example.invalid}
       ODOO_CONTRACT_KEY_FILE: /run/stockai-contract/api-key
+      STOCKAI_ODOO_BOOTSTRAP_LOGIN: ${STOCKAI_ODOO_BOOTSTRAP_LOGIN:-stockai-integration@example.invalid}
+      STOCKAI_ODOO_BOOTSTRAP_KEY_NAME: ${STOCKAI_ODOO_BOOTSTRAP_KEY_NAME:-stockai-procurement-integration}
+      STOCKAI_ODOO_BOOTSTRAP_KEY_EXPIRY_DAYS: ${STOCKAI_ODOO_BOOTSTRAP_KEY_EXPIRY_DAYS:-30}
+      STOCKAI_ODOO_BOOTSTRAP_ROTATE: ${STOCKAI_ODOO_BOOTSTRAP_ROTATE:-false}
+      STOCKAI_ODOO_BOOTSTRAP_SINK: ${STOCKAI_ODOO_BOOTSTRAP_SINK:-file}
+      STOCKAI_ODOO_BOOTSTRAP_KEY_FILE: ${STOCKAI_ODOO_BOOTSTRAP_KEY_FILE:-/run/stockai-contract/bootstrap-api-key}
+      STOCKAI_ODOO_BOOTSTRAP_SECRET_ARN: ${STOCKAI_ODOO_BOOTSTRAP_SECRET_ARN:-}
+      STOCKAI_ODOO_SEED_ENVIRONMENT: ${STOCKAI_ODOO_SEED_ENVIRONMENT:-dev}
     ports:
       - target: 8069
         published: ${ODOO_CONTRACT_PORT:-8069}
@@ -74,6 +85,14 @@ services:
       - type: bind
         source: ./scripts/odoo/probe_bootstrap.py
         target: /opt/stockai/probe_bootstrap.py
+        read_only: true
+      - type: bind
+        source: ./scripts/odoo/seed.py
+        target: /opt/stockai/seed.py
+        read_only: true
+      - type: bind
+        source: ./scripts/odoo/verify_seed.py
+        target: /opt/stockai/verify_seed.py
         read_only: true
     tmpfs:
       - /run/stockai-contract:rw,noexec,nosuid,size=1m,mode=0700,uid=100,gid=101

@@ -1,10 +1,10 @@
-# Odoo 19 JSON-2 contract investigation
+# Odoo 19 JSON-2 and StockAI add-on contract
 
 **Investigation date:** 2026-08-07
 
-**Task:** T10
+**Tasks:** T10 and T11A
 
-**Status:** **Executable T10 verification complete; awaiting task review**
+**Status:** **T10 and T11A verified**
 
 This note records both official Odoo documentation/source evidence and the
 completed clean-database probe against the pinned runtime. It does not invent
@@ -51,8 +51,14 @@ The selected extension contracts are:
 
 After approval, `make odoo-contract` ran the executable contract from a clean
 database. All 9 tests passed in 55.53 seconds and teardown removed the raw key,
-database, containers, networks, and volumes. The approved custom extensions
-remain T11A work; this task verifies only the standard runtime they will extend.
+database, containers, networks, and volumes. T11A now supplies the approved
+custom extensions in the derived StockAI Odoo image. Its first clean runtime
+run exposed and corrected three exact Odoo 19 details: public `fields_get` does
+not expose the internal `tracking` attribute, JSON-2 business validation errors
+use HTTP `422`, and the API-key table's private `index` column is not an ORM
+field. The final clean `make odoo-contract` run passed all 19 tests in 166.84
+seconds and removed its database, containers, networks, volumes, and temporary
+key material during teardown.
 
 ## 2. Runtime under investigation
 
@@ -141,18 +147,20 @@ Consequences:
   `res.users.apikeys._generate` method used by Odoo's own UI. A privileged Odoo
   bootstrap process can call it as the intended integration user without an
   existing API key, but a private method is not a stable external contract.
-  T10 proved that exact path with an expiring contract-only key, an idempotent
-  rerun, a mode-`0600` tmpfs file, and a check that the raw key never appeared
-  in container logs. T11A still owns the production Job and its lifecycle.
+  T10 proved that exact path with an expiring contract-only key. T11A's finite
+  bootstrap adds stable-login reconciliation, one direct integration group,
+  idempotent file or exact-ARN Secrets Manager sinks, a three-calendar-month
+  expiry bound, and verified replacement-before-revocation rotation.
 
 Sources: [API-key implementation](https://github.com/odoo/odoo/blob/19.0/odoo/addons/base/models/res_users.py)
 and [JSON-2 API-key documentation](https://www.odoo.com/documentation/19.0/developer/reference/external_api.html#api-keys).
 
-The disposable contract identity uses direct membership in
-`base.group_user`, `purchase.group_purchase_user`, `stock.group_stock_user`,
-`account.group_account_readonly`, `analytic.group_analytic_accounting`, and
-`api_doc.group_allow_doc`. The second bootstrap run reconciles the same group
-set and proves that no duplicate user or active named key is created.
+The integration identity has direct membership only in
+`stockai_procurement.group_stockai_procurement_integration`. That group implies
+the required standard Purchase, Stock, Accounting-read-only, internal-user, and
+API-documentation groups. Project ACLs grant only read access to analytic
+records and monthly budgets. The separate configuration-administrator group
+can create, update, and archive budgets but cannot delete them.
 
 ## 5. Community capability matrix
 
@@ -164,8 +172,8 @@ set and proves that no duplicate user or active named key is created.
 | Contacts and tags | [`contacts`](https://github.com/odoo/odoo/tree/19.0/addons/contacts) and base `res.partner` | Runtime read and denied-write ACLs verified |
 | Supplier pricelists | [`product.supplierinfo`](https://github.com/odoo/odoo/blob/19.0/addons/product/models/product_supplierinfo.py) | Runtime field values and denied-write ACL verified |
 | Analytic plans/accounts/distribution | [`analytic`](https://github.com/odoo/odoo/tree/19.0/addons/analytic) | Runtime read and PO-line JSON distribution verified |
-| Standard analytic budgets | No Community `account_budget` add-on; official edition comparison lists budgets with comprehensive Enterprise accounting | **Not supported; confirmed T11A extension required** |
-| Atomic expected-revision PO action | No standard PO action accepts `expected_write_date`; JSON-2 calls are separate transactions | **Not supported; confirmed T11A extension required** |
+| Standard analytic budgets | No Community `account_budget` add-on; official edition comparison lists budgets with comprehensive Enterprise accounting | Not supported by Community; the StockAI add-on supplies `stockai.procurement.budget` |
+| Atomic expected-revision PO action | No standard PO action accepts `expected_write_date`; JSON-2 calls are separate transactions | Not supported by standard Odoo; the StockAI add-on supplies three row-locked methods |
 
 ## 6. Source-verified models, fields, and methods
 
@@ -325,8 +333,8 @@ JSON-2 adds no authorization bypass. Relevant official ACL defaults include:
 The clean probe verified reads and PO/receipt actions while vendor,
 supplier-pricelist, reorder-rule, and user mutations were denied. Standard
 Purchase, Stock, and Analytic roles are nevertheless broader than MCP's desired
-operation surface. The approved mitigation remains the narrower project groups
-in T11A plus a strict MCP operation allowlist in T11B.
+operation surface. T11A now applies the narrower project groups and read-only
+analytic ACLs; T11B still owns the strict MCP operation allowlist.
 
 Sources: [purchase ACLs](https://github.com/odoo/odoo/blob/19.0/addons/purchase/security/ir.model.access.csv),
 [purchase record rules](https://github.com/odoo/odoo/blob/19.0/addons/purchase/security/purchase_security.xml),
@@ -351,18 +359,21 @@ The approved rule that confirmation and cancellation must match the exact
 approved PO revision therefore needs one server-side transaction that checks
 the expected revision and performs the business action. The approved project
 add-on methods `action_stockai_{update_draft,cancel_draft,confirm}` provide that
-boundary in T11A.
+boundary under a row lock. They accept exactly one PO, compare `write_date`,
+state, vendor, currency, and total, reject stale or unauthorized calls before a
+write, allow only approved draft fields/line commands, and delegate transitions
+to Odoo's standard methods.
 
 ## 9. Executable probe results
 
-`make odoo-contract` now verifies these standard-runtime claims from one newly
-created database:
+`make odoo-contract` is defined to verify these standard and project-extension
+claims from one newly created database:
 
 1. `/web/version` reports Odoo 19 and Compose uses the exact image digests in
    this note.
-2. `purchase`, `stock`, `purchase_stock`, `product`, `contacts`, `account`, and
-   `analytic` are installed, while `account_budget` and
-   `stockai.procurement.budget` are absent.
+2. `purchase`, `stock`, `purchase_stock`, `product`, `contacts`, `account`,
+   `analytic`, and `stockai_procurement` are installed, while Enterprise
+   `account_budget` remains absent.
 3. Correct and incorrect `X-Odoo-Database` selection, missing/wrong bearer
    behavior, `res.users/context_get`, and safe error sanitization.
 4. `fields_get` and `/doc-bearer` expose every field and method listed above to
@@ -376,11 +387,16 @@ created database:
    return creation, cancellation, and reset-to-draft behavior.
 8. First-key ORM bootstrap, an expiring key, mode-`0600` tmpfs persistence,
    no raw-key logging, and an idempotent rerun with one user and one named key.
-9. Standard confirmation/cancellation signatures accept no expected revision;
-   independent JSON-2 calls therefore do not supply compare-and-act semantics.
+9. Monthly budget shape, constraints, tracking, company rules, configuration
+   writes, integration read-only behavior, and archive-then-replace behavior.
+10. Atomic update/cancel/confirm success, stale and concurrent calls,
+    unauthorized and multi-record calls, forbidden fields, invalid states,
+    standard-method rollback, and no duplicate receipt transition.
+11. Production bootstrap create/rerun/rotation, functional JSON-2 auth, one
+    user/key, unchanged second-run secret, revoked old key, and no raw-key
+    output.
+12. Idempotent fictional dev/prod seed references for happy, over-budget,
+    no-valid-offer, receipt/return, monthly budgets, and open POs.
 
-T11A owns executable tests for the custom budget model, narrow groups,
-production bootstrap/rotation/revocation, atomic expected-revision methods,
-and concurrent-write rejection. T11B owns adapter-level aggregation,
-supplier-selection, UoM/rounding, multi-company, timeout, malformed-response,
-and ambiguous-write contracts. T10 does not claim those later slices are done.
+T11B owns adapter-level aggregation, supplier-selection, UoM/rounding,
+multi-company, timeout, malformed-response, and ambiguous-write contracts.
