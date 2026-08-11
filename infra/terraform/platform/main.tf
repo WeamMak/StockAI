@@ -59,3 +59,17 @@ module "compute" {
     prod = module.network.public_subnet_ids_by_az[local.prod_availability_zone]
   }
 }
+
+module "worker_lifecycle" {
+  source = "../modules/worker-lifecycle"
+
+  aws_account_id            = var.aws_account_id
+  aws_region                = var.aws_region
+  cluster_name              = var.cluster_name
+  control_plane_instance_id = module.compute.control_plane_instance_id
+  owner_name                = var.owner_name
+  worker_asg_names = {
+    dev  = module.compute.dev_worker_asg_name
+    prod = module.compute.prod_worker_asg_name
+  }
+}
