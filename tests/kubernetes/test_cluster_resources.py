@@ -176,8 +176,16 @@ def test_metrics_api_and_kube_state_metrics_run_on_the_control_plane(
     kube_state_metrics = _resource(
         resources, "Deployment", "kube-state-metrics", "kube-system"
     )
-    assert _has_control_plane_placement(_pod_spec(metrics_server))
+    metrics_server_spec = _pod_spec(metrics_server)
+    assert _has_control_plane_placement(metrics_server_spec)
     assert _has_control_plane_placement(_pod_spec(kube_state_metrics))
+
+    metrics_server_container = next(
+        container
+        for container in metrics_server_spec["containers"]
+        if container["name"] == "metrics-server"
+    )
+    assert metrics_server_container["args"].count("--kubelet-insecure-tls") == 1
 
     metrics_api = _resource(resources, "APIService", "v1beta1.metrics.k8s.io")
     assert metrics_api["spec"]["group"] == "metrics.k8s.io"

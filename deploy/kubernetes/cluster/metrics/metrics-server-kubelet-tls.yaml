@@ -1,0 +1,5 @@
+# The self-managed kubeadm nodes use kubelet serving certificates without IP
+# SANs. Kubelet access remains restricted to the cluster network.
+- op: add
+  path: /spec/template/spec/containers/0/args/-
+  value: --kubelet-insecure-tls
