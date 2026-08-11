@@ -1675,6 +1675,11 @@ hard-bound to its environment.
   verify bounded `failed` completion and the alert. Retained-volume and
   application recovery are deferred to T23 after the full dev stack exists.
 
+  On 2026-08-11 the normal live cleanup drill passed. The user explicitly
+  deferred the unavailable-control-plane/SSM live drill and accepted T18B as
+  finished with that limitation; its bounded fail-open behavior remains
+  covered by automated tests and the operational runbook.
+
 - [ ] **Step 9: Commit lifecycle automation**
 
   ```bash
