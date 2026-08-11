@@ -8,6 +8,7 @@ import re
 import time
 from collections.abc import Callable, Mapping
 from enum import StrEnum
+from ipaddress import IPv4Address
 from typing import Any, NamedTuple, Protocol
 
 import boto3  # type: ignore[import-untyped]
@@ -120,6 +121,7 @@ def cleanup_node(event: TerminationEvent, clients: AwsClients) -> CleanupResult:
 
     started = clients.monotonic()
     node_name: str | None = None
+    private_ip: str | None = None
     heartbeat_count = 0
     ssm_status: str | None = None
     outcome = CleanupOutcome.FAILED
@@ -131,11 +133,13 @@ def cleanup_node(event: TerminationEvent, clients: AwsClients) -> CleanupResult:
             outcome = CleanupOutcome.CLEAN
             error_code = "instance_already_absent"
         else:
-            node_name, identity_error = _validate_instance_identity(event, instance)
+            node_name, private_ip, identity_error = _validate_instance_identity(
+                event, instance
+            )
             if identity_error is not None:
                 error_code = identity_error
             else:
-                command_id = _send_cleanup(event, node_name, clients)
+                command_id = _send_cleanup(event, node_name, private_ip, clients)
                 outcome, ssm_status, heartbeat_count, error_code = _poll_cleanup(
                     event, command_id, clients
                 )
@@ -187,7 +191,7 @@ def _describe_instance(
 
 def _validate_instance_identity(
     event: TerminationEvent, instance: Mapping[str, Any]
-) -> tuple[str | None, str | None]:
+) -> tuple[str | None, str | None, str | None]:
     tags = {
         tag.get("Key"): tag.get("Value")
         for tag in instance.get("Tags", [])
@@ -197,20 +201,33 @@ def _validate_instance_identity(
         tags.get("aws:autoscaling:groupName") != event.asg_name
         or tags.get("Environment") != event.environment
     ):
-        return None, "instance_identity_mismatch"
+        return None, None, "instance_identity_mismatch"
 
     node_name = instance.get("PrivateDnsName")
     if not isinstance(node_name, str) or not NODE_NAME_PATTERN.fullmatch(node_name):
-        return None, "invalid_node_name"
-    return node_name, None
+        return None, None, "invalid_node_name"
+
+    private_ip = instance.get("PrivateIpAddress")
+    if not isinstance(private_ip, str):
+        return None, None, "invalid_private_ip"
+    try:
+        private_ip = str(IPv4Address(private_ip))
+    except ValueError:
+        return None, None, "invalid_private_ip"
+    return node_name, private_ip, None
 
 
-def _send_cleanup(event: TerminationEvent, node_name: str, clients: AwsClients) -> str:
+def _send_cleanup(
+    event: TerminationEvent,
+    node_name: str,
+    private_ip: str,
+    clients: AwsClients,
+) -> str:
     response = clients.ssm.send_command(
         InstanceIds=[os.environ["CONTROL_PLANE_INSTANCE_ID"]],
         DocumentName="AWS-RunShellScript",
         TimeoutSeconds=180,
-        Parameters={"commands": [_cleanup_script(event, node_name)]},
+        Parameters={"commands": [_cleanup_script(event, node_name, private_ip)]},
     )
     command_id = response.get("Command", {}).get("CommandId")
     if not isinstance(command_id, str) or not command_id:
@@ -218,21 +235,21 @@ def _send_cleanup(event: TerminationEvent, node_name: str, clients: AwsClients) 
     return command_id
 
 
-def _cleanup_script(event: TerminationEvent, node_name: str) -> str:
+def _cleanup_script(event: TerminationEvent, node_name: str, private_ip: str) -> str:
     return f"""set -u
 export KUBECONFIG=/etc/kubernetes/admin.conf
 node_name='{node_name}'
-instance_id='{event.instance_id}'
+expected_private_ip='{private_ip}'
 expected_environment='{event.environment}'
 if ! kubectl get node "$node_name" >/dev/null 2>&1; then
   printf 'CLEANUP_OUTCOME=clean\\n'
   exit 0
 fi
-provider_id="$(kubectl get node "$node_name" \
-  -o jsonpath='{{.spec.providerID}}')"
+internal_ip="$(kubectl get node "$node_name" \
+  -o jsonpath='{{.status.addresses[?(@.type=="InternalIP")].address}}')"
 environment="$(kubectl get node "$node_name" \
   -o jsonpath='{{.metadata.labels.stockai\\.io/environment}}')"
-case "$provider_id" in *"/$instance_id") ;; *) exit 42 ;; esac
+[ "$internal_ip" = "$expected_private_ip" ] || exit 42
 [ "$environment" = "$expected_environment" ] || exit 43
 drain_rc=0
 kubectl cordon "$node_name" >/dev/null 2>&1 || true

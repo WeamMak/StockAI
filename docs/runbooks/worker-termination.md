@@ -10,9 +10,11 @@ and always attempts `CONTINUE`; the lifecycle hook also defaults to `CONTINUE`.
 An unavailable cleanup path therefore cannot hold an EC2 instance indefinitely.
 
 The Lambda validates the exact ASG, environment tag, instance ID, EC2 private
-DNS node name, Kubernetes provider ID, and Kubernetes environment label before
-cleanup. It has no procurement, Bedrock, DynamoDB, S3, Secrets Manager, Odoo,
-or worker-role permissions.
+DNS node name and private IPv4 address, Kubernetes Node `InternalIP`, and
+Kubernetes environment label before cleanup. Self-managed kubeadm nodes in
+this cluster have no `.spec.providerID`, so cleanup does not depend on that
+unavailable field. The Lambda has no procurement, Bedrock, DynamoDB, S3,
+Secrets Manager, Odoo, or worker-role permissions.
 
 ## Outcomes
 
@@ -72,13 +74,14 @@ Delete a stale Node only after all four checks succeed:
 
 1. The cleanup event identifies an allowlisted dev or prod ASG.
 2. EC2 shows the old instance is terminated or absent.
-3. The Node's `.spec.providerID` ends with that exact old instance ID.
+3. The Node name and `InternalIP` equal the old instance's EC2 private DNS name
+   and private IPv4 address recorded before termination.
 4. The Node's `stockai.io/environment` label matches the event environment.
 
 ```bash
 export KUBECONFIG=/etc/kubernetes/admin.conf
 kubectl get node "<old-private-dns>" \
-  -o jsonpath='{.spec.providerID}{" "}{.metadata.labels.stockai\.io/environment}{"\n"}'
+  -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}{" "}{.metadata.labels.stockai\.io/environment}{"\n"}'
 
 aws ec2 describe-instances \
   --region "$AWS_REGION" \

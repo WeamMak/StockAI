@@ -80,6 +80,7 @@ def _clients(
                         {
                             "InstanceId": "i-0123456789abcdef0",
                             "PrivateDnsName": "ip-10-0-1-59.ec2.internal",
+                            "PrivateIpAddress": "10.0.1.59",
                             "Tags": [
                                 {
                                     "Key": "aws:autoscaling:groupName",
@@ -180,6 +181,9 @@ def test_clean_cleanup_maps_private_dns_heartbeats_and_completes(
     assert "kubectl delete node" in script
     assert "|| exit 44" in script
     assert "ip-10-0-1-59.ec2.internal" in script
+    assert "expected_private_ip='10.0.1.59'" in script
+    assert '.status.addresses[?(@.type=="InternalIP")].address' in script
+    assert "providerID" not in script
     clients.autoscaling.record_lifecycle_action_heartbeat.assert_called_once()
     clients.autoscaling.complete_lifecycle_action.assert_called_once_with(
         AutoScalingGroupName="stockai-dev-workers",
@@ -275,6 +279,20 @@ def test_invalid_private_dns_name_fails_closed(cleanup_module: ModuleType) -> No
 
     assert result.outcome is cleanup_module.CleanupOutcome.FAILED
     assert result.error_code == "invalid_node_name"
+    clients.ssm.send_command.assert_not_called()
+
+
+def test_invalid_private_ip_fails_closed(cleanup_module: ModuleType) -> None:
+    event = cleanup_module.parse_event(_event())
+    clients = _clients()
+    clients.ec2.describe_instances.return_value["Reservations"][0]["Instances"][0][
+        "PrivateIpAddress"
+    ] = "10.0.1.59; unsafe"
+
+    result = cleanup_module.cleanup_node(event, clients)
+
+    assert result.outcome is cleanup_module.CleanupOutcome.FAILED
+    assert result.error_code == "invalid_private_ip"
     clients.ssm.send_command.assert_not_called()
 
 
