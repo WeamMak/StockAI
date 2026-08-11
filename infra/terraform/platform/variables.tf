@@ -48,13 +48,24 @@ variable "aws_region" {
 }
 
 variable "cluster_name" {
-  description = "Short name used to identify the self-managed Kubernetes cluster"
+  description = "Owner-prefixed name used to identify the self-managed Kubernetes cluster"
   type        = string
-  default     = "stockai"
+  default     = "weam-stockai"
 
   validation {
     condition     = can(regex("^[a-z][a-z0-9-]{2,31}$", var.cluster_name))
     error_message = "Cluster name must be 3-32 lowercase letters, digits, or hyphens and start with a letter."
+  }
+}
+
+variable "owner_name" {
+  description = "Owner recorded on StockAI AWS resources"
+  type        = string
+  default     = "weam"
+
+  validation {
+    condition     = can(regex("^[a-z][a-z0-9-]{1,31}$", var.owner_name))
+    error_message = "Owner name must be 2-32 lowercase letters, digits, or hyphens and start with a letter."
   }
 }
 

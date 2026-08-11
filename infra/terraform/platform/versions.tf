@@ -18,6 +18,7 @@ provider "aws" {
     tags = {
       Component = "platform"
       ManagedBy = "Terraform"
+      Owner     = var.owner_name
       Project   = var.cluster_name
     }
   }

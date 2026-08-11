@@ -27,6 +27,7 @@ module "compute" {
   control_plane_instance_profile_name = module.node_iam.control_plane_instance_profile_name
   control_plane_security_group_id     = module.network.control_plane_security_group_id
   control_plane_subnet_id             = module.network.public_subnet_ids_by_az[local.dev_availability_zone]
+  owner_name                          = var.owner_name
   worker_availability_zones = {
     dev  = local.dev_availability_zone
     prod = local.prod_availability_zone

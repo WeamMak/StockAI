@@ -28,7 +28,6 @@ def platform_plan(tmp_path_factory: pytest.TempPathFactory) -> TerraformPlan:
         {
             "administrator_cidr": "203.0.113.10/32",
             "ami_id": "ami-0123456789abcdef0",
-            "cluster_name": "stockai-test",
         },
     )
 
@@ -88,6 +87,72 @@ def test_plan_has_one_control_plane_and_two_fixed_capacity_worker_groups(
     } == {(1, 1, 3)}
     assert len(resources(platform_plan, "aws_autoscaling_policy")) == 0
     assert len(resources(platform_plan, "aws_eks_cluster")) == 0
+
+
+def test_default_resource_names_and_tags_identify_weam(
+    platform_plan: TerraformPlan,
+) -> None:
+    named_resource_types = {
+        "aws_autoscaling_group": "name",
+        "aws_iam_instance_profile": "name",
+        "aws_iam_role": "name",
+        "aws_security_group": "name",
+    }
+    for resource_type, name_attribute in named_resource_types.items():
+        assert all(
+            values[name_attribute].startswith("weam-stockai-")
+            for values in _values(platform_plan, resource_type)
+        )
+
+    name_tagged_resource_types = {
+        "aws_instance",
+        "aws_internet_gateway",
+        "aws_route_table",
+        "aws_security_group",
+        "aws_subnet",
+        "aws_vpc",
+    }
+    for resource_type in name_tagged_resource_types:
+        assert all(
+            values["tags_all"]["Name"].startswith("weam-stockai-")
+            for values in _values(platform_plan, resource_type)
+        )
+
+    assert all(
+        values["name_prefix"].startswith("weam-stockai-")
+        for values in _values(platform_plan, "aws_launch_template")
+    )
+
+    tagged_resource_types = {
+        "aws_iam_instance_profile",
+        "aws_iam_role",
+        "aws_instance",
+        "aws_internet_gateway",
+        "aws_launch_template",
+        "aws_route_table",
+        "aws_security_group",
+        "aws_subnet",
+        "aws_vpc",
+        "aws_vpc_security_group_egress_rule",
+        "aws_vpc_security_group_ingress_rule",
+    }
+    for resource_type in tagged_resource_types:
+        assert all(
+            values["tags_all"]["Owner"] == "weam"
+            for values in _values(platform_plan, resource_type)
+        )
+
+    for group in _values(platform_plan, "aws_autoscaling_group"):
+        tags = {tag["key"]: tag["value"] for tag in group["tag"]}
+        assert tags["Owner"] == "weam"
+
+    control_plane = next(_values(platform_plan, "aws_instance"))
+    assert control_plane["volume_tags"]["Owner"] == "weam"
+    for launch_template in _values(platform_plan, "aws_launch_template"):
+        assert all(
+            specification["tags"]["Owner"] == "weam"
+            for specification in launch_template["tag_specifications"]
+        )
 
 
 def test_plan_has_two_public_azs_without_a_nat_gateway(

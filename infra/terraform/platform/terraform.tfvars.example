@@ -3,7 +3,8 @@
 
 administrator_cidr = "203.0.113.10/32"
 ami_id              = "replace-with-approved-ubuntu-ami-id"
-cluster_name        = "stockai"
+cluster_name        = "weam-stockai"
+owner_name          = "weam"
 
 # The normal active baseline is one control plane plus one worker in each ASG:
 # six vCPUs total. Before an authorized apply, verify that quota plus any exact

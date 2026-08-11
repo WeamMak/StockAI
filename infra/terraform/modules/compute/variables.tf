@@ -33,6 +33,11 @@ variable "control_plane_subnet_id" {
   type        = string
 }
 
+variable "owner_name" {
+  description = "Owner tag propagated to cluster instances, volumes, and worker ASGs"
+  type        = string
+}
+
 variable "worker_availability_zones" {
   description = "Worker Availability Zones keyed by dev and prod environment"
   type        = map(string)

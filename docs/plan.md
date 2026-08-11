@@ -1165,7 +1165,8 @@ keyless GitHub authentication.
 **Interfaces**
 
 - Consumes: T15 remote-state bucket/lock identifiers, administrator CIDR,
-  cluster name, AMI ID, and the approved `us-east-1` region.
+  owner-prefixed cluster name, owner tag, AMI ID, and the approved `us-east-1`
+  region. The shared-account defaults are `weam-stockai` and `Owner = weam`.
 - Produces: Terraform outputs `control_plane_instance_id`,
   `control_plane_private_ip`, `dev_worker_asg_name`, `prod_worker_asg_name`,
   `dev_worker_az`, `prod_worker_az`, `dev_worker_role_name`,
@@ -1218,9 +1219,10 @@ keyless GitHub authentication.
 
   Encrypt every root volume, cap it at 30 GB, use EC2 health checks, attach no
   scaling policy, and place each ASG only in the subnet/AZ selected for its
-  environment. Configure planned instance refresh for launch-before-terminate
-  overlap where capacity permits, while documenting that EC2 `InService` does
-  not itself prove Kubernetes Ready or zero downtime.
+  environment. Prefix nameable resources with `weam-stockai-` and tag every
+  taggable resource with `Owner = weam`. Configure planned instance refresh
+  for launch-before-terminate overlap where capacity permits, while documenting
+  that EC2 `InService` does not itself prove Kubernetes Ready or zero downtime.
 
 - [x] **Step 4: Implement separate least-privilege node roles and network rules**
 
@@ -1261,13 +1263,14 @@ keyless GitHub authentication.
 instance type, volume size, ingress, IAM actions, and monthly-cost assumptions.
 
 **Verification result:** The focused test first failed because the platform
-root and ASG resources were absent. Eleven final tests parse `terraform show -json`
+root and ASG resources were absent. Twelve final tests parse `terraform show -json`
 and cover the approved topology and outputs, exact active/inactive
 capacity, invalid-capacity rejection, isolated temporary environment overrides,
 AZ/subnet isolation, encrypted bounded root volumes, numbered launch-template
-refreshes, restricted ingress, separate SSM-only node roles, and absence of
-EKS, NAT, and scaling policies. Terraform `1.15.8` formatting and
-provider-schema validation passed with locked AWS provider `6.58.0`; all 19
+refreshes, restricted ingress, separate SSM-only node roles, shared-account
+`weam-stockai-` names and `Owner = weam` tags, and absence of EKS, NAT, and
+scaling policies. Terraform `1.15.8` formatting and provider-schema validation
+passed with locked AWS provider `6.58.0`; all 20
 infrastructure tests passed. `make check` passed
 lock/format checks, Ruff, strict mypy over 127 source files, ESLint, 5
 architecture tests, and all 258 unit tests. The plan tests used fake credentials

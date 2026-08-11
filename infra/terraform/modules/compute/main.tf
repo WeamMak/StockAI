@@ -34,12 +34,14 @@ resource "aws_instance" "control_plane" {
   tags = {
     Environment = "shared"
     Name        = "${var.cluster_name}-control-plane"
+    Owner       = var.owner_name
     Role        = "control-plane"
   }
 
   volume_tags = {
     Environment = "shared"
     Name        = "${var.cluster_name}-control-plane-root"
+    Owner       = var.owner_name
     Role        = "control-plane"
   }
 }
@@ -91,6 +93,7 @@ resource "aws_launch_template" "worker" {
     tags = {
       Environment = each.key
       Name        = "${var.cluster_name}-${each.key}-worker"
+      Owner       = var.owner_name
       Role        = "worker"
     }
   }
@@ -101,6 +104,7 @@ resource "aws_launch_template" "worker" {
     tags = {
       Environment = each.key
       Name        = "${var.cluster_name}-${each.key}-worker-root"
+      Owner       = var.owner_name
       Role        = "worker"
     }
   }
@@ -141,5 +145,11 @@ resource "aws_autoscaling_group" "worker" {
     key                 = "Environment"
     propagate_at_launch = true
     value               = each.key
+  }
+
+  tag {
+    key                 = "Owner"
+    propagate_at_launch = true
+    value               = var.owner_name
   }
 }
