@@ -145,6 +145,41 @@ def test_worker_join_rejects_shell_text_and_hard_binds_node_identity() -> None:
     assert "sha256:[[:xdigit:]]{64}" in script
 
 
+def test_worker_join_validates_exact_arguments_and_reports_safe_categories() -> None:
+    script = _read(CLUSTER_ROOT / "join-worker.sh")
+
+    assert 'last_failure_reason="ssm-read-failed"' in script
+    assert "$'\\n'" in script
+    assert "$'\\r'" in script
+    assert "join_args=()" in script
+    assert 'read -r -a join_args <<<"$join_command"' in script
+    assert "if ((${#join_args[@]} != 7)); then" in script
+    assert '"${join_args[0]}" != "kubeadm"' in script
+    assert '"${join_args[1]}" != "join"' in script
+    assert '"${join_args[2]}" != "$expected_api_endpoint"' in script
+    assert '"${join_args[3]}" != "--token"' in script
+    assert '"${join_args[5]}" != "--discovery-token-ca-cert-hash"' in script
+    assert "^[a-z0-9]{6}\\.[a-z0-9]{16}$" in script
+    assert "^sha256:[[:xdigit:]]{64}$" in script
+
+    for category in (
+        "ssm-read-failed",
+        "invalid-command-shape",
+        "endpoint-mismatch",
+        "invalid-token-format",
+        "invalid-hash-format",
+        "kubeadm-join-failed",
+    ):
+        assert f'last_failure_reason="{category}"' in script
+
+    assert (
+        'echo "worker join failed after ${MAX_ATTEMPTS} attempts: '
+        '${last_failure_reason}" >&2'
+    ) in script
+    assert 'echo "$join_command"' not in script
+    assert "eval" not in script
+
+
 def test_node_install_and_cni_are_pinned_for_the_approved_cluster() -> None:
     install_script = _read(CLUSTER_ROOT / "install-node.sh")
     init_script = _read(CLUSTER_ROOT / "init-control-plane.sh")

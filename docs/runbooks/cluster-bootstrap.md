@@ -56,11 +56,14 @@ order:
 3. The control plane starts the rotation service, which replaces Terraform's
    non-secret placeholder with a finite encrypted join command.
 4. The control plane applies the pinned Calico manifest.
-5. Workers poll only the exact parameter with bounded backoff. They reject any
-   value outside the fixed `kubeadm join <private-ip>:6443 --token ...
-   --discovery-token-ca-cert-hash sha256:...` grammar, split valid text into an
-   argument array without shell evaluation, and join with their private DNS
-   name and environment scheduling identity.
+5. Workers poll only the exact parameter with bounded backoff. They split the
+   decrypted value into exactly seven Bash arguments. Horizontal spaces and
+   tabs may vary, but the command, private API endpoint, token flag and format,
+   CA-hash flag and format, and total argument count must match the fixed
+   contract. Empty, multiline, carriage-return, missing-field, and extra-field
+   values are rejected. The validated array is executed without shell
+   evaluation and joins with the private DNS name and environment scheduling
+   identity.
 
 The bootstrap scripts write only version markers and sanitized errors. They do
 not print the SSM value, join command, token, or CA hash.
@@ -141,8 +144,14 @@ sudo KUBECONFIG=/etc/kubernetes/admin.conf kubectl get pods -n kube-system -o wi
   received a bootstrap payload from before Snap packaging was supported;
   replace the instance with the corrected payload instead of repairing it
   manually.
-- Worker never joins: verify its environment role, SSM connectivity, private
-  DNS, clock, API reachability on port 6443, and kubelet/containerd status.
+- `ssm-read-failed`: verify the exact worker role, parameter ARN, region, and AWS
+  API reachability.
+- `invalid-command-shape`, `endpoint-mismatch`, `invalid-token-format`, or
+  `invalid-hash-format`: stop and inspect control-plane rotation configuration;
+  never print or retrieve the value manually.
+- `kubeadm-join-failed`: verify API reachability, clock, containerd, kubelet,
+  Kubernetes versions, and sanitized service journals before designing another
+  correction.
 - Node exists but is not Ready: verify Calico pods, kernel modules, forwarding,
   and the pod CIDR.
 - A partial join is retried: the worker script performs a bounded
