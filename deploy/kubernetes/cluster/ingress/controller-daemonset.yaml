@@ -1,0 +1,31 @@
+- op: replace
+  path: /kind
+  value: DaemonSet
+- op: remove
+  path: /spec/strategy
+- op: add
+  path: /spec/updateStrategy
+  value:
+    rollingUpdate:
+      maxUnavailable: 1
+    type: RollingUpdate
+- op: add
+  path: /spec/template/spec/affinity
+  value:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: stockai.io/environment
+                operator: Exists
+- op: add
+  path: /spec/template/spec/tolerations
+  value:
+    - effect: NoSchedule
+      key: stockai.io/environment
+      operator: Equal
+      value: dev
+    - effect: NoSchedule
+      key: stockai.io/environment
+      operator: Equal
+      value: prod

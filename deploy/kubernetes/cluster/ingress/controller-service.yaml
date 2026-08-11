@@ -1,0 +1,12 @@
+- op: replace
+  path: /spec/ports
+  value:
+    - appProtocol: http
+      name: http
+      nodePort: 32080
+      port: 80
+      protocol: TCP
+      targetPort: http
+- op: add
+  path: /spec/externalTrafficPolicy
+  value: Local

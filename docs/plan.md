@@ -1759,6 +1759,12 @@ runbook without granting Lambda Kubernetes credentials.
   visibility, both ASG target groups healthy through NGINX, and no business pod
   on the control plane.
 
+  On 2026-08-12 the deterministic Kustomize render tests, Kubernetes 1.35.5
+  built-in schema validation, Terraform plan assertions, all
+  infrastructure/Kubernetes tests, and the full repository check passed. No
+  live apply was authorized, so server-side admission and the live checks
+  above remain pending.
+
 - [ ] **Step 6: Commit shared controllers**
 
   ```bash

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -252,6 +253,53 @@ def test_node_roles_are_separate_and_only_attach_ssm_channels(
         "AmazonEKSClusterPolicy" not in attachment["policy_arn"]
         for attachment in attachments
     )
+
+
+def test_control_plane_ebs_csi_policy_is_tag_and_resource_scoped(
+    platform_plan: TerraformPlan,
+) -> None:
+    policies = [
+        values
+        for values in _values(platform_plan, "aws_iam_role_policy")
+        if values["name"] == "weam-stockai-ebs-csi"
+    ]
+    assert len(policies) == 1
+    assert policies[0]["role"] == "weam-stockai-control-plane"
+
+    statements = {
+        statement["Sid"]: statement
+        for statement in json.loads(policies[0]["policy"])["Statement"]
+    }
+    assert set(statements) == {
+        "AttachTaggedDataVolumes",
+        "AttachToEnvironmentWorkers",
+        "DescribeEbsTopology",
+    }
+    assert set(statements["AttachTaggedDataVolumes"]["Action"]) == {
+        "ec2:AttachVolume",
+        "ec2:DetachVolume",
+    }
+    assert statements["AttachTaggedDataVolumes"]["Resource"] == (
+        "arn:aws:ec2:us-east-1:123456789012:volume/*"
+    )
+    assert statements["AttachTaggedDataVolumes"]["Condition"]["StringEquals"] == {
+        "ec2:ResourceTag/Cluster": "weam-stockai",
+        "ec2:ResourceTag/Owner": "weam",
+    }
+    assert statements["AttachToEnvironmentWorkers"]["Resource"] == (
+        "arn:aws:ec2:us-east-1:123456789012:instance/*"
+    )
+    assert statements["AttachToEnvironmentWorkers"]["Condition"]["StringEquals"] == {
+        "ec2:ResourceTag/Owner": "weam",
+        "ec2:ResourceTag/Role": "worker",
+    }
+    assert set(statements["DescribeEbsTopology"]["Action"]) == {
+        "ec2:DescribeAvailabilityZones",
+        "ec2:DescribeInstances",
+        "ec2:DescribeVolumes",
+        "ec2:DescribeVolumesModifications",
+    }
+    assert statements["DescribeEbsTopology"]["Resource"] == "*"
 
 
 def test_public_ingress_is_limited_to_admin_ssh_and_api(

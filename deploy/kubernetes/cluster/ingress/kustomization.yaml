@@ -1,0 +1,32 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# ingress-nginx is retired, so keep the final Kubernetes 1.35-compatible
+# release immutable while the approved design still requires this controller.
+resources:
+  - https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.15.1/deploy/static/provider/baremetal/deploy.yaml
+
+patches:
+  - path: controller-daemonset.yaml
+    target:
+      group: apps
+      kind: Deployment
+      name: ingress-nginx-controller
+      version: v1
+  - path: controller-service.yaml
+    target:
+      kind: Service
+      name: ingress-nginx-controller
+      version: v1
+  - path: control-plane-job.yaml
+    target:
+      group: batch
+      kind: Job
+      name: ingress-nginx-admission-create
+      version: v1
+  - path: control-plane-job.yaml
+    target:
+      group: batch
+      kind: Job
+      name: ingress-nginx-admission-patch
+      version: v1

@@ -1,0 +1,24 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ebs-csi-controller
+  namespace: kube-system
+spec:
+  replicas: 1
+  template:
+    spec:
+      dnsPolicy: ClusterFirstWithHostNet
+      hostNetwork: true
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
+      tolerations:
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/control-plane
+          operator: Exists
+      containers:
+        - name: csi-provisioner
+          $patch: delete
+        - name: csi-resizer
+          $patch: delete
+        - name: csi-snapshotter
+          $patch: delete

@@ -1,0 +1,9 @@
+- op: add
+  path: /spec/template/spec/nodeSelector/node-role.kubernetes.io~1control-plane
+  value: ""
+- op: add
+  path: /spec/template/spec/tolerations
+  value:
+    - effect: NoSchedule
+      key: node-role.kubernetes.io/control-plane
+      operator: Exists

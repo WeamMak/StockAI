@@ -16,7 +16,10 @@ module "network" {
 module "node_iam" {
   source = "../modules/node-iam"
 
-  cluster_name = var.cluster_name
+  aws_account_id = var.aws_account_id
+  aws_region     = var.aws_region
+  cluster_name   = var.cluster_name
+  owner_name     = var.owner_name
 }
 
 module "cluster_bootstrap" {
