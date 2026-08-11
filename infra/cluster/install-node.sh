@@ -10,6 +10,8 @@ RUNC_SHA256="177df879d50c913eb205e898d5c1c05a18f574053c0ce5524c471208eaf06f6f"
 CNI_PLUGINS_VERSION="v1.9.1"
 CNI_PLUGINS_SHA256="b98f74a0f8522f0a83867178729c1aa70f2158f90c45a2ca8fa791db1c76b303"
 AWS_CLI_VERSION="2.35.23"
+SSM_AGENT_DEB_SERVICE="amazon-ssm-agent.service"
+SSM_AGENT_SNAP_SERVICE="snap.amazon-ssm-agent.amazon-ssm-agent.service"
 
 if [[ "${EUID}" -ne 0 ]]; then
   echo "install-node.sh must run as root" >&2
@@ -176,10 +178,28 @@ systemctl daemon-reload
 systemctl enable --now containerd
 systemctl enable kubelet
 
-if systemctl list-unit-files amazon-ssm-agent.service >/dev/null 2>&1; then
-  systemctl enable --now amazon-ssm-agent
+ssm_agent_service=""
+if systemctl cat "$SSM_AGENT_DEB_SERVICE" >/dev/null 2>&1; then
+  ssm_agent_service="$SSM_AGENT_DEB_SERVICE"
+  if ! systemctl enable --now "$SSM_AGENT_DEB_SERVICE" >/dev/null; then
+    echo "the approved Ubuntu AMI must include an active amazon-ssm-agent" >&2
+    exit 1
+  fi
+elif command -v snap >/dev/null 2>&1 && \
+  snap list amazon-ssm-agent >/dev/null 2>&1 && \
+  systemctl cat "$SSM_AGENT_SNAP_SERVICE" >/dev/null 2>&1; then
+  ssm_agent_service="$SSM_AGENT_SNAP_SERVICE"
+  if ! snap start --enable amazon-ssm-agent >/dev/null; then
+    echo "the approved Ubuntu AMI must include an active amazon-ssm-agent" >&2
+    exit 1
+  fi
 else
-  echo "the approved Ubuntu AMI must include amazon-ssm-agent" >&2
+  echo "the approved Ubuntu AMI must include an active amazon-ssm-agent" >&2
+  exit 1
+fi
+
+if ! systemctl is-active --quiet "$ssm_agent_service"; then
+  echo "the approved Ubuntu AMI must include an active amazon-ssm-agent" >&2
   exit 1
 fi
 

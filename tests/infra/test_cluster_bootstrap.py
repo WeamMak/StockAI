@@ -165,6 +165,25 @@ def test_node_install_and_cni_are_pinned_for_the_approved_cluster() -> None:
     assert "latest" not in network
 
 
+def test_node_install_accepts_deb_or_snap_ssm_agent_and_fails_closed() -> None:
+    install_script = _read(CLUSTER_ROOT / "install-node.sh")
+
+    assert 'SSM_AGENT_DEB_SERVICE="amazon-ssm-agent.service"' in install_script
+    assert (
+        'SSM_AGENT_SNAP_SERVICE="snap.amazon-ssm-agent.amazon-ssm-agent.service"'
+        in install_script
+    )
+    assert 'systemctl enable --now "$SSM_AGENT_DEB_SERVICE"' in install_script
+    assert "snap list amazon-ssm-agent" in install_script
+    assert "snap start --enable amazon-ssm-agent" in install_script
+    assert 'systemctl is-active --quiet "$ssm_agent_service"' in install_script
+    assert 'ssm_agent_service=""' in install_script
+    assert (
+        "the approved Ubuntu AMI must include an active amazon-ssm-agent"
+        in install_script
+    )
+
+
 def test_compute_bootstraps_control_plane_and_environment_workers() -> None:
     compute_main = _read(COMPUTE_ROOT / "main.tf")
     control_plane_template = _read(COMPUTE_ROOT / "control-plane-user-data.sh.tftpl")

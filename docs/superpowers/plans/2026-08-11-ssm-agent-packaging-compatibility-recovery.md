@@ -32,7 +32,7 @@
 - Consumes: an approved Ubuntu AMI with either the Debian systemd service or the AWS-published Snap already installed.
 - Produces: an active Amazon SSM Agent followed by the unchanged `/var/lib/stockai/node-install-complete` marker.
 
-- [ ] **Step 1: Write the failing packaging-contract test**
+- [x] **Step 1: Write the failing packaging-contract test**
 
 Add this focused test after `test_node_install_and_cni_are_pinned_for_the_approved_cluster`:
 
@@ -53,7 +53,7 @@ def test_node_install_accepts_deb_or_snap_ssm_agent_and_fails_closed() -> None:
     assert "the approved Ubuntu AMI must include an active amazon-ssm-agent" in install_script
 ```
 
-- [ ] **Step 2: Run the test and verify the observed contract is red**
+- [x] **Step 2: Run the test and verify the observed contract is red**
 
 Run:
 
@@ -63,7 +63,7 @@ pytest tests/infra/test_cluster_bootstrap.py::test_node_install_accepts_deb_or_s
 
 Expected: FAIL because the current script has no Snap service constant or Snap start path.
 
-- [ ] **Step 3: Implement the minimal dual-package service boundary**
+- [x] **Step 3: Implement the minimal dual-package service boundary**
 
 Add these constants beside the existing version constants:
 
@@ -103,7 +103,7 @@ fi
 
 Do not move the node-install marker before this block.
 
-- [ ] **Step 4: Document the supported packaging boundary and sanitized diagnosis**
+- [x] **Step 4: Document the supported packaging boundary and sanitized diagnosis**
 
 Update the runbook fixed contract and pre-apply check to state that the AMI may provide either the Debian unit or the AWS Snap, but the detected service must be active. Replace the diagnosis command for only `amazon-ssm-agent` with both explicit checks:
 
@@ -114,7 +114,7 @@ sudo systemctl status amazon-ssm-agent.service --no-pager || \
 
 Add the observed failure signature: a missing node-install marker plus an active Snap agent means the image is valid but the bootstrap payload predates this compatibility correction.
 
-- [ ] **Step 5: Run focused syntax, lint, and contract checks**
+- [x] **Step 5: Run focused syntax, lint, and contract checks**
 
 Run:
 
@@ -126,7 +126,7 @@ pytest tests/infra/test_cluster_bootstrap.py -v
 
 Expected: Bash and ShellCheck exit `0`; all six existing tests plus the new packaging test pass.
 
-- [ ] **Step 6: Run full local regression checks**
+- [x] **Step 6: Run full local regression checks**
 
 Run:
 
@@ -140,7 +140,7 @@ git diff --check
 
 Expected: all infrastructure tests and repository checks pass without contacting or mutating AWS.
 
-- [ ] **Step 7: Commit the compatibility fix**
+- [x] **Step 7: Commit the compatibility fix**
 
 ```bash
 git add infra/cluster/install-node.sh tests/infra/test_cluster_bootstrap.py docs/runbooks/cluster-bootstrap.md

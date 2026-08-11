@@ -18,12 +18,15 @@ No command in this runbook prints or retrieves the decrypted join command.
 - Join tokens live for 24 hours and rotate every 12 hours.
 - Worker node names are their EC2 private DNS names. Workers carry exactly one
   `stockai.io/environment=dev|prod` label and matching `NoSchedule` taint.
+- The approved Ubuntu AMI supplies an active Amazon SSM Agent through either
+  the Debian-package systemd unit or the AWS-published Snap service.
 - `/etc/kubernetes/admin.conf` remains root-owned with mode `0600`. Business
   workloads must not remove or tolerate the control-plane taint.
 
 ## Before an authorized apply
 
-1. Use an approved x86-64 Ubuntu AMI that includes `amazon-ssm-agent`.
+1. Use an approved x86-64 Ubuntu AMI that includes an active
+   `amazon-ssm-agent` Debian service or AWS Snap.
 2. Confirm the account ID, administrator CIDR, AMI ID, region, cost, and EC2
    quota in the reviewed platform plan.
 3. Confirm the plan contains one `SecureString`, three exact inline policies,
@@ -124,7 +127,9 @@ Inspect sanitized status without using `set -x` or running `aws ssm
 get-parameter --with-decryption` interactively:
 
 ```bash
-sudo systemctl status containerd kubelet amazon-ssm-agent --no-pager
+sudo systemctl status containerd kubelet --no-pager
+sudo systemctl status amazon-ssm-agent.service --no-pager || \
+  sudo systemctl status snap.amazon-ssm-agent.amazon-ssm-agent.service --no-pager
 sudo journalctl -u cloud-final -u kubelet -u containerd --since=-30m --no-pager
 sudo systemctl status kubeadm-token-rotation.service --no-pager
 sudo KUBECONFIG=/etc/kubernetes/admin.conf kubectl get pods -n kube-system -o wide
@@ -132,6 +137,10 @@ sudo KUBECONFIG=/etc/kubernetes/admin.conf kubectl get pods -n kube-system -o wi
 
 - Placeholder remains: verify the control-plane role, SSM agent, initialized
   admin kubeconfig, and rotation service.
+- A missing node-install marker with an active Snap agent means the instance
+  received a bootstrap payload from before Snap packaging was supported;
+  replace the instance with the corrected payload instead of repairing it
+  manually.
 - Worker never joins: verify its environment role, SSM connectivity, private
   DNS, clock, API reachability on port 6443, and kubelet/containerd status.
 - Node exists but is not Ready: verify Calico pods, kernel modules, forwarding,
@@ -143,4 +152,3 @@ sudo KUBECONFIG=/etc/kubernetes/admin.conf kubectl get pods -n kube-system -o wi
 Never paste decrypted join material into a terminal transcript, issue, log, or
 chat. If disclosure is suspected, run the rotation service on the control plane
 and allow the previous token to expire within its 24-hour TTL.
-
