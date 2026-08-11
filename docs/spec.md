@@ -852,6 +852,8 @@ edited through React, the agent, MCP write tools, or manager approval actions.
 
 [Project decision] Terraform creates one VPC, public subnets across two Availability Zones, route tables, an Internet Gateway, security groups, one fixed control-plane EC2 instance, separate dev and prod worker launch templates and ASGs, one internet-facing Application Load Balancer, and required stable administrative addressing.
 
+[Project decision] Because the AWS account is shared, project resource names use the `weam-stockai-` prefix and every taggable resource records `Owner = weam` in addition to the existing project, component, environment, and role tags where applicable. The T15 state bucket and lock table use the same owner/project prefix; the internal `stockai` state-key prefix does not identify a separate AWS resource.
+
 [Project decision] Private subnets with a managed NAT Gateway were rejected because the small three-node project does not justify the fixed cost. The ALB is the only public application entry point; worker ingress is limited to the ALB security group and administrative access is restricted to a configured administrator CIDR.
 
 [Project decision] The control plane remains an individually managed Terraform EC2 instance. Dev and prod workers are managed by separate single-AZ ASGs with active defaults `min = 1`, `desired = 1`, and `max = 3`. No scaling policy, Cluster Autoscaler, Karpenter, EKS, or NAT Gateway is used in the MVP.
