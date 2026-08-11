@@ -1,0 +1,124 @@
+variable "alb_subnet_ids" {
+  description = "Two T16 public subnet IDs used by the internet-facing ALB"
+  type        = list(string)
+
+  validation {
+    condition = (
+      length(var.alb_subnet_ids) == 2 &&
+      length(distinct(var.alb_subnet_ids)) == 2 &&
+      alltrue([for subnet_id in var.alb_subnet_ids : can(regex("^subnet-[0-9a-f]{8,17}$", subnet_id))])
+    )
+    error_message = "Exactly two distinct EC2 subnet IDs are required."
+  }
+}
+
+variable "budget_notification_email" {
+  description = "Operator email that receives the monthly cost target and review-ceiling notices"
+  type        = string
+
+  validation {
+    condition     = can(regex("^[^@[:space:]]+@[^@[:space:]]+\\.[^@[:space:]]+$", var.budget_notification_email))
+    error_message = "Budget notification email must be a valid email address."
+  }
+}
+
+variable "cluster_name" {
+  description = "Owner-prefixed name of the self-managed Kubernetes cluster"
+  type        = string
+
+  validation {
+    condition     = can(regex("^[a-z][a-z0-9-]{2,31}$", var.cluster_name))
+    error_message = "Cluster name must be 3-32 lowercase letters, digits, or hyphens and start with a letter."
+  }
+}
+
+variable "domain_name" {
+  description = "Existing user-owned Route 53 domain used for all six public hostnames"
+  type        = string
+
+  validation {
+    condition     = can(regex("^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$", var.domain_name))
+    error_message = "Domain name must be a lowercase fully qualified DNS name without a trailing dot."
+  }
+}
+
+variable "loki_bucket_name" {
+  description = "Globally unique S3 bucket name for encrypted dev and prod Loki objects"
+  type        = string
+
+  validation {
+    condition = (
+      length(var.loki_bucket_name) >= 3 &&
+      length(var.loki_bucket_name) <= 63 &&
+      can(regex("^[a-z0-9][a-z0-9.-]*[a-z0-9]$", var.loki_bucket_name))
+    )
+    error_message = "Loki bucket name must be a valid 3-63 character lowercase S3 bucket name."
+  }
+}
+
+variable "nginx_http_node_port" {
+  description = "Fixed HTTP NodePort exposed by the later NGINX Ingress installation"
+  type        = number
+
+  validation {
+    condition = (
+      var.nginx_http_node_port == floor(var.nginx_http_node_port) &&
+      var.nginx_http_node_port >= 30000 &&
+      var.nginx_http_node_port <= 32767
+    )
+    error_message = "NGINX HTTP NodePort must be a whole number from 30000 through 32767."
+  }
+}
+
+variable "owner_name" {
+  description = "Owner recorded on shared edge AWS resources"
+  type        = string
+
+  validation {
+    condition     = can(regex("^[a-z][a-z0-9-]{1,31}$", var.owner_name))
+    error_message = "Owner name must be 2-32 lowercase letters, digits, or hyphens and start with a letter."
+  }
+}
+
+variable "route53_zone_id" {
+  description = "ID of the pre-existing user-owned public Route 53 hosted zone"
+  type        = string
+
+  validation {
+    condition     = can(regex("^Z[A-Z0-9]{8,31}$", var.route53_zone_id))
+    error_message = "Route 53 zone ID must start with Z and contain 9-32 uppercase letters or digits."
+  }
+}
+
+variable "vpc_id" {
+  description = "T16 VPC ID used by the shared ALB and its target groups"
+  type        = string
+
+  validation {
+    condition     = can(regex("^vpc-[0-9a-f]{8,17}$", var.vpc_id))
+    error_message = "VPC ID must be a valid lowercase EC2 VPC identifier."
+  }
+}
+
+variable "worker_asg_names" {
+  description = "T16 worker Auto Scaling Group names keyed exactly by dev and prod"
+  type        = map(string)
+
+  validation {
+    condition = (
+      toset(keys(var.worker_asg_names)) == toset(["dev", "prod"]) &&
+      alltrue([for name in values(var.worker_asg_names) : length(trimspace(name)) > 0])
+    )
+    error_message = "Worker ASG names must contain non-empty dev and prod entries only."
+  }
+}
+
+variable "worker_security_group_id" {
+  description = "T16 security group ID shared by isolated environment workers"
+  type        = string
+
+  validation {
+    condition     = can(regex("^sg-[0-9a-f]{8,17}$", var.worker_security_group_id))
+    error_message = "Worker security group ID must be a valid lowercase EC2 security-group identifier."
+  }
+}

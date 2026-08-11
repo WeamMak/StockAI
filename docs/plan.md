@@ -13,7 +13,7 @@ ORM-bootstrap contracts selected after T10 discovery.
 
 **Tech Stack:** Python 3.12, FastAPI, LangGraph, Python MCP SDK, React, TypeScript, Vite, Odoo 19 Community, PostgreSQL, Terraform, AWS EC2/Auto Scaling/SSM/EventBridge/Lambda/EBS/ALB/ACM/Route 53, kubeadm Kubernetes, Kustomize, Argo CD, Prometheus, Grafana, Loki, Alertmanager, GitHub Actions.
 
-**Status:** T16 implementation complete; awaiting task review and authorized infrastructure planning/apply
+**Status:** T17 implementation complete; awaiting task review and authorized infrastructure planning/apply
 
 **Date:** 2026-08-09
 
@@ -25,8 +25,9 @@ T11A, and T11B are approved and merged. The user explicitly authorized T12 on
 2026-08-09; its implementation and mocked-Bedrock verification are complete.
 T12A is approved and merged. T13 is approved and merged through PR #17 at
 `cca7208`. T14 is approved and merged through PR #18 at `fd6ba1d`. T15 is
-approved and merged through PR #19 at `f89a089`. The user explicitly authorized
-T16 on 2026-08-11; its offline implementation and verification are complete.
+approved and merged through PR #19 at `f89a089`. T16 is approved and merged
+through PR #20 at `debbb5f`. The user explicitly authorized T17 on 2026-08-11;
+its offline implementation and verification are complete.
 Infrastructure planning against the remote backend, apply, and live AWS checks
 remain separately approval-gated.
 
@@ -1310,7 +1311,7 @@ without EKS, automatic node scaling, or NAT Gateway.
 
 **Work and tests**
 
-- [ ] **Step 1: Write failing environment, edge, and volume plan tests**
+- [x] **Step 1: Write failing environment, edge, and volume plan tests**
 
   Assert separate DynamoDB, Secrets Manager, Cognito, Loki prefixes, and IAM
   resource scopes. Assert the normal plan grants no Secrets Manager write,
@@ -1331,14 +1332,14 @@ without EKS, automatic node scaling, or NAT Gateway.
 
   Assert each volume is 5 GiB and uses its matching ASG Availability Zone.
 
-- [ ] **Step 2: Run the focused tests and confirm they fail**
+- [x] **Step 2: Run the focused tests and confirm they fail**
 
   Run: `pytest tests/infra/test_environment_plans.py tests/infra/test_ingress_contract.py -v`
 
   Expected: FAIL because environment, edge, and retained-volume resources do
   not exist.
 
-- [ ] **Step 3: Provision environment application services**
+- [x] **Step 3: Provision environment application services**
 
   Add separate checkpoint/application tables, PITR/TTL/retention, Secrets
   Manager entries, Cognito pools/clients/groups, encrypted Loki S3 prefixes,
@@ -1349,7 +1350,7 @@ without EKS, automatic node scaling, or NAT Gateway.
   `enable_odoo_key_bootstrap = false` default controls its attachment to the
   matching worker role; no normal worker plan may contain that write action.
 
-- [ ] **Step 4: Provision the ALB, ACM, DNS, and ASG target membership**
+- [x] **Step 4: Provision the ALB, ACM, DNS, and ASG target membership**
 
   Create one internet-facing ALB across both public subnets, HTTP-to-HTTPS
   redirect, HTTPS host rules, and separate dev/prod instance target groups for
@@ -1357,7 +1358,7 @@ without EKS, automatic node scaling, or NAT Gateway.
   ASG using `aws_autoscaling_attachment`; never enumerate worker instance IDs.
   Permit the NodePort and health check only from the ALB security group.
 
-- [ ] **Step 5: Provision retained data volumes and recovery**
+- [x] **Step 5: Provision retained data volumes and recovery**
 
   Create the six encrypted 5 GiB `gp3` volumes with `Environment`, `Workload`,
   `Cluster`, and `ManagedBy=Terraform` tags. Place each volume in its
@@ -1365,13 +1366,13 @@ without EKS, automatic node scaling, or NAT Gateway.
   snapshots of only the prod Odoo and PostgreSQL volumes; Prometheus and dev
   recovery use retained volumes without snapshot claims.
 
-- [ ] **Step 6: Provision budget and CloudWatch read contracts**
+- [x] **Step 6: Provision budget and CloudWatch read contracts**
 
   Add $70 target and $90 review-ceiling notifications. Grant Grafana only the
   read-only CloudWatch metric-query actions needed for ALB, ASG, and later
   Lambda panels; application logs remain in Loki.
 
-- [ ] **Step 7: Validate both environment plans**
+- [x] **Step 7: Validate both environment plans**
 
   Run Terraform format/init/validate/plan for `edge`, `environments/dev`, and
   `environments/prod`, then run:
@@ -1382,7 +1383,7 @@ without EKS, automatic node scaling, or NAT Gateway.
   certificate/DNS contracts, six retained volumes, snapshots, and excluded
   services.
 
-- [ ] **Step 8: Commit the independently reviewable services and edge**
+- [x] **Step 8: Commit the independently reviewable services and edge**
 
   ```bash
   git add infra/terraform/modules/app-environment infra/terraform/modules/edge infra/terraform/edge infra/terraform/environments tests/infra docs/runbooks/cost-and-shutdown.md
@@ -1395,6 +1396,19 @@ attachments, all six volume placements, and absence of excluded AWS services.
 After an authorized apply, verify the listener redirect and certificate
 hostname; target health becomes an acceptance check after NGINX Ingress is
 installed.
+
+**Verification result:** The 14 focused plan tests first failed because the
+environment and edge roots were absent, then passed after the minimum resources
+were added. Terraform `1.15.8` formatting and provider-schema validation passed
+for `edge`, `environments/dev`, and `environments/prod` with locked AWS provider
+`6.58.0`; all 34 infrastructure tests passed. `make check` passed lock and
+format checks, Ruff, strict mypy over 129 source files, ESLint, 5 architecture
+tests, and all 258 unit tests. The Terraform plan tests used fake credentials,
+disabled AWS account calls only in isolated temporary configuration copies, and
+did not contact or mutate AWS. Account-specific remote-backend initialization,
+the reviewed real plans, apply, cost confirmation, and post-apply ALB/ACM/DNS
+verification remain behind the explicit infrastructure approval gate; target
+health remains deferred until T18C installs NGINX Ingress.
 
 **Dependencies:** T16.
 
@@ -2857,8 +2871,9 @@ approval, and explicitly authorized T10 implementation to resume on 2026-08-07.
 T10 through T14 are approved and merged; T14 merged through PR #18 at
 `fd6ba1d`. The user explicitly authorized T15 on 2026-08-09, and T15 was
 reviewed and merged through PR #19 at `f89a089`. The user explicitly authorized
-T16 on 2026-08-11; its offline Terraform plan contracts and provider-schema
-validation are complete and await user review. Remote-backend initialization
-with account-specific inputs, the reviewed real plan, apply, quota/cost checks,
-and post-apply AWS verification retain the separate explicit infrastructure
-approval gate. T17 must not start until T16 is reviewed and merged.
+T16 on 2026-08-11, and T16 was reviewed and merged through PR #20 at
+`debbb5f`. The user explicitly authorized T17 on 2026-08-11; its offline
+Terraform plan contracts and provider-schema validation are complete and await
+user review. Remote-backend initialization with account-specific inputs, the
+reviewed real plans, apply, quota/cost checks, and post-apply AWS verification
+retain the separate explicit infrastructure approval gate.
