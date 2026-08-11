@@ -1496,7 +1496,7 @@ specification; public traffic has no direct worker path.
   kubeconfig restricted, business workloads off the control plane, and all
   steps idempotent after Terraform supplies outputs.
 
-- [ ] **Step 7: Validate scripts and a real replacement join**
+- [x] **Step 7: Validate scripts and a real replacement join**
 
   Run: `shellcheck infra/cluster/*.sh`
 
