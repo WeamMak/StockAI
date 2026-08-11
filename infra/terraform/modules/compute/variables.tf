@@ -8,6 +8,16 @@ variable "ami_id" {
   }
 }
 
+variable "aws_region" {
+  description = "AWS region used by node bootstrap commands"
+  type        = string
+
+  validation {
+    condition     = can(regex("^[a-z]{2}-[a-z]+-[0-9]+$", var.aws_region))
+    error_message = "AWS region must be a valid region identifier."
+  }
+}
+
 variable "cluster_name" {
   description = "Short name used to identify the self-managed Kubernetes cluster"
   type        = string
@@ -31,6 +41,16 @@ variable "control_plane_security_group_id" {
 variable "control_plane_subnet_id" {
   description = "Public subnet ID for the fixed control plane"
   type        = string
+}
+
+variable "join_parameter_name" {
+  description = "Exact encrypted SSM parameter containing the finite kubeadm join command"
+  type        = string
+
+  validation {
+    condition     = can(regex("^/stockai/[a-z0-9-]+/kubeadm/join-command$", var.join_parameter_name))
+    error_message = "Join parameter name must use the approved StockAI kubeadm path."
+  }
 }
 
 variable "owner_name" {

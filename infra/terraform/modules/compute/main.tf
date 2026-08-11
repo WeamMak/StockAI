@@ -15,7 +15,17 @@ resource "aws_instance" "control_plane" {
   iam_instance_profile        = var.control_plane_instance_profile_name
   instance_type               = "t3.medium"
   subnet_id                   = var.control_plane_subnet_id
-  vpc_security_group_ids      = [var.control_plane_security_group_id]
+  user_data = templatefile("${path.module}/control-plane-user-data.sh.tftpl", {
+    aws_region                     = var.aws_region
+    cluster_name                   = var.cluster_name
+    init_control_plane_script_gzip = base64gzip(file("${path.module}/../../../cluster/init-control-plane.sh"))
+    install_node_script_gzip       = base64gzip(file("${path.module}/../../../cluster/install-node.sh"))
+    join_parameter_name            = var.join_parameter_name
+    rotate_join_token_script_gzip  = base64gzip(file("${path.module}/../../../cluster/rotate-join-token.sh"))
+    rotation_service_gzip          = base64gzip(file("${path.module}/../../../cluster/kubeadm-token-rotation.service"))
+    rotation_timer_gzip            = base64gzip(file("${path.module}/../../../cluster/kubeadm-token-rotation.timer"))
+  })
+  vpc_security_group_ids = [var.control_plane_security_group_id]
 
   metadata_options {
     http_endpoint               = "enabled"
@@ -54,8 +64,13 @@ resource "aws_launch_template" "worker" {
   name_prefix            = "${var.cluster_name}-${each.key}-worker-"
   update_default_version = true
   user_data = base64encode(templatefile("${path.module}/worker-user-data.sh.tftpl", {
-    cluster_name = var.cluster_name
-    environment  = each.key
+    aws_region               = var.aws_region
+    cluster_name             = var.cluster_name
+    environment              = each.key
+    expected_api_endpoint    = "${aws_instance.control_plane.private_ip}:6443"
+    install_node_script_gzip = base64gzip(file("${path.module}/../../../cluster/install-node.sh"))
+    join_parameter_name      = var.join_parameter_name
+    join_worker_script_gzip  = base64gzip(file("${path.module}/../../../cluster/join-worker.sh"))
   }))
 
   block_device_mappings {

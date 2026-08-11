@@ -36,6 +36,16 @@ variable "availability_zones" {
   }
 }
 
+variable "aws_account_id" {
+  description = "Twelve-digit AWS account ID used for exact infrastructure IAM scopes"
+  type        = string
+
+  validation {
+    condition     = can(regex("^[0-9]{12}$", var.aws_account_id))
+    error_message = "AWS account ID must contain exactly 12 digits."
+  }
+}
+
 variable "aws_region" {
   description = "Approved AWS region for the StockAI platform"
   type        = string

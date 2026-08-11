@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+decode_file() {
+  local payload="$1"
+  local destination="$2"
+  local mode="$3"
+
+  printf '%s' "$payload" | base64 --decode | gzip --decompress >"$destination"
+  chmod "$mode" "$destination"
+}
+
+install -d -m 0755 /etc/stockai /usr/local/sbin /usr/local/lib/systemd/system
+printf '%s\n' '${cluster_name}' >/etc/stockai/cluster-name
+chmod 0644 /etc/stockai/cluster-name
+
+decode_file '${install_node_script_gzip}' /usr/local/sbin/stockai-install-node 0755
+decode_file '${init_control_plane_script_gzip}' /usr/local/sbin/stockai-init-control-plane 0755
+decode_file '${rotate_join_token_script_gzip}' /usr/local/sbin/stockai-rotate-join-token 0755
+decode_file '${rotation_service_gzip}' /usr/local/lib/systemd/system/kubeadm-token-rotation.service 0644
+decode_file '${rotation_timer_gzip}' /usr/local/lib/systemd/system/kubeadm-token-rotation.timer 0644
+
+/usr/local/sbin/stockai-install-node
+/usr/local/sbin/stockai-init-control-plane \
+  '${cluster_name}' \
+  '${aws_region}' \
+  '${join_parameter_name}'
+

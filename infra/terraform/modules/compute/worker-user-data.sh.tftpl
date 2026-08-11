@@ -1,12 +1,26 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# T18A extends this bounded identity setup with the approved kubeadm join path.
-install -d -m 0755 /etc/stockai
+decode_file() {
+  local payload="$1"
+  local destination="$2"
+  local mode="$3"
+
+  printf '%s' "$payload" | base64 --decode | gzip --decompress >"$destination"
+  chmod "$mode" "$destination"
+}
+
+install -d -m 0755 /etc/stockai /usr/local/sbin
 printf '%s\n' '${environment}' > /etc/stockai/environment
 printf '%s\n' '${cluster_name}' > /etc/stockai/cluster-name
 chmod 0644 /etc/stockai/environment /etc/stockai/cluster-name
 
-# The approved Ubuntu image is expected to contain the SSM agent. Fail clearly
-# if that prerequisite is absent instead of silently leaving an unmanaged node.
-systemctl enable --now amazon-ssm-agent
+decode_file '${install_node_script_gzip}' /usr/local/sbin/stockai-install-node 0755
+decode_file '${join_worker_script_gzip}' /usr/local/sbin/stockai-join-worker 0755
+
+/usr/local/sbin/stockai-install-node
+/usr/local/sbin/stockai-join-worker \
+  '${environment}' \
+  '${aws_region}' \
+  '${join_parameter_name}' \
+  '${expected_api_endpoint}'
