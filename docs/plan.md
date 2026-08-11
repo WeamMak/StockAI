@@ -13,7 +13,7 @@ ORM-bootstrap contracts selected after T10 discovery.
 
 **Tech Stack:** Python 3.12, FastAPI, LangGraph, Python MCP SDK, React, TypeScript, Vite, Odoo 19 Community, PostgreSQL, Terraform, AWS EC2/Auto Scaling/SSM/EventBridge/Lambda/EBS/ALB/ACM/Route 53, kubeadm Kubernetes, Kustomize, Argo CD, Prometheus, Grafana, Loki, Alertmanager, GitHub Actions.
 
-**Status:** T15 implementation complete; awaiting task review and authorized apply
+**Status:** T16 implementation complete; awaiting task review and authorized infrastructure planning/apply
 
 **Date:** 2026-08-09
 
@@ -24,10 +24,11 @@ course-staff approval, and explicitly authorized implementation to resume. T10,
 T11A, and T11B are approved and merged. The user explicitly authorized T12 on
 2026-08-09; its implementation and mocked-Bedrock verification are complete.
 T12A is approved and merged. T13 is approved and merged through PR #17 at
-`cca7208`. T14 is approved and merged through PR #18 at `fd6ba1d`. The user
-explicitly authorized T15 on 2026-08-09; its local implementation and static
-Terraform verification are complete. Infrastructure apply remains separately
-approval-gated.
+`cca7208`. T14 is approved and merged through PR #18 at `fd6ba1d`. T15 is
+approved and merged through PR #19 at `f89a089`. The user explicitly authorized
+T16 on 2026-08-11; its offline implementation and verification are complete.
+Infrastructure planning against the remote backend, apply, and live AWS checks
+remain separately approval-gated.
 
 ## 1. Approval status and purpose
 
@@ -1173,7 +1174,7 @@ keyless GitHub authentication.
 
 **Work and tests**
 
-- [ ] **Step 1: Add failing Terraform-plan assertions**
+- [x] **Step 1: Add failing Terraform-plan assertions**
 
   Parse `terraform show -json` through
   `tests.infra.plan.resources(plan: dict, resource_type: str) -> list[dict]`.
@@ -1188,13 +1189,13 @@ keyless GitHub authentication.
   assert len(resources(plan, "aws_nat_gateway")) == 0
   ```
 
-- [ ] **Step 2: Run the focused test and confirm the missing resources fail**
+- [x] **Step 2: Run the focused test and confirm the missing resources fail**
 
   Run: `pytest tests/infra/test_platform_plan.py -v`
 
   Expected: FAIL because the platform root and ASG resources do not exist.
 
-- [ ] **Step 3: Implement the minimum network and compute resources**
+- [x] **Step 3: Implement the minimum network and compute resources**
 
   Create one VPC, two public subnets in different Availability Zones, routing,
   Internet Gateway, restricted control-plane administration, one fixed
@@ -1221,7 +1222,7 @@ keyless GitHub authentication.
   overlap where capacity permits, while documenting that EC2 `InService` does
   not itself prove Kubernetes Ready or zero downtime.
 
-- [ ] **Step 4: Implement separate least-privilege node roles and network rules**
+- [x] **Step 4: Implement separate least-privilege node roles and network rules**
 
   Give the control plane no procurement-data permissions. Create distinct
   dev/prod worker roles and instance profiles, SSM managed-instance channels,
@@ -1229,14 +1230,14 @@ keyless GitHub authentication.
   server to the configured administrator CIDR and required node traffic; do
   not expose NodePort, MCP, or database ports publicly.
 
-- [ ] **Step 5: Add inactive-capacity and quota validations**
+- [x] **Step 5: Add inactive-capacity and quota validations**
 
   Permit only the documented inactive `{ min = 0, desired = 0, max = 3 }`
   state, reject `desired < min`, and document that an apply must verify six
   vCPUs for the normal baseline plus the exact temporary dev capacity being
   tested.
 
-- [ ] **Step 6: Run Terraform and policy checks**
+- [x] **Step 6: Run Terraform and policy checks**
 
   Run: `terraform -chdir=infra/terraform/platform fmt -check`
 
@@ -1249,7 +1250,7 @@ keyless GitHub authentication.
   Expected: PASS with one fixed control plane, two isolated worker ASGs, no
   scaling policies, no EKS, and no NAT Gateway.
 
-- [ ] **Step 7: Commit the independently reviewable foundation**
+- [x] **Step 7: Commit the independently reviewable foundation**
 
   ```bash
   git add infra/terraform/modules/network infra/terraform/modules/compute infra/terraform/modules/node-iam infra/terraform/platform tests/infra
@@ -1258,6 +1259,21 @@ keyless GitHub authentication.
 
 **Verification:** Run Terraform checks and inspect the reviewed plan for count,
 instance type, volume size, ingress, IAM actions, and monthly-cost assumptions.
+
+**Verification result:** The focused test first failed because the platform
+root and ASG resources were absent. Eleven final tests parse `terraform show -json`
+and cover the approved topology and outputs, exact active/inactive
+capacity, invalid-capacity rejection, isolated temporary environment overrides,
+AZ/subnet isolation, encrypted bounded root volumes, numbered launch-template
+refreshes, restricted ingress, separate SSM-only node roles, and absence of
+EKS, NAT, and scaling policies. Terraform `1.15.8` formatting and
+provider-schema validation passed with locked AWS provider `6.58.0`; all 19
+infrastructure tests passed. `make check` passed
+lock/format checks, Ruff, strict mypy over 127 source files, ESLint, 5
+architecture tests, and all 258 unit tests. The plan tests used fake credentials
+and disabled AWS account calls only in an isolated temporary configuration
+copy. No account-specific remote-backend plan, quota/cost check, apply, or live
+AWS verification was performed; those retain the explicit infrastructure gate.
 
 **Dependencies:** T15.
 
@@ -2836,8 +2852,10 @@ through T09, which are complete. T10 triggered its approved stop condition.
 The user approved the exact remediation revision, confirmed course-staff
 approval, and explicitly authorized T10 implementation to resume on 2026-08-07.
 T10 through T14 are approved and merged; T14 merged through PR #18 at
-`fd6ba1d`. The user explicitly authorized T15 on 2026-08-09. T15's local
-Terraform bootstrap, static security contracts, provider-schema validation,
-and runbook are complete and await user review. The real Terraform plan, apply,
+`fd6ba1d`. The user explicitly authorized T15 on 2026-08-09, and T15 was
+reviewed and merged through PR #19 at `f89a089`. The user explicitly authorized
+T16 on 2026-08-11; its offline Terraform plan contracts and provider-schema
+validation are complete and await user review. Remote-backend initialization
+with account-specific inputs, the reviewed real plan, apply, quota/cost checks,
 and post-apply AWS verification retain the separate explicit infrastructure
-approval gate. T16 must not start until T15 is reviewed and merged.
+approval gate. T17 must not start until T16 is reviewed and merged.
