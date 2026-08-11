@@ -1,0 +1,24 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: argocd
+
+resources:
+  - namespace.yaml
+  - https://raw.githubusercontent.com/argoproj/argo-cd/v3.5.0/manifests/install.yaml
+
+images:
+  - name: quay.io/argoproj/argocd
+    newTag: v3.5.0
+
+patches:
+  - path: control-plane-workload.yaml
+    target:
+      group: apps
+      kind: Deployment
+      version: v1
+  - path: control-plane-workload.yaml
+    target:
+      group: apps
+      kind: StatefulSet
+      version: v1

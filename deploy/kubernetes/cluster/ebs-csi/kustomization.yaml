@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - github.com/kubernetes-sigs/aws-ebs-csi-driver/deploy/kubernetes/overlays/stable?ref=v1.63.1
+
+images:
+  - name: public.ecr.aws/ebs-csi-driver/aws-ebs-csi-driver
+    newTag: v1.63.1
+
+patches:
+  - path: controller.yaml
+  - path: node.yaml
+  - path: remove-unused-rbac.yaml
