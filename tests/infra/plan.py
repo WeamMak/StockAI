@@ -148,6 +148,9 @@ def _local_backend_copy(root: Path, destination: Path) -> Path:
         ),
     )
     shutil.copytree(source_root / "modules", terraform_root / "modules")
+    cluster_assets = source_root.parent / "cluster"
+    if cluster_assets.is_dir():
+        shutil.copytree(cluster_assets, destination / "cluster")
 
     versions_path = working_root / "versions.tf"
     versions = versions_path.read_text(encoding="utf-8")

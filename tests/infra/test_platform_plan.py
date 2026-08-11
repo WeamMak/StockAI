@@ -28,6 +28,7 @@ def platform_plan(tmp_path_factory: pytest.TempPathFactory) -> TerraformPlan:
         {
             "administrator_cidr": "203.0.113.10/32",
             "ami_id": "ami-0123456789abcdef0",
+            "aws_account_id": "123456789012",
         },
     )
 
@@ -287,6 +288,7 @@ def test_inactive_worker_capacity_is_the_only_supported_zero_state(
         {
             "administrator_cidr": "203.0.113.10/32",
             "ami_id": "ami-0123456789abcdef0",
+            "aws_account_id": "123456789012",
             "cluster_name": "stockai-test",
             "worker_capacity": "{ min = 0, desired = 0, max = 3 }",
         },
@@ -311,6 +313,7 @@ def test_temporary_capacity_can_change_only_the_selected_environment(
         {
             "administrator_cidr": "203.0.113.10/32",
             "ami_id": "ami-0123456789abcdef0",
+            "aws_account_id": "123456789012",
             "cluster_name": "stockai-test",
             "worker_capacity_overrides": (
                 "{ dev = { min = 1, desired = 2, max = 3 } }"
@@ -337,6 +340,7 @@ def test_worker_capacity_rejects_desired_below_minimum(tmp_path: Path) -> None:
             {
                 "administrator_cidr": "203.0.113.10/32",
                 "ami_id": "ami-0123456789abcdef0",
+                "aws_account_id": "123456789012",
                 "cluster_name": "stockai-test",
                 "worker_capacity": "{ min = 1, desired = 0, max = 3 }",
             },

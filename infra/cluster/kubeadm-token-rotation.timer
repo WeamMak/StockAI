@@ -1,0 +1,12 @@
+[Unit]
+Description=Rotate the StockAI kubeadm worker join token every 12 hours
+
+[Timer]
+OnBootSec=12h
+OnUnitActiveSec=12h
+Persistent=true
+Unit=kubeadm-token-rotation.service
+
+[Install]
+WantedBy=timers.target
+

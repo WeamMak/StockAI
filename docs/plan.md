@@ -1448,7 +1448,7 @@ specification; public traffic has no direct worker path.
 
 **Work and tests**
 
-- [ ] **Step 1: Write failing bootstrap contract tests**
+- [x] **Step 1: Write failing bootstrap contract tests**
 
   Assert a Terraform-created SSM `SecureString`, exact control-plane
   `ssm:PutParameter`, exact worker `ssm:GetParameter`, no
@@ -1456,21 +1456,21 @@ specification; public traffic has no direct worker path.
   strict join-command validation, private-DNS node naming, and environment
   labels/taints.
 
-- [ ] **Step 2: Run the tests and confirm the bootstrap contracts fail**
+- [x] **Step 2: Run the tests and confirm the bootstrap contracts fail**
 
   Run: `pytest tests/infra/test_cluster_bootstrap.py -v`
 
   Expected: FAIL because the SSM parameter, rotation unit, and ASG join path do
   not exist.
 
-- [ ] **Step 3: Create the encrypted join-parameter and IAM boundary**
+- [x] **Step 3: Create the encrypted join-parameter and IAM boundary**
 
   Terraform creates the parameter with a non-secret placeholder and ignores
   only runtime value drift. The control plane may overwrite that exact ARN;
   both worker roles may decrypt/read that exact ARN. No plan, output, or log
   contains a live token.
 
-- [ ] **Step 4: Implement finite token rotation without shell evaluation**
+- [x] **Step 4: Implement finite token rotation without shell evaluation**
 
   `rotate-join-token.sh` executes:
 
@@ -1483,20 +1483,20 @@ specification; public traffic has no direct worker path.
   hours. The script never enables command tracing and never prints
   `join_command`.
 
-- [ ] **Step 5: Implement environment-aware ASG worker join**
+- [x] **Step 5: Implement environment-aware ASG worker join**
 
   Poll SSM with bounded backoff. Accept only a command matching the exact
   kubeadm endpoint/token/CA-hash grammar, split it into a Bash array, and append
   `--node-name "$private_dns"`; do not use `eval`. Configure kubelet labels and
   taints from the launch-template environment and reject any other value.
 
-- [ ] **Step 6: Pin and initialize the cluster and CNI**
+- [x] **Step 6: Pin and initialize the cluster and CNI**
 
   Pin Kubernetes, containerd, and the NetworkPolicy-capable CNI; keep
   kubeconfig restricted, business workloads off the control plane, and all
   steps idempotent after Terraform supplies outputs.
 
-- [ ] **Step 7: Validate scripts and a real replacement join**
+- [x] **Step 7: Validate scripts and a real replacement join**
 
   Run: `shellcheck infra/cluster/*.sh`
 
@@ -1506,7 +1506,7 @@ specification; public traffic has no direct worker path.
   uses private DNS, has only dev labels/taints and the dev role, reaches Ready,
   and never exposes the token in user-data, journal, or Terraform output.
 
-- [ ] **Step 8: Commit bootstrap automation**
+- [x] **Step 8: Commit bootstrap automation**
 
   ```bash
   git add infra/cluster infra/terraform/modules/cluster-bootstrap infra/terraform/modules/compute infra/terraform/platform deploy/kubernetes/cluster/network tests/infra docs/runbooks/cluster-bootstrap.md
@@ -1516,6 +1516,21 @@ specification; public traffic has no direct worker path.
 **Verification:** Run shell lint and CNI manifest checks, bootstrap the
 authorized test cluster, inspect node roles/labels/taints, and run node/network
 and restart checks.
+
+**Implementation verification result:** The red run first failed on the absent
+T18A scripts, systemd units, CNI resources, and Terraform module. The final six
+focused contracts passed for the encrypted runtime-owned SSM parameter, exact
+role-specific IAM, 24-hour token/12-hour rotation, strict non-`eval` join
+validation, private-DNS node identity, environment labels/taints, pinned node
+software and Calico, and automatic control-plane/worker user data. ShellCheck
+`0.10.0`, Bash syntax checks, the pinned Calico Kustomization render, Terraform
+`1.15.8` formatting/provider-schema validation, all 40 infrastructure tests,
+and `make check` passed; the latter covered lock and formatting checks, Ruff,
+strict mypy over 130 source files, ESLint, 5 architecture tests, and all 258
+unit tests. The deterministic plans used fake credentials with refresh disabled
+and performed no AWS mutation. The account-specific reviewed plan/apply and the
+real dev replacement join in Step 7 remain behind the explicit infrastructure
+approval gate and are not claimed as complete.
 
 **Dependencies:** T17.
 

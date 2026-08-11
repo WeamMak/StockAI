@@ -19,14 +19,29 @@ module "node_iam" {
   cluster_name = var.cluster_name
 }
 
+module "cluster_bootstrap" {
+  source = "../modules/cluster-bootstrap"
+
+  aws_account_id          = var.aws_account_id
+  aws_region              = var.aws_region
+  cluster_name            = var.cluster_name
+  control_plane_role_name = module.node_iam.control_plane_role_name
+  worker_role_names = {
+    dev  = module.node_iam.dev_worker_role_name
+    prod = module.node_iam.prod_worker_role_name
+  }
+}
+
 module "compute" {
   source = "../modules/compute"
 
   ami_id                              = var.ami_id
+  aws_region                          = var.aws_region
   cluster_name                        = var.cluster_name
   control_plane_instance_profile_name = module.node_iam.control_plane_instance_profile_name
   control_plane_security_group_id     = module.network.control_plane_security_group_id
   control_plane_subnet_id             = module.network.public_subnet_ids_by_az[local.dev_availability_zone]
+  join_parameter_name                 = module.cluster_bootstrap.join_parameter_name
   owner_name                          = var.owner_name
   worker_availability_zones = {
     dev  = local.dev_availability_zone
