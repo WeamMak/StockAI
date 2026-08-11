@@ -79,6 +79,15 @@ def create_plan(
     )
 
     provider_directory = root / ".terraform" / "providers"
+    if not provider_directory.is_dir():
+        provider_directory = next(
+            (
+                ancestor / "platform" / ".terraform" / "providers"
+                for ancestor in root.parents
+                if (ancestor / "platform" / ".terraform" / "providers").is_dir()
+            ),
+            provider_directory,
+        )
     local_provider_args = (
         (f"-plugin-dir={provider_directory}",)
         if provider_directory.is_dir()
@@ -123,8 +132,10 @@ def create_plan(
 def _local_backend_copy(root: Path, destination: Path) -> Path:
     """Copy a root and its local modules without its production S3 backend."""
 
+    source_root = root.parents[1] if root.parent.name == "environments" else root.parent
     terraform_root = destination / "terraform"
-    working_root = terraform_root / root.name
+    working_root = terraform_root / root.relative_to(source_root)
+    working_root.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(
         root,
         working_root,
@@ -136,7 +147,7 @@ def _local_backend_copy(root: Path, destination: Path) -> Path:
             "terraform.tfvars",
         ),
     )
-    shutil.copytree(root.parent / "modules", terraform_root / "modules")
+    shutil.copytree(source_root / "modules", terraform_root / "modules")
 
     versions_path = working_root / "versions.tf"
     versions = versions_path.read_text(encoding="utf-8")
