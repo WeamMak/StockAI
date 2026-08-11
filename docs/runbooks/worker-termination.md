@@ -14,7 +14,10 @@ DNS node name and private IPv4 address, Kubernetes Node `InternalIP`, and
 Kubernetes environment label before cleanup. Self-managed kubeadm nodes in
 this cluster have no `.spec.providerID`, so cleanup does not depend on that
 unavailable field. The Lambda has no procurement, Bedrock, DynamoDB, S3,
-Secrets Manager, Odoo, or worker-role permissions.
+Secrets Manager, Odoo, or worker-role permissions. After sending the cleanup
+command, it treats only SSM's transient `InvocationDoesNotExist` read-after-write
+response as pending and retries it within the existing heartbeat and timeout
+bounds.
 
 ## Outcomes
 

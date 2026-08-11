@@ -66,7 +66,7 @@ def _event(*, environment: str = "dev") -> dict[str, Any]:
 
 def _clients(
     *,
-    statuses: Iterator[dict[str, str]] | None = None,
+    statuses: Iterator[dict[str, str] | Exception] | None = None,
     instance_present: bool = True,
 ) -> MagicMock:
     clients = MagicMock()
@@ -191,6 +191,47 @@ def test_clean_cleanup_maps_private_dns_heartbeats_and_completes(
         LifecycleActionResult="CONTINUE",
         InstanceId="i-0123456789abcdef0",
     )
+
+
+def test_ssm_invocation_visibility_race_is_retried(
+    cleanup_module: ModuleType,
+) -> None:
+    event = cleanup_module.parse_event(_event())
+    statuses: Iterator[dict[str, str] | Exception] = iter(
+        [
+            _AwsError("InvocationDoesNotExist"),
+            {
+                "Status": "Success",
+                "StandardOutputContent": "CLEANUP_OUTCOME=clean\n",
+                "StandardErrorContent": "",
+            },
+        ]
+    )
+    clients = _clients(statuses=statuses)
+
+    result = cleanup_module.cleanup_node(event, clients)
+
+    assert result.outcome is cleanup_module.CleanupOutcome.CLEAN
+    assert result.heartbeat_count == 1
+    assert clients.sleep.call_count == 1
+    clients.autoscaling.record_lifecycle_action_heartbeat.assert_called_once()
+    clients.autoscaling.complete_lifecycle_action.assert_called_once()
+
+
+def test_non_transient_ssm_poll_error_is_not_retried(
+    cleanup_module: ModuleType,
+) -> None:
+    event = cleanup_module.parse_event(_event())
+    clients = _clients(statuses=iter([_AwsError("AccessDeniedException")]))
+
+    result = cleanup_module.cleanup_node(event, clients)
+
+    assert result.outcome is cleanup_module.CleanupOutcome.FAILED
+    assert result.error_code == "ssm_unavailable"
+    assert result.heartbeat_count == 0
+    clients.sleep.assert_not_called()
+    clients.autoscaling.record_lifecycle_action_heartbeat.assert_not_called()
+    clients.autoscaling.complete_lifecycle_action.assert_called_once()
 
 
 def test_forced_and_failed_outcomes_still_continue_lifecycle(

@@ -277,11 +277,17 @@ def _poll_cleanup(
         "Terminated",
     }
     for _ in range(MAX_POLLS):
-        response = clients.ssm.get_command_invocation(
-            CommandId=command_id,
-            InstanceId=os.environ["CONTROL_PLANE_INSTANCE_ID"],
-        )
-        status = str(response.get("Status", "Unknown"))
+        try:
+            response = clients.ssm.get_command_invocation(
+                CommandId=command_id,
+                InstanceId=os.environ["CONTROL_PLANE_INSTANCE_ID"],
+            )
+            status = str(response.get("Status", "Unknown"))
+        except Exception as error:
+            error_response = getattr(error, "response", {})
+            if error_response.get("Error", {}).get("Code") != "InvocationDoesNotExist":
+                raise
+            status = "Pending"
         if status == "Success":
             marker = str(response.get("StandardOutputContent", ""))
             if "CLEANUP_OUTCOME=clean" in marker:

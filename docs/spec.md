@@ -1082,7 +1082,7 @@ observability images use pinned upstream digests without project rebuilds.
 | MCP/Odoo write | `[Project decision]` | 15 seconds | Use idempotency; on timeout reconcile Odoo/DynamoDB before any retry |
 | Complete automated case | `[Project decision]` | 120 seconds excluding human wait | Stop safely, persist state, and expose retry or manual review |
 | Public API request | `[Project decision]` | Short synchronous request | Long work returns `202`; no browser-held workflow request |
-| Worker termination cleanup | `[Project decision]` | 240-second Lambda inside a 300-second lifecycle heartbeat window; drain bounded to 120 seconds | Poll SSM while heartbeating; retry only a clearly transient command submission; classify clean/forced/failed; always complete `CONTINUE` and alert on non-clean outcomes |
+| Worker termination cleanup | `[Project decision]` | 240-second Lambda inside a 300-second lifecycle heartbeat window; drain bounded to 120 seconds | Poll SSM while heartbeating; retry only a clearly transient command submission or immediate `InvocationDoesNotExist` read-after-write visibility race; classify clean/forced/failed; always complete `CONTINUE` and alert on non-clean outcomes |
 | Worker kubeadm join | `[Project decision]` | Bounded attempt with bootstrap-level backoff | Poll for a valid encrypted join command, reset only a partial kubeadm attempt, and retry until the finite token is refreshed; never log the command or token |
 
 [Project decision] Authentication, authorization, validation, conflict, and policy failures are permanent and are never retried.

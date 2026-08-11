@@ -1627,8 +1627,18 @@ hard-bound to its environment.
   contract and avoids an unrelated kubelet/bootstrap replacement.
 
   Preserve the drain status, sanitize returned output, poll SSM while sending
-  lifecycle heartbeats, and attempt `CONTINUE` in `finally`. Never call
-  `ABANDON`; the lifecycle hook itself supplies the ultimate fail-open bound.
+  lifecycle heartbeats, and retry SSM's documented transient
+  `InvocationDoesNotExist` read-after-write visibility race inside the existing
+  poll bound. Attempt `CONTINUE` in `finally`. Never call `ABANDON`; the
+  lifecycle hook itself supplies the ultimate fail-open bound.
+
+  The first live dev drill on 2026-08-11 sent SSM command
+  `3de296f3-c2bd-4942-a6a7-7c58842131fc`, which completed with response code
+  zero and `CLEANUP_OUTCOME=clean`; the old Node disappeared and replacement
+  `i-02ec53c048a80bb6f` joined Ready. Lambda nevertheless reported
+  `ssm_unavailable` with zero heartbeats because its immediate invocation read
+  raced SSM propagation. The approved minimal correction retries only that
+  exact error and has a regression test reproducing the live sequence.
 
 - [ ] **Step 5: Make duplicate delivery and timeout behavior deterministic**
 
