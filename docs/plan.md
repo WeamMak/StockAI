@@ -1597,10 +1597,10 @@ hard-bound to its environment.
 
   Accept only `EC2 Instance-terminate Lifecycle Action` events from
   `aws.autoscaling`, require one of the two exact ASG names, resolve the EC2
-  private DNS name, reject node names outside `[a-z0-9.-]+`, and verify the
-  ASG/instance/environment contract before sending any command. A missing
-  already-terminated instance is idempotent only after the signed event's ASG
-  and instance fields pass validation.
+  private DNS name and private IPv4 address, reject invalid node names or
+  addresses, and verify the ASG/instance/environment contract before sending
+  any command. A missing already-terminated instance is idempotent only after
+  the signed event's ASG and instance fields pass validation.
 
 - [ ] **Step 4: Implement bounded SSM cleanup and heartbeat polling**
 
@@ -1609,9 +1609,9 @@ hard-bound to its environment.
 
   ```bash
   export KUBECONFIG=/etc/kubernetes/admin.conf
-  provider_id="$(kubectl get node "$node_name" -o jsonpath='{.spec.providerID}')"
+  internal_ip="$(kubectl get node "$node_name" -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}')"
   environment="$(kubectl get node "$node_name" -o jsonpath='{.metadata.labels.stockai\.io/environment}')"
-  case "$provider_id" in *"/$instance_id") ;; *) exit 42 ;; esac
+  [ "$internal_ip" = "$expected_private_ip" ] || exit 42
   [ "$environment" = "$expected_environment" ] || exit 43
   drain_rc=0
   kubectl cordon "$node_name" || true
@@ -1620,9 +1620,25 @@ hard-bound to its environment.
   printf 'CLEANUP_OUTCOME=%s\n' "$([ "$drain_rc" -eq 0 ] && printf clean || printf forced)"
   ```
 
+  Live T18B preflight on 2026-08-11 confirmed that the control plane and both
+  workers expose no `.spec.providerID`. The user approved replacing that
+  unavailable check with the exact EC2-private-DNS plus private-IP and
+  environment-label identity chain. This keeps the existing T18A node naming
+  contract and avoids an unrelated kubelet/bootstrap replacement.
+
   Preserve the drain status, sanitize returned output, poll SSM while sending
-  lifecycle heartbeats, and attempt `CONTINUE` in `finally`. Never call
-  `ABANDON`; the lifecycle hook itself supplies the ultimate fail-open bound.
+  lifecycle heartbeats, and retry SSM's documented transient
+  `InvocationDoesNotExist` read-after-write visibility race inside the existing
+  poll bound. Attempt `CONTINUE` in `finally`. Never call `ABANDON`; the
+  lifecycle hook itself supplies the ultimate fail-open bound.
+
+  The first live dev drill on 2026-08-11 sent SSM command
+  `3de296f3-c2bd-4942-a6a7-7c58842131fc`, which completed with response code
+  zero and `CLEANUP_OUTCOME=clean`; the old Node disappeared and replacement
+  `i-02ec53c048a80bb6f` joined Ready. Lambda nevertheless reported
+  `ssm_unavailable` with zero heartbeats because its immediate invocation read
+  raced SSM propagation. The approved minimal correction retries only that
+  exact error and has a regression test reproducing the live sequence.
 
 - [ ] **Step 5: Make duplicate delivery and timeout behavior deterministic**
 
@@ -1658,6 +1674,11 @@ hard-bound to its environment.
   correct labels/role. Then block control-plane SSM in a controlled test and
   verify bounded `failed` completion and the alert. Retained-volume and
   application recovery are deferred to T23 after the full dev stack exists.
+
+  On 2026-08-11 the normal live cleanup drill passed. The user explicitly
+  deferred the unavailable-control-plane/SSM live drill and accepted T18B as
+  finished with that limitation; its bounded fail-open behavior remains
+  covered by automated tests and the operational runbook.
 
 - [ ] **Step 9: Commit lifecycle automation**
 

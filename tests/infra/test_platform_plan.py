@@ -232,7 +232,16 @@ def test_worker_groups_are_environment_isolated_and_refresh_safely(
 def test_node_roles_are_separate_and_only_attach_ssm_channels(
     platform_plan: TerraformPlan,
 ) -> None:
-    assert len(resources(platform_plan, "aws_iam_role")) == 3
+    node_role_names = {
+        values["name"]
+        for values in _values(platform_plan, "aws_iam_role")
+        if values["name"].endswith(("control-plane", "dev-worker", "prod-worker"))
+    }
+    assert node_role_names == {
+        "weam-stockai-control-plane",
+        "weam-stockai-dev-worker",
+        "weam-stockai-prod-worker",
+    }
     assert len(resources(platform_plan, "aws_iam_instance_profile")) == 3
     attachments = list(_values(platform_plan, "aws_iam_role_policy_attachment"))
     assert len(attachments) == 3
