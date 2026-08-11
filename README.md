@@ -35,6 +35,72 @@ cd frontend && npm ci && cd ..
 Do not put real credentials in the repository. `.env.example` documents the
 safe runtime configuration names and contains only explicit fictional values.
 
+## Choose how to use this repository
+
+### Run StockAI locally
+
+Local development and the deterministic test stack do not require an AWS
+account or the Terraform bootstrap. Complete the clean-clone setup above, then
+continue with either the Compose stack or the process-only walking skeleton
+below.
+
+### Deploy an independent copy to AWS
+
+Each person deploying StockAI to a separate AWS account must bootstrap that
+account once. Authenticate the AWS CLI with an authorized, preferably
+short-lived session, then prepare the account-specific input:
+
+```bash
+cd infra/terraform/bootstrap
+cp terraform.tfvars.example terraform.tfvars
+aws sts get-caller-identity
+terraform init
+```
+
+Replace every placeholder in the ignored `terraform.tfvars` with the
+deployment owner's twelve-digit AWS account ID, trusted administrator public
+IPv4 `/32`, globally unique state bucket name, lock-table name, and immutable
+GitHub subject for their repository or fork. The approved deployment region is
+`us-east-1`, and the default GitHub environments are `dev` and `prod`.
+
+An AWS account can have only one OIDC provider for GitHub Actions. If the
+provider already exists in that account but is not managed by another
+Terraform state, adopt it into this bootstrap state before planning:
+
+```bash
+terraform import \
+  aws_iam_openid_connect_provider.github_actions \
+  arn:aws:iam::<AWS_ACCOUNT_ID>:oidc-provider/token.actions.githubusercontent.com
+```
+
+Then validate and review the infrastructure before explicitly approving its
+creation:
+
+```bash
+terraform validate
+terraform plan -out=bootstrap.tfplan
+terraform show bootstrap.tfplan
+terraform apply bootstrap.tfplan
+terraform output
+```
+
+Follow the complete safety, verification, and recovery procedure in the
+[Terraform bootstrap runbook](docs/runbooks/terraform-bootstrap.md). A fork has
+a different immutable GitHub repository identity, so the original StockAI
+roles do not automatically trust workflows from that fork.
+
+### Manage the existing StockAI AWS deployment
+
+Do not run the bootstrap against the existing StockAI account using a fresh
+local state. An authorized maintainer needs access to the intended AWS account,
+the matching private `terraform.tfvars`, and the encrypted backup of
+`infra/terraform/bootstrap/terraform.tfstate`. Without that state, Terraform
+does not know that it owns the existing resources and may attempt to create
+duplicates.
+
+Never commit `terraform.tfvars`, `terraform.tfstate*`, or `*.tfplan`. These
+files contain account-specific or potentially sensitive deployment data.
+
 ## Run the reproducible Compose stack
 
 Create the ignored local environment file once. Its provided tokens are

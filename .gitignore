@@ -22,6 +22,22 @@ dist/
 build/
 *.egg-info/
 
+# Terraform working data and account-specific inputs.
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+*.tfvars
+!*.tfvars.example
+.terraformrc
+terraform.rc
+
 # Keep course source material ignored when untracked, but allow mandatory
 # planning artifacts to be reviewed and committed.
 docs/*
@@ -29,3 +45,5 @@ docs/*
 !docs/plan.md
 !docs/implementation-status.md
 !docs/odoo-contract.md
+!docs/runbooks/
+!docs/runbooks/*.md

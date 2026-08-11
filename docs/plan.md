@@ -13,7 +13,7 @@ ORM-bootstrap contracts selected after T10 discovery.
 
 **Tech Stack:** Python 3.12, FastAPI, LangGraph, Python MCP SDK, React, TypeScript, Vite, Odoo 19 Community, PostgreSQL, Terraform, AWS EC2/Auto Scaling/SSM/EventBridge/Lambda/EBS/ALB/ACM/Route 53, kubeadm Kubernetes, Kustomize, Argo CD, Prometheus, Grafana, Loki, Alertmanager, GitHub Actions.
 
-**Status:** T14 implementation complete; awaiting task review
+**Status:** T15 implementation complete; awaiting task review and authorized apply
 
 **Date:** 2026-08-09
 
@@ -24,8 +24,10 @@ course-staff approval, and explicitly authorized implementation to resume. T10,
 T11A, and T11B are approved and merged. The user explicitly authorized T12 on
 2026-08-09; its implementation and mocked-Bedrock verification are complete.
 T12A is approved and merged. T13 is approved and merged through PR #17 at
-`cca7208`. The user explicitly authorized T14 on 2026-08-09; its implementation
-and local session-restart verification are complete.
+`cca7208`. T14 is approved and merged through PR #18 at `fd6ba1d`. The user
+explicitly authorized T15 on 2026-08-09; its local implementation and static
+Terraform verification are complete. Infrastructure apply remains separately
+approval-gated.
 
 ## 1. Approval status and purpose
 
@@ -1116,16 +1118,28 @@ and only authorized roles can invoke protected routes.
 
 **Work and tests**
 
-- [ ] **Step 1:** Validate encrypted versioned state storage, public-access blocking,
+- [x] **Step 1:** Validate encrypted versioned state storage, public-access blocking,
    locking, retention protection, and narrowly scoped GitHub OIDC trust.
-- [ ] **Step 2:** Keep bootstrap state separate from application log storage.
-- [ ] **Step 3:** Parameterize account, repository, administrator CIDR, and state names;
+- [x] **Step 2:** Keep bootstrap state separate from application log storage.
+- [x] **Step 3:** Parameterize account, repository, administrator CIDR, and state names;
    never commit account-specific values.
-- [ ] **Step 4:** Document the reproducible CLI bootstrap without AWS Console creation.
+- [x] **Step 4:** Document the reproducible CLI bootstrap without AWS Console creation.
 
 **Verification:** Run format, init, validate, static checks, and a reviewed plan
 before any apply. After authorized apply, verify encryption, versioning,
 locking, and OIDC claims.
+
+**Verification result:** Eight red-green static contracts passed for dedicated
+encrypted/versioned/private S3 state, encrypted on-demand DynamoDB locking,
+retention protection, exact immutable GitHub pull-request and protected-
+environment OIDC subjects, state-scoped role permissions, parameterized inputs,
+and the CLI-only runbook. Terraform `1.15.8` formatting, initialization with
+the locked HashiCorp AWS provider `6.58.0`, and provider-schema validation
+passed. `make check` passed lock/format checks, Ruff, strict mypy over 125 source
+files, ESLint, 5 architecture tests, and all 258 unit tests. `git diff --check`
+passed. No account-specific tfvars or credentials were supplied, so the real
+plan, apply, and post-apply AWS verification remain behind the separate
+infrastructure approval gate; no live AWS call was made.
 
 **Dependencies:** T14 and explicit infrastructure apply approval when the task
 is executed.
@@ -2821,9 +2835,9 @@ The original planning gate and subsequent approved revisions authorized T01
 through T09, which are complete. T10 triggered its approved stop condition.
 The user approved the exact remediation revision, confirmed course-staff
 approval, and explicitly authorized T10 implementation to resume on 2026-08-07.
-T10 through T13 are approved and merged; T13 merged through PR #17 at
-`cca7208`. The user explicitly authorized T14 on 2026-08-09. T14's
-implementation, opaque-session restart verification, and local authenticated
-walking-skeleton regressions are complete and await user review. T15 must not
-start until T14 is approved and merged; its Terraform apply also retains the
-separate explicit infrastructure approval gate.
+T10 through T14 are approved and merged; T14 merged through PR #18 at
+`fd6ba1d`. The user explicitly authorized T15 on 2026-08-09. T15's local
+Terraform bootstrap, static security contracts, provider-schema validation,
+and runbook are complete and await user review. The real Terraform plan, apply,
+and post-apply AWS verification retain the separate explicit infrastructure
+approval gate. T16 must not start until T15 is reviewed and merged.
