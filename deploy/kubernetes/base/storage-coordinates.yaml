@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: stockai-storage-coordinates
+  labels:
+    app.kubernetes.io/part-of: stockai
+data:
+  availabilityZone: us-east-1a
+  environment: stockai
+  odooPersistentVolume: stockai-odoo-filestore
+  odooVolumeHandle: vol-placeholder-odoo
+  postgresqlPersistentVolume: stockai-postgresql-data
+  postgresqlVolumeHandle: vol-placeholder-postgresql
+  prometheusPersistentVolume: stockai-prometheus-data
+  prometheusVolumeHandle: vol-placeholder-prometheus

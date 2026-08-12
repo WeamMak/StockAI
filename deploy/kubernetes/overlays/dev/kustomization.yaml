@@ -1,0 +1,111 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: dev
+
+resources:
+  - ../../base
+
+patches:
+  - path: environment-config.yaml
+  - path: external-secrets.yaml
+  - path: storage-coordinates.yaml
+  - path: namespace.yaml
+    target:
+      kind: Namespace
+      name: stockai
+
+replacements:
+  - source:
+      kind: ConfigMap
+      name: stockai-storage-coordinates
+      fieldPath: data.odooVolumeHandle
+    targets:
+      - select:
+          kind: PersistentVolume
+          name: stockai-odoo-filestore
+        fieldPaths:
+          - spec.csi.volumeHandle
+  - source:
+      kind: ConfigMap
+      name: stockai-storage-coordinates
+      fieldPath: data.postgresqlVolumeHandle
+    targets:
+      - select:
+          kind: PersistentVolume
+          name: stockai-postgresql-data
+        fieldPaths:
+          - spec.csi.volumeHandle
+  - source:
+      kind: ConfigMap
+      name: stockai-storage-coordinates
+      fieldPath: data.prometheusVolumeHandle
+    targets:
+      - select:
+          kind: PersistentVolume
+          name: stockai-prometheus-data
+        fieldPaths:
+          - spec.csi.volumeHandle
+  - source:
+      kind: ConfigMap
+      name: stockai-storage-coordinates
+      fieldPath: data.availabilityZone
+    targets:
+      - select:
+          kind: PersistentVolume
+        fieldPaths:
+          - spec.nodeAffinity.required.nodeSelectorTerms.0.matchExpressions.0.values.0
+  - source:
+      kind: ConfigMap
+      name: stockai-storage-coordinates
+      fieldPath: data.environment
+    targets:
+      - select:
+          kind: PersistentVolume
+        fieldPaths:
+          - spec.claimRef.namespace
+  - source:
+      kind: ConfigMap
+      name: stockai-storage-coordinates
+      fieldPath: data.odooPersistentVolume
+    targets:
+      - select:
+          kind: PersistentVolume
+          name: stockai-odoo-filestore
+        fieldPaths:
+          - metadata.name
+      - select:
+          kind: PersistentVolumeClaim
+          name: odoo-filestore
+        fieldPaths:
+          - spec.volumeName
+  - source:
+      kind: ConfigMap
+      name: stockai-storage-coordinates
+      fieldPath: data.postgresqlPersistentVolume
+    targets:
+      - select:
+          kind: PersistentVolume
+          name: stockai-postgresql-data
+        fieldPaths:
+          - metadata.name
+      - select:
+          kind: PersistentVolumeClaim
+          name: postgresql-data
+        fieldPaths:
+          - spec.volumeName
+  - source:
+      kind: ConfigMap
+      name: stockai-storage-coordinates
+      fieldPath: data.prometheusPersistentVolume
+    targets:
+      - select:
+          kind: PersistentVolume
+          name: stockai-prometheus-data
+        fieldPaths:
+          - metadata.name
+      - select:
+          kind: PersistentVolumeClaim
+          name: prometheus-data
+        fieldPaths:
+          - spec.volumeName
