@@ -13,7 +13,7 @@ ORM-bootstrap contracts selected after T10 discovery.
 
 **Tech Stack:** Python 3.12, FastAPI, LangGraph, Python MCP SDK, React, TypeScript, Vite, Odoo 19 Community, PostgreSQL, Terraform, AWS EC2/Auto Scaling/SSM/EventBridge/Lambda/EBS/ALB/ACM/Route 53, kubeadm Kubernetes, Kustomize, Argo CD, Prometheus, Grafana, Loki, Alertmanager, GitHub Actions.
 
-**Status:** T17 implementation complete; awaiting task review and authorized infrastructure planning/apply
+**Status:** T19B implementation complete locally; awaiting review, commit, and promotion
 
 **Date:** 2026-08-09
 
@@ -26,10 +26,10 @@ T11A, and T11B are approved and merged. The user explicitly authorized T12 on
 T12A is approved and merged. T13 is approved and merged through PR #17 at
 `cca7208`. T14 is approved and merged through PR #18 at `fd6ba1d`. T15 is
 approved and merged through PR #19 at `f89a089`. T16 is approved and merged
-through PR #20 at `debbb5f`. The user explicitly authorized T17 on 2026-08-11;
-its offline implementation and verification are complete.
-Infrastructure planning against the remote backend, apply, and live AWS checks
-remain separately approval-gated.
+through PR #20 at `debbb5f`. T17 through T19A are complete and merged, including
+the accepted T18B deferred live failure drill. T19B implementation and local
+verification are complete and await review and commit. Further infrastructure
+apply and live AWS checks remain separately approval-gated.
 
 ## 1. Approval status and purpose
 
@@ -1542,6 +1542,8 @@ hard-bound to its environment.
 
 #### T18B — Automate bounded ASG worker termination cleanup
 
+**Task status:** Complete with the accepted deferred live failure drill noted below.
+
 **Files**
 
 - Create `infra/terraform/modules/worker-lifecycle/main.tf`,
@@ -1569,7 +1571,7 @@ hard-bound to its environment.
 
 **Work and tests**
 
-- [ ] **Step 1: Write failing Lambda unit tests**
+- [x] **Step 1: Write failing Lambda unit tests**
 
   Cover valid dev/prod events, unknown ASG, malformed detail, EC2 private-DNS
   mapping, clean drain, drain timeout with forced deletion, SSM/control-plane
@@ -1587,13 +1589,13 @@ hard-bound to its environment.
   )
   ```
 
-- [ ] **Step 2: Run Lambda tests and confirm they fail**
+- [x] **Step 2: Run Lambda tests and confirm they fail**
 
   Run: `pytest tests/infra/test_node_cleanup.py -v`
 
   Expected: FAIL because `node_cleanup.py` and its result types do not exist.
 
-- [ ] **Step 3: Implement strict event parsing and identity validation**
+- [x] **Step 3: Implement strict event parsing and identity validation**
 
   Accept only `EC2 Instance-terminate Lifecycle Action` events from
   `aws.autoscaling`, require one of the two exact ASG names, resolve the EC2
@@ -1602,7 +1604,7 @@ hard-bound to its environment.
   any command. A missing already-terminated instance is idempotent only after
   the signed event's ASG and instance fields pass validation.
 
-- [ ] **Step 4: Implement bounded SSM cleanup and heartbeat polling**
+- [x] **Step 4: Implement bounded SSM cleanup and heartbeat polling**
 
   Send `AWS-RunShellScript` only to the control plane with a script equivalent
   to:
@@ -1640,14 +1642,14 @@ hard-bound to its environment.
   raced SSM propagation. The approved minimal correction retries only that
   exact error and has a regression test reproducing the live sequence.
 
-- [ ] **Step 5: Make duplicate delivery and timeout behavior deterministic**
+- [x] **Step 5: Make duplicate delivery and timeout behavior deterministic**
 
   Treat an absent Node as already clean, emit `forced` when drain fails but
   Node deletion is attempted, and emit `failed` when SSM cannot run. Configure
   Lambda timeout 240 seconds inside a 300-second lifecycle heartbeat timeout
   with default result `CONTINUE`.
 
-- [ ] **Step 6: Write failing Terraform lifecycle/IAM assertions**
+- [x] **Step 6: Write failing Terraform lifecycle/IAM assertions**
 
   Assert two lifecycle hooks, one EventBridge rule filtered to both ASGs, one
   Lambda target/permission, a pre-created 14-day log group, Lambda alarms, and
@@ -1658,7 +1660,7 @@ hard-bound to its environment.
   because AWS does not support a resource ARN for that action; application
   resources remain absent.
 
-- [ ] **Step 7: Run unit, package, and Terraform tests**
+- [x] **Step 7: Run unit, package, and Terraform tests**
 
   Run: `pytest tests/infra/test_node_cleanup.py tests/infra/test_worker_lifecycle_plan.py -v`
 
@@ -1667,20 +1669,25 @@ hard-bound to its environment.
   Expected: PASS for clean/forced/failed/idempotent behavior, bounded lifecycle
   completion, EventBridge filtering, alarms, and IAM scope.
 
-- [ ] **Step 8: Run a controlled dev termination acceptance test**
+- [x] **Step 8a: Run the controlled normal dev termination acceptance test**
 
   Before application workloads exist, terminate the dev worker through its ASG
   and verify heartbeats, `clean`, old Node removal, replacement join, and
-  correct labels/role. Then block control-plane SSM in a controlled test and
-  verify bounded `failed` completion and the alert. Retained-volume and
-  application recovery are deferred to T23 after the full dev stack exists.
+  correct labels/role. Retained-volume and application recovery are deferred
+  to T23 after the full dev stack exists.
 
   On 2026-08-11 the normal live cleanup drill passed. The user explicitly
   deferred the unavailable-control-plane/SSM live drill and accepted T18B as
   finished with that limitation; its bounded fail-open behavior remains
   covered by automated tests and the operational runbook.
 
-- [ ] **Step 9: Commit lifecycle automation**
+- **Accepted limitation: unavailable-control-plane/SSM live drill not run**
+
+  Block control-plane SSM in a controlled test and verify bounded `failed`
+  completion and the alert. This live drill was explicitly deferred and is not
+  claimed as executed; its behavior is covered by automated tests.
+
+- [x] **Step 9: Commit lifecycle automation**
 
   ```bash
   git add infra/terraform/modules/worker-lifecycle infra/terraform/platform tests/infra docs/runbooks/worker-termination.md
@@ -1700,6 +1707,8 @@ cleanup; non-clean outcomes release the instance, alert, and have a verified
 runbook without granting Lambda Kubernetes credentials.
 
 #### T18C — Install and validate shared cluster controllers
+
+**Task status:** Complete; live acceptance passed.
 
 **Files**
 
@@ -1722,34 +1731,34 @@ runbook without granting Lambda Kubernetes credentials.
 
 **Work and tests**
 
-- [ ] **Step 1: Write failing cluster-controller render tests**
+- [x] **Step 1: Write failing cluster-controller render tests**
 
   Assert pinned images, NGINX worker DaemonSet placement and exact NodePort,
   no cert-manager, EBS CSI controller placement on the control plane, no
   default dynamic StorageClass, metrics API availability, narrow RBAC, and no
   business workload toleration for the control-plane taint.
 
-- [ ] **Step 2: Run the focused test and confirm resources are absent**
+- [x] **Step 2: Run the focused test and confirm resources are absent**
 
   Run: `pytest tests/kubernetes/test_cluster_resources.py -v`
 
   Expected: FAIL because cluster-controller resources do not exist.
 
-- [ ] **Step 3: Install NGINX, metrics, and Argo CD resources**
+- [x] **Step 3: Install NGINX, metrics, and Argo CD resources**
 
   Run NGINX on every worker so each ASG target can pass the same NodePort
   health check. Install metrics-server and kube-state-metrics for HPA and
   observability. Install Argo CD with no GitHub Actions `kubectl` path. ACM
   terminates public TLS, so do not install cert-manager.
 
-- [ ] **Step 4: Install the pinned self-managed EBS CSI driver**
+- [x] **Step 4: Install the pinned self-managed EBS CSI driver**
 
   Run the controller on the control plane with infrastructure-only,
   tag/resource-scoped EC2 volume operations; run the node DaemonSet on workers.
   Enable attach/detach/mount for the six pre-created volumes but create no
   dynamic provisioning path.
 
-- [ ] **Step 5: Render and validate controller health and boundaries**
+- [x] **Step 5: Render and validate controller health and boundaries**
 
   Run Kustomize rendering, Kubernetes schema checks, and:
 
@@ -1761,20 +1770,18 @@ runbook without granting Lambda Kubernetes credentials.
 
   On 2026-08-12 the deterministic Kustomize render tests, Kubernetes 1.35.5
   built-in schema validation, Terraform plan assertions, all
-  infrastructure/Kubernetes tests, and the full repository check passed. No
-  live apply was authorized, so server-side admission and the live checks
-  above remain pending.
+  infrastructure/Kubernetes tests, and the full repository check passed. At
+  that point no live apply was authorized, so server-side admission and the
+  live checks above were initially pending.
 
-  Live acceptance on 2026-08-12 confirmed three Ready nodes and two Ready
-  worker NGINX pods. Metrics-server reached every kubelet but remained
-  unready because the kubeadm serving certificates contain no IP SANs. The
-  user approved the minimal MVP compatibility correction: add exactly one
-  `--kubelet-insecure-tls` argument, keep kubelet access cluster-restricted,
-  cover the rendered argument with a regression test, and revisit the
-  residual server-identity risk in T32. Reapply and the remaining live checks
-  are still pending.
+  Live acceptance on 2026-08-12 initially exposed that the kubeadm serving
+  certificates contain no IP SANs. The approved minimal MVP compatibility
+  correction added exactly one `--kubelet-insecure-tls` argument while keeping
+  kubelet access cluster-restricted. After reapply, live acceptance passed for
+  node metrics, EBS CSI, Argo CD, worker-only NGINX, and both ALB target groups.
+  T32 retains the residual server-identity risk review.
 
-- [ ] **Step 6: Commit shared controllers**
+- [x] **Step 6: Commit shared controllers**
 
   ```bash
   git add deploy/kubernetes/cluster infra/terraform/modules/node-iam tests/infra/test_platform_plan.py tests/kubernetes/test_cluster_resources.py
@@ -1794,6 +1801,8 @@ desired state without possessing application secrets, and both ASG-maintained
 ALB target groups have healthy ingress targets.
 
 #### T19A — Define environment configuration, secrets, storage, and isolation
+
+**Task status:** Complete; merged to `main`.
 
 **Files**
 
@@ -1817,20 +1826,20 @@ ALB target groups have healthy ingress targets.
 
 **Work and tests**
 
-- [ ] **Step 1: Write failing storage and isolation render tests**
+- [x] **Step 1: Write failing storage and isolation render tests**
 
   For each environment, assert three static PVs with exact `volumeHandle`,
   `ReadWriteOnce`, `persistentVolumeReclaimPolicy: Retain`, matching
   `topology.kubernetes.io/zone`, and PVC `volumeName`. Assert Grafana has no PVC
   and no rendered StorageClass has a dynamic provisioner.
 
-- [ ] **Step 2: Run the focused render test and confirm it fails**
+- [x] **Step 2: Run the focused render test and confirm it fails**
 
   Run: `pytest tests/kubernetes/test_environment_foundations.py -v`
 
   Expected: FAIL because the six static PV/PVC bindings do not exist.
 
-- [ ] **Step 3: Implement deterministic Terraform-output synchronization**
+- [x] **Step 3: Implement deterministic Terraform-output synchronization**
 
   `sync_terraform_outputs.py` accepts one JSON object with this exact shape:
 
@@ -1844,14 +1853,14 @@ ALB target groups have healthy ingress targets.
   It updates only the six `volumeHandle` fields and two zone patches, rejects
   missing/extra environments or workloads, and never reads secret outputs.
 
-- [ ] **Step 4: Bind all stateful data to retained EBS**
+- [x] **Step 4: Bind all stateful data to retained EBS**
 
   Create static CSI PV/PVC pairs for Odoo filestore, PostgreSQL, and Prometheus
   in both environments. Use the ASG Availability Zone rather than a hostname,
   so a replacement worker in the same ASG can mount the volume. Keep Grafana
   on `emptyDir` and Loki retained objects in S3.
 
-- [ ] **Step 5: Add namespace configuration, secrets, policies, and budgets**
+- [x] **Step 5: Add namespace configuration, secrets, policies, and budgets**
 
   Render distinct hosts/configuration/seed profile/secret references, hard
   environment placement, namespace-scoped External Secrets, and default-deny
@@ -1859,7 +1868,7 @@ ALB target groups have healthy ingress targets.
   Kubernetes, images, bounded Loki WAL/cache, and headroom; budget each initial
   state volume at 5 GiB.
 
-- [ ] **Step 6: Run rendering, schema, and mutation-scope checks**
+- [x] **Step 6: Run rendering, schema, and mutation-scope checks**
 
   Run Kustomize/schema validation and:
 
@@ -1868,7 +1877,7 @@ ALB target groups have healthy ingress targets.
   Expected: PASS with six exact retained bindings, no plaintext secrets, no
   cross-environment reference, no hostname-bound state, and no dynamic volume.
 
-- [ ] **Step 7: Commit the environment foundations**
+- [x] **Step 7: Commit the environment foundations**
 
   ```bash
   git add deploy/kubernetes/base deploy/kubernetes/overlays scripts/config/sync_terraform_outputs.py tests/kubernetes/test_environment_foundations.py
@@ -1888,6 +1897,8 @@ to the intended pre-provisioned EBS volume.
 
 #### T19B — Define the complete non-observability application workloads
 
+**Task status:** Complete locally; awaiting review and commit.
+
 **Files**
 
 - Create shared workloads under `deploy/kubernetes/base/` for frontend, API,
@@ -1898,7 +1909,7 @@ to the intended pre-provisioned EBS volume.
 
 **Work and tests**
 
-- [ ] **Step 1:** Add one StockAI Odoo/PostgreSQL pair per environment and the
+- [x] **Step 1:** Add one StockAI Odoo/PostgreSQL pair per environment and the
    T11A idempotent ORM bootstrap Job. The Deployment and Job use the same
    immutable StockAI Odoo digest. A protected Terraform apply temporarily
    attaches the exact-secret bootstrap policy, the Job updates only that ARN,
@@ -1906,18 +1917,18 @@ to the intended pre-provisioned EBS volume.
    resulting runtime key. Mount only `odoo-filestore` into Odoo and only
    `postgresql-data` into PostgreSQL; neither service writes durable data to
    worker root EBS.
-- [ ] **Step 2:** Add the daily `concurrencyPolicy: Forbid` CronJob with its private
+- [x] **Step 2:** Add the daily `concurrencyPolicy: Forbid` CronJob with its private
    credential and source-restricted internal route.
-- [ ] **Step 3:** Add liveness/readiness/startup behavior, initial measured hypotheses for
+- [x] **Step 3:** Add liveness/readiness/startup behavior, initial measured hypotheses for
    requests/limits, termination grace, rolling updates for stateless services,
    and single replicas for specified stateful services.
-- [ ] **Step 4:** Add CPU HPAs for frontend, FastAPI, and Procurement MCP, each with minimum
+- [x] **Step 4:** Add CPU HPAs for frontend, FastAPI, and Procurement MCP, each with minimum
    one, maximum three, and a 50% average-utilization target. Add no node
    autoscaler or ASG scaling policy; insufficient capacity must produce
    visible pending pods until Terraform changes desired capacity.
-- [ ] **Step 5:** Expose only frontend/API and Odoo UI at this stage; Grafana is wired
+- [x] **Step 5:** Expose only frontend/API and Odoo UI at this stage; Grafana is wired
    in T20A. Keep MCP, PostgreSQL, metrics, and internal dependencies private.
-- [ ] **Step 6:** Assert hard scheduling to any correctly labeled worker in the matching
+- [x] **Step 6:** Assert hard scheduling to any correctly labeled worker in the matching
    environment ASG for every business workload.
 
 **Verification:** Render both overlays, run schema/policy tests, assert no

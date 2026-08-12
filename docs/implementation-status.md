@@ -5,8 +5,8 @@
 - Specification: approved by the user and course staff.
 - Implementation plan: approved by the user and course staff.
 - Implementation authorization: explicitly provided by the user on 2026-08-02.
-- Active task: T18C live acceptance is in progress. NGINX is healthy; the
-  approved metrics-server kubelet TLS compatibility correction awaits reapply.
+- Active task: T19B implementation and local verification are complete;
+  awaiting review, commit, and the approved promotion workflow.
 
 ## Task status
 
