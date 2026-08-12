@@ -928,6 +928,8 @@ edited through React, the agent, MCP write tools, or manager approval actions.
 
 [Project decision] Cluster-level components include containerd, kubeadm-managed Kubernetes, the course-compatible CNI with NetworkPolicy support, NGINX Ingress, the pinned AWS EBS CSI driver, External Secrets, metrics-server, kube-state-metrics, and Argo CD.
 
+[Project decision] The self-managed kubeadm nodes use kubelet serving certificates without IP SANs, as confirmed during T18C live acceptance. Metrics-server therefore uses its explicit `--kubelet-insecure-tls` compatibility mode inside the restricted cluster network for the MVP. T32 must record this residual server-identity risk and either replace it with an automated CA-signed kubelet serving-certificate lifecycle or explicitly accept the bounded limitation.
+
 [Project decision] Lightweight cluster controllers may tolerate the control-plane taint to preserve worker memory. Odoo, PostgreSQL, the agent, MCP, and environment observability may not.
 
 [Project decision] NGINX Ingress runs on the environment workers and exposes one fixed HTTP NodePort. The control plane does not receive ALB application traffic.

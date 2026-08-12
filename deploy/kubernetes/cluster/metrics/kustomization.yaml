@@ -6,6 +6,12 @@ resources:
   - github.com/kubernetes/kube-state-metrics/examples/standard?ref=v2.19.1
 
 patches:
+  - path: metrics-server-kubelet-tls.yaml
+    target:
+      group: apps
+      kind: Deployment
+      name: metrics-server
+      version: v1
   - path: control-plane-deployment.yaml
     target:
       group: apps

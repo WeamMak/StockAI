@@ -1765,6 +1765,15 @@ runbook without granting Lambda Kubernetes credentials.
   live apply was authorized, so server-side admission and the live checks
   above remain pending.
 
+  Live acceptance on 2026-08-12 confirmed three Ready nodes and two Ready
+  worker NGINX pods. Metrics-server reached every kubelet but remained
+  unready because the kubeadm serving certificates contain no IP SANs. The
+  user approved the minimal MVP compatibility correction: add exactly one
+  `--kubelet-insecure-tls` argument, keep kubelet access cluster-restricted,
+  cover the rendered argument with a regression test, and revisit the
+  residual server-identity risk in T32. Reapply and the remaining live checks
+  are still pending.
+
 - [ ] **Step 6: Commit shared controllers**
 
   ```bash
