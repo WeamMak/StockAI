@@ -1,0 +1,6 @@
+- op: replace
+  path: /metadata/name
+  value: dev
+- op: replace
+  path: /metadata/labels/stockai.io~1environment
+  value: dev

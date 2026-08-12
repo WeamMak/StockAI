@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: stockai-environment
+data:
+  PROCUREMENT_DYNAMODB_APPLICATION_TABLE: weam-stockai-dev-application
+  PROCUREMENT_DYNAMODB_CHECKPOINT_TABLE: weam-stockai-dev-checkpoints
+  PROCUREMENT_ENVIRONMENT: dev
+  PROCUREMENT_ODOO_DATABASE: stockai_dev
+  STOCKAI_APPLICATION_HOST: app.dev.stockai.fursa.click
+  STOCKAI_GRAFANA_HOST: grafana.dev.stockai.fursa.click
+  STOCKAI_ODOO_HOST: odoo.dev.stockai.fursa.click
+  STOCKAI_ODOO_SEED_ENVIRONMENT: dev

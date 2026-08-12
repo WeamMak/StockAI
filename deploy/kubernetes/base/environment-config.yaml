@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: stockai-environment
+  labels:
+    app.kubernetes.io/part-of: stockai
+data:
+  PROCUREMENT_AUTHENTICATION_MODE: cognito
+  PROCUREMENT_AWS_REGION: us-east-1
+  PROCUREMENT_DYNAMODB_APPLICATION_TABLE: weam-stockai-stockai-application
+  PROCUREMENT_DYNAMODB_CHECKPOINT_TABLE: weam-stockai-stockai-checkpoints
+  PROCUREMENT_ENVIRONMENT: stockai
+  PROCUREMENT_LLM_MODE: bedrock
+  PROCUREMENT_MCP_URL: http://procurement-mcp:9000/mcp
+  PROCUREMENT_ODOO_DATABASE: stockai_stockai
+  PROCUREMENT_ODOO_URL: http://odoo:8069
+  PROCUREMENT_PERSISTENCE_MODE: dynamodb
+  STOCKAI_APPLICATION_HOST: app.stockai.stockai.fursa.click
+  STOCKAI_GRAFANA_HOST: grafana.stockai.stockai.fursa.click
+  STOCKAI_ODOO_HOST: odoo.stockai.stockai.fursa.click
+  STOCKAI_ODOO_SEED_ENVIRONMENT: stockai

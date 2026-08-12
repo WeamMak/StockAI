@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: retained-storage-budget
+  labels:
+    app.kubernetes.io/part-of: stockai
+  annotations:
+    stockai.io/worker-root-budget: 12Gi-system-images,1Gi-loki,17Gi-headroom
+spec:
+  hard:
+    persistentvolumeclaims: "3"
+    requests.storage: 15Gi
