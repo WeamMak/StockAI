@@ -13,8 +13,8 @@ ORM-bootstrap contracts selected after T10 discovery.
 
 **Tech Stack:** Python 3.12, FastAPI, LangGraph, Python MCP SDK, React, TypeScript, Vite, Odoo 19 Community, PostgreSQL, Terraform, AWS EC2/Auto Scaling/SSM/EventBridge/Lambda/EBS/ALB/ACM/Route 53, kubeadm Kubernetes, Kustomize, Argo CD, Prometheus, Grafana, Loki, Alertmanager, GitHub Actions.
 
-**Status:** T20B implementation and local verification complete; awaiting
-review and deployment-time alert verification
+**Status:** T21 implementation and local verification complete; awaiting
+review and pull-request workflow verification
 
 **Date:** 2026-08-09
 
@@ -29,9 +29,9 @@ T12A is approved and merged. T13 is approved and merged through PR #17 at
 approved and merged through PR #19 at `f89a089`. T16 is approved and merged
 through PR #20 at `debbb5f`. T17 through T19A are complete and merged, including
 the accepted T18B deferred live failure drill. T19B is merged through PR #27 at
-`055aa01`. T20A is merged through PR #28 at `970aa8d`. T20B implementation and
-local verification are complete; its live deployment checks remain
-approval-gated.
+`055aa01`. T20A is merged through PR #28 at `970aa8d`. T20B is merged through
+PR #29 at `1e1b98d`. T21 implementation and local verification are complete;
+its live pull-request workflow checks remain pending.
 
 ## 1. Approval status and purpose
 
@@ -2040,6 +2040,9 @@ from Git without a Grafana data volume.
 
 #### T21 — Implement deterministic CI checks and immutable release metadata
 
+**Task status:** Complete locally; awaiting review and pull-request workflow
+verification.
+
 **Files**
 
 - Create `.github/workflows/pr-checks.yml`,
@@ -2052,23 +2055,35 @@ from Git without a Grafana data volume.
 
 **Work and tests**
 
-- [ ] **Step 1:** Test release metadata that binds source commit/tree, the
+- [x] **Step 1:** Test release metadata that binds source commit/tree, the
    complete named map of all four required project-image digests, build
    provenance, Scout result, dev validation status, and creation time. The
    schema must reject a missing frontend, API, MCP, or StockAI Odoo image.
-- [ ] **Step 2:** Add `actionlint` to `make lint` when the workflow files first
+- [x] **Step 2:** Add `actionlint` to `make lint` when the workflow files first
    exist, then run Python and React tests with JUnit/coverage summaries, builds,
    Compose validation, Terraform checks/plans, Kustomize/schema checks, secret
    scans, and action lint on every pull request.
-- [ ] **Step 3:** Run Docker Scout on pull requests targeting `main`.
-- [ ] **Step 4:** Authenticate AWS plan jobs through read-only GitHub OIDC.
-- [ ] **Step 5:** Make path-filtered Terraform applies use protected GitHub environments and
+- [x] **Step 3:** Run Docker Scout on pull requests targeting `main`.
+- [x] **Step 4:** Authenticate AWS plan jobs through read-only GitHub OIDC.
+- [x] **Step 5:** Make path-filtered Terraform applies use protected GitHub environments and
    apply roles; never auto-apply an unreviewed plan.
-- [ ] **Step 6:** Retain reports as artifacts and make each failed stage clear in the job
+- [x] **Step 6:** Retain reports as artifacts and make each failed stage clear in the job
    summary.
 
 **Verification:** Exercise the workflows on a test pull request, including one
 deliberate failing check, and unit-test manifest tampering.
+
+**Local verification result:** Ten manifest tests and seven Makefile/workflow
+contracts passed. `make check` passed formatting, Ruff, strict mypy over 141
+source files, ESLint, architecture checks, actionlint 1.7.12, 268 Python unit
+tests, and 17 React unit tests with JUnit and coverage output. All 12
+real-transport integration tests and 5 deterministic Compose E2E tests passed,
+and all four project images built. All 63 Terraform tests and 54 Kubernetes
+tests passed; the five Terraform roots validated, all Compose files rendered,
+and kubeconform reported 78 valid resources, 0 invalid resources, 0 errors, and
+7 intentional CRD skips per environment. A live GitHub test pull request,
+including one deliberate failing check, remains required before final T21
+acceptance. No Docker Scout, AWS plan/apply, publication, or deployment ran.
 
 **Dependencies:** T20B.
 

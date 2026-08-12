@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://stockai.invalid/schemas/release-manifest-v1.json",
+  "title": "StockAI immutable release manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "createdAt",
+    "devValidation",
+    "images",
+    "integrity",
+    "provenance",
+    "schemaVersion",
+    "scout",
+    "source"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commit", "tree"],
+      "properties": {
+        "commit": { "$ref": "#/$defs/gitObject" },
+        "tree": { "$ref": "#/$defs/gitObject" }
+      }
+    },
+    "images": { "$ref": "#/$defs/imageMap" },
+    "provenance": { "$ref": "#/$defs/imageMap" },
+    "scout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reportDigest", "status"],
+      "properties": {
+        "status": { "enum": ["passed", "failed"] },
+        "reportDigest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "devValidation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidenceDigest", "status"],
+      "properties": {
+        "status": { "enum": ["pending", "passed", "failed"] },
+        "evidenceDigest": {
+          "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }]
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "const": "pending" } } },
+          "then": { "properties": { "evidenceDigest": { "type": "null" } } },
+          "else": {
+            "properties": {
+              "evidenceDigest": { "$ref": "#/$defs/digest" }
+            }
+          }
+        }
+      ]
+    },
+    "createdAt": { "type": "string", "format": "date-time", "pattern": "Z$" },
+    "integrity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "digest"],
+      "properties": {
+        "algorithm": { "const": "sha256" },
+        "digest": { "$ref": "#/$defs/digest" }
+      }
+    }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "gitObject": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+    },
+    "imageMap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api", "frontend", "mcp", "odoo"],
+      "properties": {
+        "api": { "$ref": "#/$defs/digest" },
+        "frontend": { "$ref": "#/$defs/digest" },
+        "mcp": { "$ref": "#/$defs/digest" },
+        "odoo": { "$ref": "#/$defs/digest" }
+      }
+    }
+  }
+}
