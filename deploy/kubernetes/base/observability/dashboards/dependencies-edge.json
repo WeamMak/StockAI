@@ -1,0 +1,81 @@
+{
+  "annotations": {"list": []},
+  "editable": false,
+  "panels": [
+    {
+      "datasource": {"type": "prometheus", "uid": "stockai-prometheus"},
+      "fieldConfig": {"defaults": {"max": 1, "min": 0, "unit": "percentunit"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 0},
+      "id": 1,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom"}},
+      "targets": [{"expr": "probe_success{job=\"public-https\"}", "legendFormat": "{{instance}}", "refId": "A"}],
+      "title": "Public HTTPS availability",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "stockai-prometheus"},
+      "fieldConfig": {"defaults": {"unit": "dtdurations"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 0},
+      "id": 2,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom"}},
+      "targets": [{"expr": "probe_ssl_earliest_cert_expiry{job=\"public-https\"} - time()", "legendFormat": "{{instance}}", "refId": "A"}],
+      "title": "TLS certificate lifetime",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "stockai-prometheus"},
+      "fieldConfig": {"defaults": {"max": 1, "min": 0}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 0},
+      "id": 3,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom"}},
+      "targets": [{"expr": "up{job=~\"stockai-agent-api|stockai-procurement-mcp|stockai-observability\"}", "legendFormat": "{{job}} {{instance}}", "refId": "A"}],
+      "title": "Internal dependency reachability",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "cloudwatch", "uid": "stockai-cloudwatch"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 8},
+      "id": 4,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom"}},
+      "targets": [{"dimensions": {"TargetGroup": ["$target_group"]}, "metricName": "HealthyHostCount", "namespace": "AWS/ApplicationELB", "period": "60", "queryMode": "Metrics", "refId": "A", "region": "us-east-1", "statistic": "Minimum"}],
+      "title": "ALB healthy hosts",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "cloudwatch", "uid": "stockai-cloudwatch"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 8},
+      "id": 5,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom"}},
+      "targets": [{"dimensions": {"TargetGroup": ["$target_group"]}, "metricName": "HTTPCode_Target_5XX_Count", "namespace": "AWS/ApplicationELB", "period": "300", "queryMode": "Metrics", "refId": "A", "region": "us-east-1", "statistic": "Sum"}],
+      "title": "ALB 5xx responses",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "cloudwatch", "uid": "stockai-cloudwatch"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 8},
+      "id": 6,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom"}},
+      "targets": [
+        {"dimensions": {"FunctionName": ["weam-stockai-worker-lifecycle"]}, "metricName": "Errors", "namespace": "AWS/Lambda", "period": "300", "queryMode": "Metrics", "refId": "A", "region": "us-east-1", "statistic": "Sum"},
+        {"dimensions": {"FunctionName": ["weam-stockai-worker-lifecycle"]}, "metricName": "Duration", "namespace": "AWS/Lambda", "period": "300", "queryMode": "Metrics", "refId": "B", "region": "us-east-1", "statistic": "Maximum"}
+      ],
+      "title": "Cleanup Lambda errors and duration",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 41,
+  "tags": ["stockai", "dependencies", "edge", "provisioned"],
+  "templating": {"list": [
+    {"current": {"selected": true, "text": "dev", "value": "dev"}, "hide": 0, "includeAll": false, "label": "Environment", "name": "environment", "options": [{"selected": true, "text": "dev", "value": "dev"}, {"selected": false, "text": "prod", "value": "prod"}], "query": "dev,prod", "type": "custom"},
+    {"datasource": {"type": "cloudwatch", "uid": "stockai-cloudwatch"}, "definition": "dimension_values(us-east-1,AWS/ApplicationELB,HealthyHostCount,TargetGroup)", "hide": 0, "label": "Target group", "name": "target_group", "query": {"dimensionFilters": {}, "dimensionKey": "TargetGroup", "metricName": "HealthyHostCount", "namespace": "AWS/ApplicationELB", "queryType": "dimensionValues", "refId": "CloudWatchVariableQueryEditor-VariableQuery", "region": "us-east-1"}, "refresh": 1, "regex": "/targetgroup\\/weam-stockai-$environment-ingress\\/.*/", "type": "query"}
+  ]},
+  "time": {"from": "now-6h", "to": "now"},
+  "timezone": "browser",
+  "title": "StockAI Dependencies and Edge",
+  "uid": "stockai-dependencies-edge",
+  "version": 1
+}

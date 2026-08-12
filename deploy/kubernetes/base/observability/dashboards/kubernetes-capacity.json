@@ -1,0 +1,82 @@
+{
+  "annotations": {"list": []},
+  "editable": false,
+  "panels": [
+    {
+      "datasource": {"type": "prometheus", "uid": "stockai-prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 0},
+      "id": 1,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom"}},
+      "targets": [
+        {"expr": "kube_horizontalpodautoscaler_status_current_replicas{namespace=\"$environment\"}", "legendFormat": "{{horizontalpodautoscaler}} current", "refId": "A"},
+        {"expr": "kube_horizontalpodautoscaler_status_desired_replicas{namespace=\"$environment\"}", "legendFormat": "{{horizontalpodautoscaler}} desired", "refId": "B"}
+      ],
+      "title": "HPA current and desired replicas",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "stockai-prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 0},
+      "id": 2,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom"}},
+      "targets": [{"expr": "sum by (pod) (kube_pod_status_phase{namespace=\"$environment\",phase=\"Pending\"} == 1)", "legendFormat": "{{pod}}", "refId": "A"}],
+      "title": "Pending pods",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "datasource", "uid": "-- Mixed --"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 0},
+      "id": 3,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom"}},
+      "targets": [
+        {"datasource": {"type": "prometheus", "uid": "stockai-prometheus"}, "expr": "sum(kube_node_status_condition{condition=\"Ready\",status=\"true\"} * on(node) group_left(label_stockai_io_environment) kube_node_labels{label_stockai_io_environment=\"$environment\"})", "legendFormat": "Ready workers", "refId": "A"},
+        {"datasource": {"type": "cloudwatch", "uid": "stockai-cloudwatch"}, "dimensions": {"AutoScalingGroupName": ["weam-stockai-$environment-workers"]}, "metricName": "GroupDesiredCapacity", "namespace": "AWS/AutoScaling", "period": "300", "queryMode": "Metrics", "refId": "B", "region": "us-east-1", "statistic": "Average"},
+        {"datasource": {"type": "cloudwatch", "uid": "stockai-cloudwatch"}, "dimensions": {"AutoScalingGroupName": ["weam-stockai-$environment-workers"]}, "metricName": "GroupInServiceInstances", "namespace": "AWS/AutoScaling", "period": "300", "queryMode": "Metrics", "refId": "C", "region": "us-east-1", "statistic": "Average"}
+      ],
+      "title": "Ready workers vs ASG capacity",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "cloudwatch", "uid": "stockai-cloudwatch"},
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 8},
+      "id": 4,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom"}},
+      "targets": [{"dimensions": {"Environment": ["$environment"]}, "metricName": "WorkerCleanupDuration", "namespace": "StockAI/WorkerLifecycle", "period": "300", "queryMode": "Metrics", "refId": "A", "region": "us-east-1", "statistic": "Maximum"}],
+      "title": "Worker replacement duration",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "stockai-prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 8},
+      "id": 5,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom"}},
+      "targets": [{"expr": "sum by (reason) (increase(kube_event_count{namespace=\"$environment\",reason=~\"FailedAttachVolume|FailedMount\"}[1h]))", "legendFormat": "{{reason}}", "refId": "A"}],
+      "title": "Volume attach errors",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "cloudwatch", "uid": "stockai-cloudwatch"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 8},
+      "id": 6,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom"}},
+      "targets": [{"dimensions": {"Environment": ["$environment"]}, "metricName": "WorkerCleanupOutcome", "namespace": "StockAI/WorkerLifecycle", "period": "300", "queryMode": "Metrics", "refId": "A", "region": "us-east-1", "statistic": "Maximum"}],
+      "title": "Cleanup outcomes",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 41,
+  "tags": ["stockai", "kubernetes", "capacity", "provisioned"],
+  "templating": {"list": [{"current": {"selected": true, "text": "dev", "value": "dev"}, "hide": 0, "includeAll": false, "label": "Environment", "name": "environment", "options": [{"selected": true, "text": "dev", "value": "dev"}, {"selected": false, "text": "prod", "value": "prod"}], "query": "dev,prod", "type": "custom"}]},
+  "time": {"from": "now-6h", "to": "now"},
+  "timezone": "browser",
+  "title": "StockAI Kubernetes and Capacity",
+  "uid": "stockai-kubernetes-capacity",
+  "version": 1
+}
