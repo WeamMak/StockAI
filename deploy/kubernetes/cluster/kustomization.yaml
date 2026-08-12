@@ -6,4 +6,5 @@ resources:
   - ingress
   - ebs-csi
   - metrics
+  - external-secrets
   - argocd

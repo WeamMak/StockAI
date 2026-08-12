@@ -1,0 +1,212 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: stockai-logs
+  labels:
+    app.kubernetes.io/part-of: stockai
+    pod-security.kubernetes.io/audit: baseline
+    pod-security.kubernetes.io/audit-version: v1.35
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/enforce-version: v1.35
+    pod-security.kubernetes.io/warn: baseline
+    pod-security.kubernetes.io/warn-version: v1.35
+    stockai.io/log-environment: stockai
+    stockai.io/log-namespace: "true"
+    stockai.io/cluster-scoped: "true"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: stockai-fluent-bit-config
+  namespace: stockai-logs
+  labels: &log-labels
+    app.kubernetes.io/name: stockai-fluent-bit
+    app.kubernetes.io/part-of: stockai
+    stockai.io/log-scope: "true"
+data:
+  fluent-bit.conf: |
+    [SERVICE]
+        Flush                     5
+        Grace                     30
+        Log_Level                 info
+        Parsers_File              /fluent-bit/etc/parsers.conf
+        HTTP_Server               On
+        HTTP_Listen               0.0.0.0
+        HTTP_Port                 2020
+        Health_Check              On
+
+    [INPUT]
+        Name                      tail
+        Tag                       stockai.*
+        Path                      ${TAIL_PATH}
+        Parser                    cri
+        DB                        /var/lib/fluent-bit/tail.db
+        DB.Sync                   Normal
+        Mem_Buf_Limit             8MB
+        Skip_Long_Lines           On
+        Refresh_Interval          10
+        Rotate_Wait               10
+
+    [FILTER]
+        Name                      parser
+        Match                     stockai.*
+        Key_Name                  log
+        Parser                    json
+        Reserve_Data              On
+        Preserve_Key              Off
+
+    [OUTPUT]
+        Name                      loki
+        Match                     stockai.*
+        Host                      ${LOKI_HOST}
+        Port                      3100
+        URI                       /loki/api/v1/push
+        Labels                    environment=${ENVIRONMENT},collector=fluent-bit
+        Line_Format               json
+        Retry_Limit               5
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: stockai-fluent-bit
+  namespace: stockai-logs
+  labels:
+    app.kubernetes.io/name: stockai-fluent-bit
+    app.kubernetes.io/part-of: stockai
+    stockai.io/log-scope: "true"
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: stockai-fluent-bit
+  namespace: stockai-logs
+  labels:
+    app.kubernetes.io/name: stockai-fluent-bit
+    app.kubernetes.io/part-of: stockai
+    stockai.io/log-scope: "true"
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: stockai-fluent-bit
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: stockai-fluent-bit
+        app.kubernetes.io/part-of: stockai
+        stockai.io/log-scope: "true"
+    spec:
+      serviceAccountName: stockai-fluent-bit
+      automountServiceAccountToken: false
+      nodeSelector:
+        stockai.io/environment: stockai
+      tolerations:
+        - key: stockai.io/environment
+          operator: Equal
+          value: stockai
+          effect: NoSchedule
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: fluent-bit
+          image: cr.fluentbit.io/fluent/fluent-bit:4.0.6
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: ENVIRONMENT
+              value: stockai
+            - name: LOKI_HOST
+              value: loki.stockai.svc.cluster.local
+            - name: TAIL_PATH
+              value: /var/log/containers/*_stockai_*.log
+          ports:
+            - name: http
+              containerPort: 2020
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 96Mi
+          livenessProbe: &fluent-bit-probe
+            httpGet:
+              path: /api/v1/health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          readinessProbe:
+            <<: *fluent-bit-probe
+            periodSeconds: 5
+            failureThreshold: 2
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: varlog
+              mountPath: /var/log
+              readOnly: true
+            - name: config
+              mountPath: /fluent-bit/etc/fluent-bit.conf
+              subPath: fluent-bit.conf
+              readOnly: true
+            - name: state
+              mountPath: /var/lib/fluent-bit
+      volumes:
+        - name: varlog
+          hostPath:
+            path: /var/log
+            type: Directory
+        - name: config
+          configMap:
+            name: stockai-fluent-bit-config
+            items:
+              - key: fluent-bit.conf
+                path: fluent-bit.conf
+        - name: state
+          emptyDir:
+            sizeLimit: 32Mi
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: stockai-fluent-bit-egress
+  namespace: stockai-logs
+  labels:
+    app.kubernetes.io/name: stockai-fluent-bit
+    app.kubernetes.io/part-of: stockai
+    stockai.io/log-scope: "true"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: stockai-fluent-bit
+  policyTypes: [Ingress, Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              stockai.io/environment: stockai
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: stockai-loki
+      ports:
+        - protocol: TCP
+          port: 3100

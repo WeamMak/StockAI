@@ -43,6 +43,28 @@ def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def test_worker_pods_can_use_imdsv2_without_weakening_the_control_plane(
+    platform_plan: TerraformPlan,
+) -> None:
+    control_plane = next(_values(platform_plan, "aws_instance"))
+    workers = list(_values(platform_plan, "aws_launch_template"))
+
+    assert control_plane["metadata_options"][0] == {
+        "http_endpoint": "enabled",
+        "http_protocol_ipv6": "disabled",
+        "http_put_response_hop_limit": 1,
+        "http_tokens": "required",
+        "instance_metadata_tags": "disabled",
+    }
+    assert len(workers) == 2
+    assert all(
+        worker["metadata_options"][0]["http_put_response_hop_limit"] == 2
+        and worker["metadata_options"][0]["http_tokens"] == "required"
+        and worker["metadata_options"][0]["instance_metadata_tags"] == "disabled"
+        for worker in workers
+    )
+
+
 def test_plan_creates_one_encrypted_runtime_owned_join_parameter(
     platform_plan: TerraformPlan,
 ) -> None:

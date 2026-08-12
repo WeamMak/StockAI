@@ -1,0 +1,101 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  labels:
+    app.kubernetes.io/name: stockai-prometheus
+    app.kubernetes.io/part-of: stockai
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: stockai-prometheus
+  ports:
+    - name: http
+      port: 9090
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  labels:
+    app.kubernetes.io/name: stockai-grafana
+    app.kubernetes.io/part-of: stockai
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: stockai-grafana
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: loki
+  labels:
+    app.kubernetes.io/name: stockai-loki
+    app.kubernetes.io/part-of: stockai
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: stockai-loki
+  ports:
+    - name: http
+      port: 3100
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alertmanager
+  labels:
+    app.kubernetes.io/name: stockai-alertmanager
+    app.kubernetes.io/part-of: stockai
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: stockai-alertmanager
+  ports:
+    - name: http
+      port: 9093
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: blackbox-exporter
+  labels:
+    app.kubernetes.io/name: stockai-blackbox-exporter
+    app.kubernetes.io/part-of: stockai
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: stockai-blackbox-exporter
+  ports:
+    - name: http
+      port: 9115
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: external-secrets-metrics
+  labels:
+    app.kubernetes.io/name: stockai-external-secrets
+    app.kubernetes.io/part-of: stockai
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: stockai-external-secrets
+  ports:
+    - name: metrics
+      port: 8080
+      targetPort: metrics
+      protocol: TCP

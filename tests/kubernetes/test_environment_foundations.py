@@ -165,14 +165,17 @@ def test_namespace_configuration_and_secret_contracts_are_environment_scoped(
     resources = _render(environment)
     other_environment = "prod" if environment == "dev" else "dev"
 
-    namespace = _resources_of_kind(resources, "Namespace")
-    assert len(namespace) == 1
-    assert namespace[0]["metadata"]["name"] == environment
+    namespaces = {
+        item["metadata"]["name"]: item
+        for item in _resources_of_kind(resources, "Namespace")
+    }
+    assert set(namespaces) == {environment, f"stockai-logs-{environment}"}
+    namespace = namespaces[environment]
     assert {
         "stockai.io/environment": environment,
         "pod-security.kubernetes.io/enforce": "restricted",
         "pod-security.kubernetes.io/enforce-version": "v1.35",
-    }.items() <= namespace[0]["metadata"]["labels"].items()
+    }.items() <= namespace["metadata"]["labels"].items()
 
     config_maps = {
         item["metadata"]["name"]: item
@@ -200,11 +203,18 @@ def test_namespace_configuration_and_secret_contracts_are_environment_scoped(
     assert other_environment not in "\n".join(environment_config.values())
 
     service_accounts = _resources_of_kind(resources, "ServiceAccount")
-    assert {item["metadata"]["name"] for item in service_accounts} == SERVICE_ACCOUNTS
+    application_service_accounts = [
+        item
+        for item in service_accounts
+        if item["metadata"]["name"] in SERVICE_ACCOUNTS
+    ]
+    assert {item["metadata"]["name"] for item in application_service_accounts} == (
+        SERVICE_ACCOUNTS
+    )
     assert all(
         item["metadata"]["namespace"] == environment
         and item["automountServiceAccountToken"] is False
-        for item in service_accounts
+        for item in application_service_accounts
     )
 
     secret_stores = _resources_of_kind(resources, "SecretStore")

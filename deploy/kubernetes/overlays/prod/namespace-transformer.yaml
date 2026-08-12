@@ -1,0 +1,10 @@
+apiVersion: builtin
+kind: PatchTransformer
+metadata:
+  name: stockai-prod-namespace
+patch: |-
+  - op: add
+    path: /metadata/namespace
+    value: prod
+target:
+  labelSelector: app.kubernetes.io/part-of=stockai,stockai.io/cluster-scoped!=true

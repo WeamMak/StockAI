@@ -13,7 +13,8 @@ ORM-bootstrap contracts selected after T10 discovery.
 
 **Tech Stack:** Python 3.12, FastAPI, LangGraph, Python MCP SDK, React, TypeScript, Vite, Odoo 19 Community, PostgreSQL, Terraform, AWS EC2/Auto Scaling/SSM/EventBridge/Lambda/EBS/ALB/ACM/Route 53, kubeadm Kubernetes, Kustomize, Argo CD, Prometheus, Grafana, Loki, Alertmanager, GitHub Actions.
 
-**Status:** T19B implementation complete locally; awaiting review, commit, and promotion
+**Status:** T20A implementation and local verification complete; awaiting
+review and deployment-time smoke verification
 
 **Date:** 2026-08-09
 
@@ -27,9 +28,9 @@ T12A is approved and merged. T13 is approved and merged through PR #17 at
 `cca7208`. T14 is approved and merged through PR #18 at `fd6ba1d`. T15 is
 approved and merged through PR #19 at `f89a089`. T16 is approved and merged
 through PR #20 at `debbb5f`. T17 through T19A are complete and merged, including
-the accepted T18B deferred live failure drill. T19B implementation and local
-verification are complete and await review and commit. Further infrastructure
-apply and live AWS checks remain separately approval-gated.
+the accepted T18B deferred live failure drill. T19B is merged through PR #27 at
+`055aa01`. T20A implementation and local verification are complete; its live
+deployment checks remain approval-gated.
 
 ## 1. Approval status and purpose
 
@@ -1945,6 +1946,9 @@ autoscaling on the environment workers.
 
 #### T20A — Add environment-scoped metrics and S3-backed log collection
 
+**Task status:** Complete locally; awaiting review and deployment-time smoke
+verification.
+
 **Files**
 
 - Create observability resources under
@@ -1956,27 +1960,27 @@ autoscaling on the environment workers.
 
 **Work and tests**
 
-- [ ] **Step 1:** Deploy Prometheus, Grafana, Loki, Alertmanager, a lightweight blackbox
+- [x] **Step 1:** Deploy Prometheus, Grafana, Loki, Alertmanager, a lightweight blackbox
    exporter, and namespace-filtered Fluent Bit separately for dev and prod.
-- [ ] **Step 2:** Mount the environment’s statically bound EBS CSI claim into Prometheus,
+- [x] **Step 2:** Mount the environment’s statically bound EBS CSI claim into Prometheus,
    configure bounded retention to fit 5 GiB, and verify metric history survives
    Prometheus pod replacement.
-- [ ] **Step 3:** Provision Grafana data sources, folders, dashboards, and alerts from
+- [x] **Step 3:** Provision Grafana data sources, folders, dashboards, and alerts from
    version-controlled ConfigMaps. Include Prometheus, Loki, and read-only
    CloudWatch metric data sources for ALB, ASG, and cleanup-Lambda metrics
    without embedding credentials. Use `emptyDir` for `/var/lib/grafana`; make
    manual UI edits unsupported and verify a replacement pod reconstructs the
    approved configuration.
-- [ ] **Step 4:** Configure Loki to write retained objects to only its environment’s S3
+- [x] **Step 4:** Configure Loki to write retained objects to only its environment’s S3
    prefix, with bounded WAL/cache and no sensitive audit data.
-- [ ] **Step 5:** Run any External Secrets controller that needs node-role credentials in a
+- [x] **Step 5:** Run any External Secrets controller that needs node-role credentials in a
    namespace-scoped, controller-class-limited mode on the matching environment
    worker; do not give the control-plane role application-secret access.
-- [ ] **Step 6:** Keep Prometheus/Loki retention and cardinality within the worker and volume
+- [x] **Step 6:** Keep Prometheus/Loki retention and cardinality within the worker and volume
    budgets.
-- [ ] **Step 7:** Probe each public HTTPS hostname for status, latency, and certificate
+- [x] **Step 7:** Probe each public HTTPS hostname for status, latency, and certificate
    lifetime; keep probe labels bounded to environment and service.
-- [ ] **Step 8:** Expose Grafana through the approved ALB/ACM/NGINX HTTPS hostname while
+- [x] **Step 8:** Expose Grafana through the approved ALB/ACM/NGINX HTTPS hostname while
    keeping Prometheus, Loki, and Alertmanager private.
 
 **Verification:** Render resource totals, confirm environment isolation,
