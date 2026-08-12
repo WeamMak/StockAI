@@ -1,0 +1,86 @@
+{
+  "annotations": {"list": []},
+  "editable": false,
+  "panels": [
+    {
+      "datasource": {"type": "prometheus", "uid": "stockai-prometheus"},
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 0},
+      "id": 1,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom"}},
+      "targets": [{"expr": "sum by (status) (rate(procurement_llm_calls_total[5m]))", "legendFormat": "{{status}}", "refId": "A"}],
+      "title": "LLM calls",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "stockai-prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 0},
+      "id": 2,
+      "options": {"legend": {"displayMode": "hidden"}},
+      "targets": [{"expr": "sum(increase(procurement_llm_tokens_total{direction=\"input\"}[1h]))", "refId": "A"}],
+      "title": "LLM input tokens",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "stockai-prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 0},
+      "id": 3,
+      "options": {"legend": {"displayMode": "hidden"}},
+      "targets": [{"expr": "sum(increase(procurement_llm_tokens_total{direction=\"output\"}[1h]))", "refId": "A"}],
+      "title": "LLM output tokens",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "stockai-prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 8},
+      "id": 4,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom"}},
+      "targets": [
+        {"expr": "histogram_quantile(0.95, sum by (le) (rate(procurement_llm_duration_seconds_bucket[5m])))", "legendFormat": "LLM p95", "refId": "A"},
+        {"expr": "histogram_quantile(0.95, sum by (le, tool) (rate(procurement_agent_mcp_duration_seconds_bucket[5m])))", "legendFormat": "{{tool}} p95", "refId": "B"}
+      ],
+      "title": "LLM and MCP latency p95",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "stockai-prometheus"},
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 8},
+      "id": 5,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom"}},
+      "targets": [
+        {"expr": "sum by (tool, status) (rate(procurement_agent_mcp_calls_total[5m]))", "legendFormat": "agent {{tool}} {{status}}", "refId": "A"},
+        {"expr": "sum by (tool, status) (rate(procurement_mcp_tool_calls_total[5m]))", "legendFormat": "server {{tool}} {{status}}", "refId": "B"}
+      ],
+      "title": "MCP calls by result",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "stockai-prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 8},
+      "id": 6,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom"}},
+      "targets": [
+        {"expr": "sum by (tool) (increase(procurement_agent_mcp_timeouts_total[1h]))", "legendFormat": "agent timeout {{tool}}", "refId": "A"},
+        {"expr": "sum by (operation) (increase(procurement_agent_retries_total[1h]))", "legendFormat": "agent retry {{operation}}", "refId": "B"},
+        {"expr": "sum by (tool) (increase(procurement_mcp_tool_timeouts_total[1h]))", "legendFormat": "server timeout {{tool}}", "refId": "C"},
+        {"expr": "sum by (tool) (increase(procurement_mcp_tool_retries_total[1h]))", "legendFormat": "server retry {{tool}}", "refId": "D"}
+      ],
+      "title": "MCP timeouts and retries",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 41,
+  "tags": ["stockai", "llm", "mcp", "provisioned"],
+  "templating": {"list": []},
+  "time": {"from": "now-6h", "to": "now"},
+  "timezone": "browser",
+  "title": "StockAI LLM and MCP",
+  "uid": "stockai-llm-mcp",
+  "version": 1
+}

@@ -85,6 +85,9 @@ spec:
             - name: targets
               mountPath: /etc/prometheus/targets
               readOnly: true
+            - name: rules
+              mountPath: /etc/prometheus/rules
+              readOnly: true
             - name: data
               mountPath: /prometheus
       volumes:
@@ -100,6 +103,9 @@ spec:
             items:
               - key: blackbox-targets.yaml
                 path: blackbox-targets.yaml
+        - name: rules
+          configMap:
+            name: stockai-observability-rules
         - name: data
           persistentVolumeClaim:
             claimName: prometheus-data
@@ -200,9 +206,8 @@ spec:
               mountPath: /etc/grafana/provisioning/dashboards/dashboards.yaml
               subPath: dashboards.yaml
               readOnly: true
-            - name: config
-              mountPath: /etc/grafana/dashboards/placeholder-dashboard.json
-              subPath: placeholder-dashboard.json
+            - name: dashboards
+              mountPath: /etc/grafana/dashboards
               readOnly: true
       volumes:
         - name: grafana-data
@@ -211,6 +216,9 @@ spec:
         - name: config
           configMap:
             name: stockai-observability-config
+        - name: dashboards
+          configMap:
+            name: stockai-observability-dashboards
 ---
 apiVersion: apps/v1
 kind: Deployment

@@ -1,0 +1,132 @@
+groups:
+  - name: stockai-application
+    interval: 30s
+    rules:
+      - alert: StockAIHttpErrorRateHigh
+        expr: sum(rate(procurement_http_request_errors_total[5m])) / clamp_min(sum(rate(procurement_http_requests_total[5m])), 0.001) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+          owner: stockai-operator
+        annotations:
+          description: More than 5% of Agent API requests have failed for ten minutes.
+          evidence: Open the Agent Health dashboard and correlate API logs by the bounded route and status fields.
+          runbook_url: docs/runbooks/alerts.md#stockaihttperrorratehigh
+      - alert: StockAILlmFailures
+        expr: sum(increase(procurement_llm_failures_total[15m])) >= 3
+        for: 5m
+        labels:
+          severity: warning
+          owner: stockai-operator
+        annotations:
+          description: At least three structured LLM calls failed in fifteen minutes.
+          evidence: Open the LLM and MCP dashboard and inspect sanitized API logs for the reported error code.
+          runbook_url: docs/runbooks/alerts.md#stockaillmfailures
+      - alert: StockAIMcpFailures
+        expr: sum(increase(procurement_agent_mcp_failures_total[15m])) + sum(increase(procurement_agent_mcp_timeouts_total[15m])) >= 3
+        for: 5m
+        labels:
+          severity: warning
+          owner: stockai-operator
+        annotations:
+          description: At least three MCP failures or timeouts occurred in fifteen minutes.
+          evidence: Compare agent-side and server-side MCP panels, then correlate sanitized logs by tool and error code.
+          runbook_url: docs/runbooks/alerts.md#stockaimcpfailures
+
+  - name: stockai-kubernetes
+    interval: 30s
+    rules:
+      - alert: StockAIPodUnavailable
+        expr: kube_deployment_status_replicas_available{namespace=~"dev|prod"} < kube_deployment_spec_replicas{namespace=~"dev|prod"}
+        for: 10m
+        labels:
+          severity: critical
+          owner: stockai-operator
+        annotations:
+          description: A StockAI deployment has fewer available replicas than requested.
+          evidence: Inspect deployment conditions, pod events, readiness probes, and the Kubernetes dashboard.
+          runbook_url: docs/runbooks/alerts.md#stockaipodunavailable
+      - alert: StockAIPodCrashLooping
+        expr: sum by (namespace, pod, container) (increase(kube_pod_container_status_restarts_total{namespace=~"dev|prod"}[15m])) >= 3
+        for: 5m
+        labels:
+          severity: critical
+          owner: stockai-operator
+        annotations:
+          description: A StockAI container restarted at least three times in fifteen minutes.
+          evidence: Inspect the pod state, previous container logs, events, exit reason, and configured limits.
+          runbook_url: docs/runbooks/alerts.md#stockaipodcrashlooping
+      - alert: StockAIWorkerDiskPressure
+        expr: kube_node_status_condition{condition="DiskPressure",status="true"} == 1
+        for: 10m
+        labels:
+          severity: critical
+          owner: stockai-operator
+        annotations:
+          description: Kubernetes reports disk pressure on a cluster node.
+          evidence: Inspect node conditions and filesystem consumption before deleting only documented transient data.
+          runbook_url: docs/runbooks/alerts.md#stockaiworkerdiskpressure
+      - alert: StockAIPersistentVolumePressure
+        expr: kubelet_volume_stats_available_bytes{namespace=~"dev|prod"} / kubelet_volume_stats_capacity_bytes{namespace=~"dev|prod"} < 0.20
+        for: 15m
+        labels:
+          severity: warning
+          owner: stockai-operator
+        annotations:
+          description: A StockAI persistent volume has less than 20% free space.
+          evidence: Identify the claim and validate retention, snapshots, and workload growth before remediation.
+          runbook_url: docs/runbooks/alerts.md#stockaipersistentvolumepressure
+      - alert: StockAIWorkerReadyMismatch
+        expr: sum(kube_node_status_condition{condition="Ready",status="true"} * on(node) group_left(label_stockai_io_environment) kube_node_labels{label_stockai_io_environment=~"dev|prod"}) by (label_stockai_io_environment) < 1
+        for: 10m
+        labels:
+          severity: critical
+          owner: stockai-operator
+        annotations:
+          description: An active environment has no correctly labeled Ready worker beyond the replacement window.
+          evidence: Compare Ready workers with the ASG desired and in-service values in the capacity dashboard.
+          runbook_url: docs/runbooks/alerts.md#stockaiworkerreadymismatch
+
+  - name: stockai-dependencies
+    interval: 30s
+    rules:
+      - alert: StockAIDependencyUnavailable
+        expr: up{job=~"stockai-agent-api|stockai-procurement-mcp|stockai-observability"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          owner: stockai-operator
+        annotations:
+          description: Prometheus cannot scrape a required StockAI service or internal dependency.
+          evidence: Inspect the failed target, Service endpoints, NetworkPolicy, readiness, and correlated logs.
+          runbook_url: docs/runbooks/alerts.md#stockaidependencyunavailable
+      - alert: StockAIPublicHttpsUnavailable
+        expr: probe_success{job="public-https"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          owner: stockai-operator
+        annotations:
+          description: A public StockAI HTTPS endpoint has failed blackbox probes for five minutes.
+          evidence: Inspect probe status, ALB target health, NGINX routing, DNS, and certificate status.
+          runbook_url: docs/runbooks/alerts.md#stockaipublichttpsunavailable
+      - alert: StockAIHttpsCertificateExpiring
+        expr: probe_ssl_earliest_cert_expiry{job="public-https"} - time() < 21 * 24 * 60 * 60
+        for: 1h
+        labels:
+          severity: warning
+          owner: stockai-operator
+        annotations:
+          description: A public StockAI TLS certificate expires within twenty-one days.
+          evidence: Inspect the probe certificate timestamp, ACM certificate state, and Route 53 validation records.
+          runbook_url: docs/runbooks/alerts.md#stockaihttpscertificateexpiring
+      - alert: StockAIOdooKeyExpiring
+        expr: stockai_odoo_api_key_expiry_timestamp_seconds - time() < 14 * 24 * 60 * 60
+        for: 1h
+        labels:
+          severity: warning
+          owner: stockai-operator
+        annotations:
+          description: The active Odoo integration key expires within fourteen days.
+          evidence: Confirm the non-secret expiration timestamp and the environment before starting rotation.
+          runbook_url: docs/runbooks/alerts.md#stockaiodookeyexpiring

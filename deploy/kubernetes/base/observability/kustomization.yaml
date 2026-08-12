@@ -8,3 +8,19 @@ resources:
   - services.yaml
   - logging.yaml
   - network-policy.yaml
+
+generatorOptions:
+  disableNameSuffixHash: true
+  labels:
+    app.kubernetes.io/part-of: stockai
+
+configMapGenerator:
+  - name: stockai-observability-dashboards
+    files:
+      - dashboards/agent-health.json
+      - dashboards/dependencies-edge.json
+      - dashboards/kubernetes-capacity.json
+      - dashboards/llm-mcp.json
+  - name: stockai-observability-rules
+    files:
+      - rules/stockai-alerts.yaml

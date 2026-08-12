@@ -13,8 +13,8 @@ ORM-bootstrap contracts selected after T10 discovery.
 
 **Tech Stack:** Python 3.12, FastAPI, LangGraph, Python MCP SDK, React, TypeScript, Vite, Odoo 19 Community, PostgreSQL, Terraform, AWS EC2/Auto Scaling/SSM/EventBridge/Lambda/EBS/ALB/ACM/Route 53, kubeadm Kubernetes, Kustomize, Argo CD, Prometheus, Grafana, Loki, Alertmanager, GitHub Actions.
 
-**Status:** T20A implementation and local verification complete; awaiting
-review and deployment-time smoke verification
+**Status:** T20B implementation and local verification complete; awaiting
+review and deployment-time alert verification
 
 **Date:** 2026-08-09
 
@@ -29,8 +29,9 @@ T12A is approved and merged. T13 is approved and merged through PR #17 at
 approved and merged through PR #19 at `f89a089`. T16 is approved and merged
 through PR #20 at `debbb5f`. T17 through T19A are complete and merged, including
 the accepted T18B deferred live failure drill. T19B is merged through PR #27 at
-`055aa01`. T20A implementation and local verification are complete; its live
-deployment checks remain approval-gated.
+`055aa01`. T20A is merged through PR #28 at `970aa8d`. T20B implementation and
+local verification are complete; its live deployment checks remain
+approval-gated.
 
 ## 1. Approval status and purpose
 
@@ -1997,6 +1998,9 @@ without CloudWatch application logs.
 
 #### T20B — Provision baseline dashboards and actionable internal alerts
 
+**Task status:** Complete locally; awaiting review and deployment-time alert
+verification.
+
 **Files**
 
 - Create dashboards under
@@ -2008,20 +2012,20 @@ without CloudWatch application logs.
 
 **Work and tests**
 
-- [ ] **Step 1:** Provision agent-health, LLM/MCP, Kubernetes/capacity, and dependency/edge
+- [x] **Step 1:** Provision agent-health, LLM/MCP, Kubernetes/capacity, and dependency/edge
    dashboards with low-cardinality queries. The required panels include
    requests per minute split by success/error, request error rate,
    p50/p95/p99 latency, separate LLM input/output token counts, HPA replicas,
    pending pods, ASG desired/in-service capacity, correctly labeled Ready
    workers, replacement duration, volume attach errors, and clean/forced/failed
    cleanup outcomes.
-- [ ] **Step 2:** Provision initial pod failure, root/PV pressure, unhealthy ALB target or
+- [x] **Step 2:** Provision initial pod failure, root/PV pressure, unhealthy ALB target or
    elevated ALB 5xx, ASG-versus-Ready-node mismatch beyond the replacement
    window, forced/failed cleanup, Lambda error/lifecycle timeout, public
    HTTPS/certificate-expiry, dependency failure, and Odoo-key-expiry alerts.
-- [ ] **Step 3:** Give every alert an owner-facing description, severity, evidence link, and
+- [x] **Step 3:** Give every alert an owner-facing description, severity, evidence link, and
    concrete runbook action.
-- [ ] **Step 4:** Keep delivery internal to Grafana/Alertmanager for the MVP.
+- [x] **Step 4:** Keep delivery internal to Grafana/Alertmanager for the MVP.
 
 **Verification:** Validate dashboard and rule syntax, load every dashboard,
 fire one safe test alert from each alert category, and follow its runbook.
