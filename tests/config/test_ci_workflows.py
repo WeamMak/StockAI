@@ -51,9 +51,9 @@ def test_pull_request_checks_pin_uv_and_prepare_fictional_compose_values() -> No
     source = (WORKFLOWS / "pr-checks.yml").read_text(encoding="utf-8")
 
     assert "astral-sh/setup-uv@v9" not in source
-    assert source.count(
-        "astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9"
-    ) == 2
+    assert (
+        source.count("astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9") == 3
+    )
     assert source.count("run: cp .env.example .env") == 2
 
 
