@@ -1,0 +1,292 @@
+name: Pull request checks
+
+on:
+  pull_request:
+
+concurrency:
+  group: pr-checks-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Tests and quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the pull request
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.11.27"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "20.20.2"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install locked dependencies
+        run: |
+          uv sync --locked
+          npm --prefix frontend ci
+
+      - name: Install actionlint 1.7.12
+        run: |
+          mkdir -p .tools
+          curl --fail --location --silent --show-error \
+            --output /tmp/actionlint.tar.gz \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
+          printf '%s  %s\n' \
+            8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8 \
+            /tmp/actionlint.tar.gz | sha256sum --check --strict
+          tar --extract --gzip --file /tmp/actionlint.tar.gz \
+            --directory .tools actionlint
+
+      - name: Run formatting, lint, and type checks
+        id: quality
+        env:
+          ACTIONLINT: .tools/actionlint
+        run: make lock-check format-check lint
+
+      - name: Run Python and React unit tests
+        id: unit
+        run: make test-unit
+
+      - name: Run real-transport integration tests
+        id: integration
+        run: make test-integration
+
+      - name: Run deterministic local end-to-end tests
+        id: end_to_end
+        run: make test-e2e
+
+      - name: Build the React application
+        id: frontend_build
+        run: npm --prefix frontend run build
+
+      - name: Publish test summary
+        if: always()
+        run: |
+          {
+            echo '## Test and quality stages'
+            echo '| Stage | Result |'
+            echo '|---|---|'
+            echo "| Formatting, lint, and types | ${{ steps.quality.outcome }} |"
+            echo "| Unit tests | ${{ steps.unit.outcome }} |"
+            echo "| Integration tests | ${{ steps.integration.outcome }} |"
+            echo "| End-to-end tests | ${{ steps.end_to_end.outcome }} |"
+            echo "| Frontend build | ${{ steps.frontend_build.outcome }} |"
+            if test -f reports/coverage/unit.xml; then
+              echo
+              echo "Python coverage report: \`reports/coverage/unit.xml\`"
+            fi
+            if test -f reports/coverage/frontend/coverage-summary.json; then
+              echo
+              echo "React coverage report: \`reports/coverage/frontend/coverage-summary.json\`"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Retain test and coverage reports
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: test-and-coverage-reports
+          path: reports/
+          if-no-files-found: warn
+          retention-days: 14
+
+  containers:
+    name: Container and Compose validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the pull request
+        uses: actions/checkout@v6
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.11.27"
+
+      - name: Prepare fictional local Compose configuration
+        run: cp .env.example .env
+
+      - name: Validate Compose files
+        id: compose
+        run: make compose-validate
+
+      - name: Build all four project images
+        id: images
+        run: make build
+
+      - name: Run the real Odoo contract suite
+        id: odoo_contract
+        run: make odoo-contract
+
+      - name: Publish container summary
+        if: always()
+        run: |
+          {
+            echo '## Container stages'
+            echo '| Stage | Result |'
+            echo '|---|---|'
+            echo "| Compose validation | ${{ steps.compose.outcome }} |"
+            echo "| Four-image build | ${{ steps.images.outcome }} |"
+            echo "| Odoo contract | ${{ steps.odoo_contract.outcome }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Retain Odoo contract report
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: odoo-contract-report
+          path: reports/junit/contract.xml
+          if-no-files-found: warn
+          retention-days: 14
+
+  infrastructure:
+    name: Offline infrastructure validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the pull request
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.11.27"
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.15.8"
+          terraform_wrapper: false
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: "v1.35.0"
+
+      - name: Install locked Python dependencies
+        run: uv sync --locked
+
+      - name: Validate Terraform roots and plan contracts
+        id: terraform
+        run: make terraform-validate
+
+      - name: Render and schema-check Kubernetes overlays
+        id: kubernetes
+        run: make kubernetes-validate
+
+      - name: Publish infrastructure summary
+        if: always()
+        run: |
+          {
+            echo '## Infrastructure stages'
+            echo '| Stage | Result |'
+            echo '|---|---|'
+            echo "| Terraform validation | ${{ steps.terraform.outcome }} |"
+            echo "| Kubernetes validation | ${{ steps.kubernetes.outcome }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out full history
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Scan Git history without exposing findings
+        id: gitleaks
+        run: |
+          docker run --rm --volume "$PWD:/repo" \
+            zricethezav/gitleaks:v8.28.0 \
+            git /repo --redact --no-banner
+
+      - name: Publish secret-scan summary
+        if: always()
+        run: |
+          echo "## Secret scan: ${{ steps.gitleaks.outcome }}" \
+            >> "$GITHUB_STEP_SUMMARY"
+
+  docker-scout:
+    name: Docker Scout (${{ matrix.name }})
+    if: github.event.pull_request.base.ref == 'main'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: frontend
+            compose_file: compose.yaml
+            service: frontend
+            image: stockai-frontend:t09-local
+          - name: api
+            compose_file: compose.yaml
+            service: api
+            image: stockai-api:t09-local
+          - name: mcp
+            compose_file: compose.yaml
+            service: mcp
+            image: stockai-mcp:t09-local
+          - name: odoo
+            compose_file: compose.odoo.yaml
+            service: odoo
+            image: stockai-odoo:t11a-local
+    steps:
+      - name: Check out the pull request
+        uses: actions/checkout@v6
+
+      - name: Prepare fictional local Compose configuration
+        if: matrix.compose_file == 'compose.yaml'
+        run: cp .env.example .env
+
+      - name: Build ${{ matrix.name }} image
+        run: docker compose --file "${{ matrix.compose_file }}" build "${{ matrix.service }}"
+
+      - name: Create Scout report directory
+        run: mkdir -p reports/scout
+
+      - name: Run Docker Scout
+        id: scout
+        uses: docker/scout-action@v1
+        with:
+          command: cves
+          dockerhub-user: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
+          image: local://${{ matrix.image }}
+          only-severities: critical,high
+          exit-code: false
+          sarif-file: reports/scout/${{ matrix.name }}.sarif
+          write-comment: false
+
+      - name: Publish Scout summary
+        if: always()
+        run: |
+          echo "## Docker Scout (${{ matrix.name }}): ${{ steps.scout.outcome }}" \
+            >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Retain Scout report
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: docker-scout-${{ matrix.name }}
+          path: reports/scout/${{ matrix.name }}.sarif
+          if-no-files-found: warn
+          retention-days: 14

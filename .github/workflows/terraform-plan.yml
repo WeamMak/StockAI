@@ -1,0 +1,129 @@
+name: Terraform plans
+
+on:
+  pull_request:
+    paths:
+      - infra/terraform/**
+      - .github/workflows/terraform-plan.yml
+      - .github/workflows/terraform-apply.yml
+
+concurrency:
+  group: terraform-plan-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  plan:
+    name: Plan ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: platform
+            root: infra/terraform/platform
+            state_key: platform/terraform.tfstate
+          - name: edge
+            root: infra/terraform/edge
+            state_key: edge/terraform.tfstate
+          - name: dev
+            root: infra/terraform/environments/dev
+            state_key: environments/dev/terraform.tfstate
+          - name: prod
+            root: infra/terraform/environments/prod
+            state_key: environments/prod/terraform.tfstate
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      TFVARS_PLATFORM: ${{ vars.TERRAFORM_PLATFORM_TFVARS_JSON }}
+      TFVARS_EDGE: ${{ vars.TERRAFORM_EDGE_TFVARS_JSON }}
+      TFVARS_DEV: ${{ vars.TERRAFORM_DEV_TFVARS_JSON }}
+      TFVARS_PROD: ${{ vars.TERRAFORM_PROD_TFVARS_JSON }}
+    steps:
+      - name: Check out the pull request
+        uses: actions/checkout@v6
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.15.8"
+          terraform_wrapper: false
+
+      - name: Authenticate with the read-only plan role
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: us-east-1
+          role-to-assume: ${{ vars.AWS_TERRAFORM_PLAN_ROLE_ARN }}
+          role-session-name: stockai-pr-${{ github.event.pull_request.number }}-${{ matrix.name }}
+
+      - name: Select reviewed non-secret variables
+        id: variables
+        working-directory: ${{ matrix.root }}
+        run: |
+          case '${{ matrix.name }}' in
+            platform) value=$TFVARS_PLATFORM ;;
+            edge) value=$TFVARS_EDGE ;;
+            dev) value=$TFVARS_DEV ;;
+            prod) value=$TFVARS_PROD ;;
+            *) echo 'unknown Terraform root' >&2; exit 2 ;;
+          esac
+          if test -z "$value"; then
+            echo 'The required TERRAFORM_*_TFVARS_JSON repository variable is empty.' >&2
+            exit 2
+          fi
+          printf '%s' "$value" > ci.auto.tfvars.json
+
+      - name: Initialize the remote backend
+        working-directory: ${{ matrix.root }}
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ vars.TERRAFORM_STATE_BUCKET }}" \
+            -backend-config="key=${{ vars.TERRAFORM_STATE_KEY_PREFIX }}/${{ matrix.state_key }}" \
+            -backend-config="region=us-east-1" \
+            -backend-config="dynamodb_table=${{ vars.TERRAFORM_LOCK_TABLE }}" \
+            -backend-config="encrypt=true"
+
+      - name: Create deterministic saved plan
+        id: plan
+        working-directory: ${{ matrix.root }}
+        run: |
+          terraform plan -refresh=false -no-color -out=tfplan
+          terraform show -no-color tfplan > plan.txt
+          jq --null-input \
+            --arg commit '${{ github.event.pull_request.head.sha }}' \
+            --argjson pull_request '${{ github.event.pull_request.number }}' \
+            --arg root '${{ matrix.name }}' \
+            '{commit: $commit, pullRequest: $pull_request, root: $root}' \
+            > source.json
+
+      - name: Publish plan summary
+        if: always()
+        run: |
+          {
+            echo "## Terraform plan: ${{ matrix.name }}"
+            echo "Result: ${{ steps.plan.outcome }}"
+            if test -f '${{ matrix.root }}/plan.txt'; then
+              echo
+              echo '<details><summary>Saved plan</summary>'
+              echo
+              echo '```text'
+              sed -n '1,500p' '${{ matrix.root }}/plan.txt'
+              echo '```'
+              echo '</details>'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Retain reviewed plan and metadata
+        if: always() && steps.plan.outcome == 'success'
+        uses: actions/upload-artifact@v6
+        with:
+          name: terraform-plan-${{ matrix.name }}
+          path: |
+            ${{ matrix.root }}/tfplan
+            ${{ matrix.root }}/plan.txt
+            ${{ matrix.root }}/source.json
+          if-no-files-found: error
+          retention-days: 14

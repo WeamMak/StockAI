@@ -22,3 +22,7 @@ def _recipe(target: str) -> str:
 
 def test_make_lint_runs_the_pinned_frontend_eslint_command() -> None:
     assert "npm --prefix frontend run lint" in _recipe("lint")
+
+
+def test_make_lint_runs_actionlint_after_workflows_exist() -> None:
+    assert "$(ACTIONLINT) .github/workflows/*.yml" in _recipe("lint")

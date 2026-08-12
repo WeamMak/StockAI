@@ -1,0 +1,150 @@
+name: Terraform apply
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Protected environment that approves this apply
+        required: true
+        type: choice
+        options:
+          - dev
+          - prod
+      root:
+        description: Reviewed Terraform root to apply
+        required: true
+        type: choice
+        options:
+          - platform
+          - edge
+          - dev
+          - prod
+      plan_run_id:
+        description: Successful Terraform plan workflow run ID
+        required: true
+        type: string
+
+concurrency:
+  group: terraform-apply-${{ inputs.root }}
+  cancel-in-progress: false
+
+permissions:
+  actions: read
+  contents: read
+  id-token: write
+  pull-requests: read
+
+jobs:
+  apply:
+    name: Apply reviewed ${{ inputs.root }} plan
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+    steps:
+      - name: Check out main with review history
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Validate root and environment pairing
+        run: |
+          if test '${{ inputs.root }}' = dev && test '${{ inputs.environment }}' != dev; then
+            echo 'The dev root requires the protected dev environment.' >&2
+            exit 2
+          fi
+          if test '${{ inputs.root }}' = prod && test '${{ inputs.environment }}' != prod; then
+            echo 'The prod root requires the protected prod environment.' >&2
+            exit 2
+          fi
+
+      - name: Download the reviewed saved plan
+        uses: actions/download-artifact@v7
+        with:
+          name: terraform-plan-${{ inputs.root }}
+          path: reviewed-plan
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.plan_run_id }}
+
+      - name: Verify the plan came from a merged pull request
+        id: review
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          jq --exit-status \
+            --arg root '${{ inputs.root }}' \
+            '.root == $root and (.pullRequest | type == "number") and (.commit | type == "string")' \
+            reviewed-plan/source.json >/dev/null
+          pull_request=$(jq --raw-output .pullRequest reviewed-plan/source.json)
+          planned_commit=$(jq --raw-output .commit reviewed-plan/source.json)
+          reviewed_commit=$(gh api \
+            "repos/${{ github.repository }}/pulls/$pull_request" \
+            --jq 'select(.merged_at != null) | .head.sha')
+          if test "$planned_commit" != "$reviewed_commit"; then
+            echo 'The saved plan does not match the merged pull request head.' >&2
+            exit 2
+          fi
+          git checkout --detach "$planned_commit"
+
+      - name: Select Terraform root
+        id: root
+        run: |
+          case '${{ inputs.root }}' in
+            platform)
+              echo 'path=infra/terraform/platform' >> "$GITHUB_OUTPUT"
+              echo 'key=platform/terraform.tfstate' >> "$GITHUB_OUTPUT"
+              ;;
+            edge)
+              echo 'path=infra/terraform/edge' >> "$GITHUB_OUTPUT"
+              echo 'key=edge/terraform.tfstate' >> "$GITHUB_OUTPUT"
+              ;;
+            dev)
+              echo 'path=infra/terraform/environments/dev' >> "$GITHUB_OUTPUT"
+              echo 'key=environments/dev/terraform.tfstate' >> "$GITHUB_OUTPUT"
+              ;;
+            prod)
+              echo 'path=infra/terraform/environments/prod' >> "$GITHUB_OUTPUT"
+              echo 'key=environments/prod/terraform.tfstate' >> "$GITHUB_OUTPUT"
+              ;;
+            *) echo 'unknown Terraform root' >&2; exit 2 ;;
+          esac
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.15.8"
+          terraform_wrapper: false
+
+      - name: Authenticate with the protected apply role
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: us-east-1
+          role-to-assume: ${{ vars.AWS_TERRAFORM_APPLY_ROLE_ARN }}
+          role-session-name: stockai-apply-${{ inputs.environment }}-${{ inputs.root }}
+
+      - name: Initialize the reviewed root
+        working-directory: ${{ steps.root.outputs.path }}
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ vars.TERRAFORM_STATE_BUCKET }}" \
+            -backend-config="key=${{ vars.TERRAFORM_STATE_KEY_PREFIX }}/${{ steps.root.outputs.key }}" \
+            -backend-config="region=us-east-1" \
+            -backend-config="dynamodb_table=${{ vars.TERRAFORM_LOCK_TABLE }}" \
+            -backend-config="encrypt=true"
+
+      - name: Apply only the reviewed saved plan
+        id: apply
+        working-directory: ${{ steps.root.outputs.path }}
+        run: terraform apply -no-color "$GITHUB_WORKSPACE/reviewed-plan/tfplan"
+
+      - name: Publish apply summary
+        if: always()
+        run: |
+          {
+            echo "## Terraform apply: ${{ inputs.root }}"
+            echo "Protected environment: ${{ inputs.environment }}"
+            echo "Saved plan run: ${{ inputs.plan_run_id }}"
+            echo "Result: ${{ steps.apply.outcome }}"
+          } >> "$GITHUB_STEP_SUMMARY"

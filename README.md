@@ -21,6 +21,8 @@ approved plan tasks.
 - Docker Engine with Docker Compose
 - GNU Make
 - `curl`
+- Terraform 1.15.x, `kubectl` 1.35.x, and actionlint 1.7.12 for the complete
+  local infrastructure and workflow checks
 
 `uv` reads `.python-version` and can install the requested Python version when
 it is not already available.
@@ -214,6 +216,8 @@ make test-unit
 make test-integration
 make compose-validate
 make test-e2e
+make terraform-validate
+make kubernetes-validate
 ```
 
 Run the complete quality and unit-test suite with `make check`. The integration
@@ -226,6 +230,28 @@ make check
 
 Generated environments, caches, coverage output, and test reports are ignored
 by Git.
+
+## GitHub Actions configuration
+
+Pull requests run deterministic quality, Python/React test, build, Compose,
+Terraform, Kubernetes, secret-scan, and report-retention jobs. Pull requests to
+`main` additionally build and scan all four project images with Docker Scout.
+Configure `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` as repository secrets for
+that job.
+
+Terraform plan jobs use GitHub OIDC and require these repository variables:
+
+- `AWS_TERRAFORM_PLAN_ROLE_ARN`
+- `TERRAFORM_STATE_BUCKET`, `TERRAFORM_STATE_KEY_PREFIX`, and
+  `TERRAFORM_LOCK_TABLE`
+- `TERRAFORM_PLATFORM_TFVARS_JSON`, `TERRAFORM_EDGE_TFVARS_JSON`,
+  `TERRAFORM_DEV_TFVARS_JSON`, and `TERRAFORM_PROD_TFVARS_JSON`
+
+Manual saved-plan applies additionally require `AWS_TERRAFORM_APPLY_ROLE_ARN`.
+Protect the GitHub `dev` and `prod` environments before enabling applies. The
+T15 roles begin with state-only permissions by design; add the separately
+reviewed resource-scoped workload policies through Terraform before using an
+apply workflow. Never replace those policies with broad administrator access.
 
 The single verification command for the local backend walking skeleton is:
 

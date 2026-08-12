@@ -1,0 +1,7 @@
+# Reviewed fictional examples and environment-variable references from history.
+2824a08d814c39125f452b2fb52501fdb49a1d8f:deploy/kubernetes/base/application-workloads.yaml:generic-api-key:642
+2824a08d814c39125f452b2fb52501fdb49a1d8f:tests/kubernetes/test_application_overlays.py:generic-api-key:199
+9ac46ae852d6e33fb595c4be119490e725b0ea10:tests/unit/odoo/test_bootstrap_sinks.py:generic-api-key:20
+beef33aa4baa2229d46385287a23273c5fa0597f:.agents/skills/kubernetes-specialist/references/configuration.md:generic-api-key:75
+beef33aa4baa2229d46385287a23273c5fa0597f:.agents/skills/kubernetes-specialist/references/configuration.md:generic-api-key:120
+beef33aa4baa2229d46385287a23273c5fa0597f:.agents/skills/kubernetes-specialist/references/configuration.md:private-key:98
