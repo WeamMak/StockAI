@@ -16,3 +16,4 @@ resources:
   - application-services.yaml
   - application-autoscaling.yaml
   - application-ingress.yaml
+  - observability

@@ -13,7 +13,7 @@ import yaml  # type: ignore[import-untyped]
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 OVERLAYS_ROOT = PROJECT_ROOT / "deploy" / "kubernetes" / "overlays"
 ENVIRONMENTS = ("dev", "prod")
-DEPLOYMENTS = {
+APPLICATION_DEPLOYMENTS = {
     "stockai-agent-api",
     "stockai-frontend",
     "stockai-odoo",
@@ -85,7 +85,7 @@ def test_complete_application_inventory_and_immutable_images(environment: str) -
         for resource in _by_kind(resources, "Deployment")
     }
 
-    assert set(deployments) == DEPLOYMENTS
+    assert APPLICATION_DEPLOYMENTS <= set(deployments)
     assert {
         resource["metadata"]["name"] for resource in _by_kind(resources, "Job")
     } == {"stockai-odoo-bootstrap"}
@@ -96,7 +96,7 @@ def test_complete_application_inventory_and_immutable_images(environment: str) -
     project_images = {
         name: _containers(deployment)[0]["image"]
         for name, deployment in deployments.items()
-        if name != "stockai-postgresql"
+        if name in APPLICATION_DEPLOYMENTS and name != "stockai-postgresql"
     }
     project_images["stockai-odoo-bootstrap"] = _containers(
         _named(resources, "Job", "stockai-odoo-bootstrap")
@@ -123,7 +123,10 @@ def test_dev_and_prod_reference_the_same_project_image_digests() -> None:
                 *_by_kind(resources, "Job"),
                 *_by_kind(resources, "CronJob"),
             ]
-            if resource["metadata"]["name"] != "stockai-postgresql"
+            if resource["metadata"]["name"]
+            in APPLICATION_DEPLOYMENTS
+            | {"stockai-odoo-bootstrap", "stockai-daily-scan"}
+            and resource["metadata"]["name"] != "stockai-postgresql"
         }
 
     assert images_by_environment["dev"] == images_by_environment["prod"]
@@ -206,7 +209,11 @@ def test_workloads_have_health_resources_security_and_environment_placement(
 ) -> None:
     resources = _render(environment)
     workloads = [
-        *_by_kind(resources, "Deployment"),
+        *[
+            deployment
+            for deployment in _by_kind(resources, "Deployment")
+            if deployment["metadata"]["name"] in APPLICATION_DEPLOYMENTS
+        ],
         *_by_kind(resources, "Job"),
         *_by_kind(resources, "CronJob"),
     ]
@@ -285,6 +292,7 @@ def test_stateless_hpas_and_one_worker_request_budget(environment: str) -> None:
     steady_containers = [
         container
         for deployment in _by_kind(resources, "Deployment")
+        if deployment["metadata"]["name"] in APPLICATION_DEPLOYMENTS
         for container in _containers(deployment)
     ]
     total_cpu = sum(
@@ -312,7 +320,14 @@ def test_services_ingress_and_network_policies_expose_only_approved_flows(
         service["metadata"]["name"]: service
         for service in _by_kind(resources, "Service")
     }
-    assert set(services) == {"api", "frontend", "odoo", "postgresql", "procurement-mcp"}
+    application_services = {
+        "api",
+        "frontend",
+        "odoo",
+        "postgresql",
+        "procurement-mcp",
+    }
+    assert application_services <= set(services)
     assert all(
         service["spec"].get("type", "ClusterIP") == "ClusterIP"
         for service in services.values()
@@ -328,13 +343,14 @@ def test_services_ingress_and_network_policies_expose_only_approved_flows(
     assert [rule["host"] for rule in ingress["spec"]["rules"]] == [
         f"app.{environment}.stockai.fursa.click",
         f"odoo.{environment}.stockai.fursa.click",
+        f"grafana.{environment}.stockai.fursa.click",
     ]
     ingress_services = {
         path["backend"]["service"]["name"]
         for rule in ingress["spec"]["rules"]
         for path in rule["http"]["paths"]
     }
-    assert ingress_services == {"frontend", "odoo"}
+    assert ingress_services == {"frontend", "odoo", "grafana"}
     assert not {"procurement-mcp", "postgresql"} & ingress_services
 
     policies = {

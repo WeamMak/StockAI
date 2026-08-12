@@ -83,6 +83,30 @@ def _has_environment_affinity(pod_spec: dict[str, Any]) -> bool:
     )
 
 
+def test_external_secrets_v1_crds_are_pinned_with_the_cluster(
+    resources: list[dict[str, Any]],
+) -> None:
+    crds = {
+        resource["metadata"]["name"]: resource
+        for resource in resources
+        if resource["kind"] == "CustomResourceDefinition"
+        and resource["metadata"]["name"].endswith(".external-secrets.io")
+    }
+    assert {
+        "externalsecrets.external-secrets.io",
+        "secretstores.external-secrets.io",
+    } <= (set(crds))
+    for name in (
+        "externalsecrets.external-secrets.io",
+        "secretstores.external-secrets.io",
+    ):
+        versions = crds[name]["spec"]["versions"]
+        assert any(
+            version["name"] == "v1" and version["served"] and version["storage"]
+            for version in versions
+        )
+
+
 def test_all_controller_images_are_immutable_release_pins(
     resources: list[dict[str, Any]],
 ) -> None:

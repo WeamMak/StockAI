@@ -4,6 +4,7 @@ metadata:
   name: stockai
   labels:
     app.kubernetes.io/part-of: stockai
+    stockai.io/cluster-scoped: "true"
     pod-security.kubernetes.io/audit: restricted
     pod-security.kubernetes.io/audit-version: v1.35
     pod-security.kubernetes.io/enforce: restricted

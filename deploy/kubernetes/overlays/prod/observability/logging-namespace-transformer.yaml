@@ -1,0 +1,10 @@
+apiVersion: builtin
+kind: PatchTransformer
+metadata:
+  name: stockai-prod-log-namespace
+patch: |-
+  - op: replace
+    path: /metadata/namespace
+    value: stockai-logs-prod
+target:
+  labelSelector: stockai.io/log-scope=true

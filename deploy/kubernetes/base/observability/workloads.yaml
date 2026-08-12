@@ -1,0 +1,585 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stockai-prometheus
+  labels: &prometheus-labels
+    app.kubernetes.io/name: stockai-prometheus
+    app.kubernetes.io/component: metrics
+    app.kubernetes.io/part-of: stockai
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: stockai-prometheus
+  template:
+    metadata:
+      labels: *prometheus-labels
+    spec:
+      serviceAccountName: stockai-prometheus
+      automountServiceAccountToken: false
+      nodeSelector: &environment-selector
+        stockai.io/environment: stockai
+      tolerations: &environment-toleration
+        - key: stockai.io/environment
+          operator: Equal
+          value: stockai
+          effect: NoSchedule
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+        fsGroup: 65534
+        fsGroupChangePolicy: OnRootMismatch
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: prometheus
+          image: quay.io/prometheus/prometheus:v3.5.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - --config.file=/etc/prometheus/prometheus.yml
+            - --storage.tsdb.path=/prometheus
+            - --storage.tsdb.retention.time=7d
+            - --storage.tsdb.retention.size=4GB
+            - --web.enable-lifecycle
+          ports:
+            - name: http
+              containerPort: 9090
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 400m
+              memory: 512Mi
+          startupProbe: &prometheus-probe
+            httpGet:
+              path: /-/ready
+              port: http
+            periodSeconds: 2
+            timeoutSeconds: 2
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          readinessProbe: *prometheus-probe
+          securityContext: &restricted-security
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+          volumeMounts:
+            - name: config
+              mountPath: /etc/prometheus/prometheus.yml
+              subPath: prometheus.yml
+              readOnly: true
+            - name: targets
+              mountPath: /etc/prometheus/targets
+              readOnly: true
+            - name: data
+              mountPath: /prometheus
+      volumes:
+        - name: config
+          configMap:
+            name: stockai-observability-config
+            items:
+              - key: prometheus.yml
+                path: prometheus.yml
+        - name: targets
+          configMap:
+            name: stockai-observability-environment
+            items:
+              - key: blackbox-targets.yaml
+                path: blackbox-targets.yaml
+        - name: data
+          persistentVolumeClaim:
+            claimName: prometheus-data
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stockai-grafana
+  labels: &grafana-labels
+    app.kubernetes.io/name: stockai-grafana
+    app.kubernetes.io/component: dashboards
+    app.kubernetes.io/part-of: stockai
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: stockai-grafana
+  template:
+    metadata:
+      labels: *grafana-labels
+    spec:
+      serviceAccountName: stockai-grafana
+      automountServiceAccountToken: false
+      nodeSelector:
+        stockai.io/environment: stockai
+      tolerations:
+        - key: stockai.io/environment
+          operator: Equal
+          value: stockai
+          effect: NoSchedule
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+        fsGroup: 472
+        fsGroupChangePolicy: OnRootMismatch
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: grafana
+          image: docker.io/grafana/grafana:12.1.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-admin-password
+                  key: value
+            - name: AWS_REGION
+              value: us-east-1
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 384Mi
+          startupProbe: &grafana-probe
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 2
+            timeoutSeconds: 2
+            failureThreshold: 30
+          livenessProbe:
+            <<: *grafana-probe
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            <<: *grafana-probe
+            periodSeconds: 5
+            failureThreshold: 2
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 472
+            runAsGroup: 472
+          volumeMounts:
+            - name: grafana-data
+              mountPath: /var/lib/grafana
+            - name: config
+              mountPath: /etc/grafana/grafana.ini
+              subPath: grafana.ini
+              readOnly: true
+            - name: config
+              mountPath: /etc/grafana/provisioning/datasources/datasources.yaml
+              subPath: datasources.yaml
+              readOnly: true
+            - name: config
+              mountPath: /etc/grafana/provisioning/dashboards/dashboards.yaml
+              subPath: dashboards.yaml
+              readOnly: true
+            - name: config
+              mountPath: /etc/grafana/dashboards/placeholder-dashboard.json
+              subPath: placeholder-dashboard.json
+              readOnly: true
+      volumes:
+        - name: grafana-data
+          emptyDir:
+            sizeLimit: 256Mi
+        - name: config
+          configMap:
+            name: stockai-observability-config
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stockai-loki
+  labels: &loki-labels
+    app.kubernetes.io/name: stockai-loki
+    app.kubernetes.io/component: logs
+    app.kubernetes.io/part-of: stockai
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: stockai-loki
+  template:
+    metadata:
+      labels: *loki-labels
+    spec:
+      serviceAccountName: stockai-loki
+      automountServiceAccountToken: false
+      nodeSelector:
+        stockai.io/environment: stockai
+      tolerations:
+        - key: stockai.io/environment
+          operator: Equal
+          value: stockai
+          effect: NoSchedule
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: loki
+          image: docker.io/grafana/loki:3.5.3
+          imagePullPolicy: IfNotPresent
+          args:
+            - -config.file=/etc/loki/loki.yaml
+            - -config.expand-env=true
+          env:
+            - name: AWS_REGION
+              value: us-east-1
+            - name: LOKI_S3_BUCKET
+              value: replace-after-edge-terraform-apply
+            - name: LOKI_S3_PREFIX
+              value: stockai/
+            - name: LOKI_RETENTION_PERIOD
+              value: 336h
+          ports:
+            - name: http
+              containerPort: 3100
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 75m
+              memory: 192Mi
+            limits:
+              cpu: 300m
+              memory: 512Mi
+          startupProbe: &loki-probe
+            httpGet:
+              path: /ready
+              port: http
+            periodSeconds: 2
+            timeoutSeconds: 2
+            failureThreshold: 45
+          livenessProbe:
+            <<: *loki-probe
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            <<: *loki-probe
+            periodSeconds: 5
+            failureThreshold: 2
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+          volumeMounts:
+            - name: config
+              mountPath: /etc/loki/loki.yaml
+              subPath: loki.yaml
+              readOnly: true
+            - name: loki-data
+              mountPath: /var/loki
+      volumes:
+        - name: config
+          configMap:
+            name: stockai-observability-config
+            items:
+              - key: loki.yaml
+                path: loki.yaml
+        - name: loki-data
+          emptyDir:
+            sizeLimit: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stockai-alertmanager
+  labels: &alertmanager-labels
+    app.kubernetes.io/name: stockai-alertmanager
+    app.kubernetes.io/component: alerts
+    app.kubernetes.io/part-of: stockai
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: stockai-alertmanager
+  template:
+    metadata:
+      labels: *alertmanager-labels
+    spec:
+      serviceAccountName: stockai-alertmanager
+      automountServiceAccountToken: false
+      nodeSelector:
+        stockai.io/environment: stockai
+      tolerations:
+        - key: stockai.io/environment
+          operator: Equal
+          value: stockai
+          effect: NoSchedule
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+        fsGroup: 65534
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: alertmanager
+          image: quay.io/prometheus/alertmanager:v0.28.1
+          imagePullPolicy: IfNotPresent
+          args:
+            - --config.file=/etc/alertmanager/alertmanager.yml
+            - --storage.path=/alertmanager
+            - --data.retention=24h
+          ports:
+            - name: http
+              containerPort: 9093
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 15m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 96Mi
+          startupProbe: &alertmanager-probe
+            httpGet:
+              path: /-/ready
+              port: http
+            periodSeconds: 2
+            timeoutSeconds: 2
+            failureThreshold: 20
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          readinessProbe: *alertmanager-probe
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+          volumeMounts:
+            - name: config
+              mountPath: /etc/alertmanager/alertmanager.yml
+              subPath: alertmanager.yml
+              readOnly: true
+            - name: data
+              mountPath: /alertmanager
+      volumes:
+        - name: config
+          configMap:
+            name: stockai-observability-config
+            items:
+              - key: alertmanager.yml
+                path: alertmanager.yml
+        - name: data
+          emptyDir:
+            sizeLimit: 64Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stockai-blackbox-exporter
+  labels: &blackbox-labels
+    app.kubernetes.io/name: stockai-blackbox-exporter
+    app.kubernetes.io/component: probes
+    app.kubernetes.io/part-of: stockai
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: stockai-blackbox-exporter
+  template:
+    metadata:
+      labels: *blackbox-labels
+    spec:
+      serviceAccountName: stockai-blackbox-exporter
+      automountServiceAccountToken: false
+      nodeSelector:
+        stockai.io/environment: stockai
+      tolerations:
+        - key: stockai.io/environment
+          operator: Equal
+          value: stockai
+          effect: NoSchedule
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 15
+      containers:
+        - name: blackbox-exporter
+          image: quay.io/prometheus/blackbox-exporter:v0.27.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - --config.file=/etc/blackbox/blackbox.yml
+          ports:
+            - name: http
+              containerPort: 9115
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 10m
+              memory: 24Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          startupProbe: &blackbox-probe
+            httpGet:
+              path: /-/ready
+              port: http
+            periodSeconds: 2
+            timeoutSeconds: 2
+            failureThreshold: 20
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          readinessProbe: *blackbox-probe
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+          volumeMounts:
+            - name: config
+              mountPath: /etc/blackbox/blackbox.yml
+              subPath: blackbox.yml
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: stockai-observability-config
+            items:
+              - key: blackbox.yml
+                path: blackbox.yml
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stockai-external-secrets
+  labels: &external-secrets-labels
+    app.kubernetes.io/name: stockai-external-secrets
+    app.kubernetes.io/component: secrets
+    app.kubernetes.io/part-of: stockai
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: stockai-external-secrets
+  template:
+    metadata:
+      labels: *external-secrets-labels
+    spec:
+      serviceAccountName: stockai-external-secrets
+      automountServiceAccountToken: true
+      nodeSelector:
+        stockai.io/environment: stockai
+      tolerations:
+        - key: stockai.io/environment
+          operator: Equal
+          value: stockai
+          effect: NoSchedule
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: external-secrets
+          image: ghcr.io/external-secrets/external-secrets:v2.8.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - --namespace=stockai
+            - --controller-class=stockai-stockai
+            - --enable-cluster-store-reconciler=false
+            - --enable-cluster-external-secret-reconciler=false
+            - --enable-cluster-push-secret-reconciler=false
+            - --enable-push-secret-reconciler=false
+            - --metrics-addr=:8080
+            - --live-addr=:8081
+            - --loglevel=info
+            - --concurrent=2
+          ports:
+            - name: metrics
+              containerPort: 8080
+              protocol: TCP
+            - name: live
+              containerPort: 8081
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 150m
+              memory: 192Mi
+          startupProbe: &external-secrets-probe
+            httpGet:
+              path: /healthz
+              port: live
+            periodSeconds: 2
+            timeoutSeconds: 2
+            failureThreshold: 30
+          livenessProbe:
+            <<: *external-secrets-probe
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: live
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
