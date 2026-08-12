@@ -12,3 +12,7 @@ resources:
   - storage/odoo-filestore.yaml
   - storage/postgresql-data.yaml
   - storage/prometheus-data.yaml
+  - application-workloads.yaml
+  - application-services.yaml
+  - application-autoscaling.yaml
+  - application-ingress.yaml

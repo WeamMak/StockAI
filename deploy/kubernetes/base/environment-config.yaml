@@ -7,15 +7,27 @@ metadata:
 data:
   PROCUREMENT_AUTHENTICATION_MODE: cognito
   PROCUREMENT_AWS_REGION: us-east-1
+  PROCUREMENT_COGNITO_CLIENT_ID: replace-after-terraform-apply
+  PROCUREMENT_COGNITO_DOMAIN_URL: https://weam-stockai-stockai.auth.us-east-1.amazoncognito.com
+  PROCUREMENT_COGNITO_REDIRECT_URI: https://app.stockai.stockai.fursa.click/auth/callback
+  PROCUREMENT_COGNITO_USER_POOL_ID: us-east-1_replace-after-terraform-apply
   PROCUREMENT_DYNAMODB_APPLICATION_TABLE: weam-stockai-stockai-application
   PROCUREMENT_DYNAMODB_CHECKPOINT_TABLE: weam-stockai-stockai-checkpoints
   PROCUREMENT_ENVIRONMENT: stockai
   PROCUREMENT_LLM_MODE: bedrock
+  PROCUREMENT_LOCAL_ERP_MODE: odoo
+  PROCUREMENT_LOG_LEVEL: INFO
+  PROCUREMENT_MCP_CLIENT_TIMEOUT_SECONDS: "10"
+  PROCUREMENT_MCP_MAX_RETRIES: "2"
+  PROCUREMENT_MCP_READ_TIMEOUT_SECONDS: "10"
+  PROCUREMENT_MCP_RETRY_DELAY_SECONDS: "0.05"
   PROCUREMENT_MCP_URL: http://procurement-mcp:9000/mcp
+  PROCUREMENT_ODOO_COMPANY_ID: "1"
   PROCUREMENT_ODOO_DATABASE: stockai_stockai
   PROCUREMENT_ODOO_URL: http://odoo:8069
   PROCUREMENT_PERSISTENCE_MODE: dynamodb
   STOCKAI_APPLICATION_HOST: app.stockai.stockai.fursa.click
   STOCKAI_GRAFANA_HOST: grafana.stockai.stockai.fursa.click
+  STOCKAI_ODOO_BOOTSTRAP_SECRET_ARN: arn:aws:secretsmanager:us-east-1:228281126655:secret:weam-stockai/stockai/odoo-api-key-replace
   STOCKAI_ODOO_HOST: odoo.stockai.stockai.fursa.click
   STOCKAI_ODOO_SEED_ENVIRONMENT: stockai

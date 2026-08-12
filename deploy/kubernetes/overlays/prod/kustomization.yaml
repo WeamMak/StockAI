@@ -15,7 +15,63 @@ patches:
       kind: Namespace
       name: stockai
 
+images:
+  # T22 promotes the same dev-validated published digests into this map.
+  # These sentinels deliberately cannot identify a mutable image tag.
+  - name: stockai/frontend
+    newName: docker.io/weammak/stockai-frontend
+    digest: sha256:1111111111111111111111111111111111111111111111111111111111111111
+  - name: stockai/api
+    newName: docker.io/weammak/stockai-api
+    digest: sha256:2222222222222222222222222222222222222222222222222222222222222222
+  - name: stockai/mcp
+    newName: docker.io/weammak/stockai-mcp
+    digest: sha256:3333333333333333333333333333333333333333333333333333333333333333
+  - name: stockai/odoo
+    newName: docker.io/weammak/stockai-odoo
+    digest: sha256:4444444444444444444444444444444444444444444444444444444444444444
+
 replacements:
+  - source:
+      kind: ConfigMap
+      name: stockai-environment
+      fieldPath: data.PROCUREMENT_ENVIRONMENT
+    targets:
+      - select:
+          kind: Deployment
+        fieldPaths:
+          - spec.template.spec.nodeSelector.[stockai.io/environment]
+          - spec.template.spec.tolerations.0.value
+      - select:
+          kind: Job
+        fieldPaths:
+          - spec.template.spec.nodeSelector.[stockai.io/environment]
+          - spec.template.spec.tolerations.0.value
+      - select:
+          kind: CronJob
+        fieldPaths:
+          - spec.jobTemplate.spec.template.spec.nodeSelector.[stockai.io/environment]
+          - spec.jobTemplate.spec.template.spec.tolerations.0.value
+  - source:
+      kind: ConfigMap
+      name: stockai-environment
+      fieldPath: data.STOCKAI_APPLICATION_HOST
+    targets:
+      - select:
+          kind: Ingress
+          name: stockai-public
+        fieldPaths:
+          - spec.rules.0.host
+  - source:
+      kind: ConfigMap
+      name: stockai-environment
+      fieldPath: data.STOCKAI_ODOO_HOST
+    targets:
+      - select:
+          kind: Ingress
+          name: stockai-public
+        fieldPaths:
+          - spec.rules.1.host
   - source:
       kind: ConfigMap
       name: stockai-storage-coordinates

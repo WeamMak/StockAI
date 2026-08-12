@@ -3,11 +3,17 @@ kind: ConfigMap
 metadata:
   name: stockai-environment
 data:
+  # Replace these non-secret coordinates from the reviewed T17 Terraform output.
+  PROCUREMENT_COGNITO_CLIENT_ID: replace-after-dev-terraform-apply
+  PROCUREMENT_COGNITO_DOMAIN_URL: https://weam-stockai-dev.auth.us-east-1.amazoncognito.com
+  PROCUREMENT_COGNITO_REDIRECT_URI: https://app.dev.stockai.fursa.click/auth/callback
+  PROCUREMENT_COGNITO_USER_POOL_ID: us-east-1_replace-after-dev-terraform-apply
   PROCUREMENT_DYNAMODB_APPLICATION_TABLE: weam-stockai-dev-application
   PROCUREMENT_DYNAMODB_CHECKPOINT_TABLE: weam-stockai-dev-checkpoints
   PROCUREMENT_ENVIRONMENT: dev
   PROCUREMENT_ODOO_DATABASE: stockai_dev
   STOCKAI_APPLICATION_HOST: app.dev.stockai.fursa.click
   STOCKAI_GRAFANA_HOST: grafana.dev.stockai.fursa.click
+  STOCKAI_ODOO_BOOTSTRAP_SECRET_ARN: arn:aws:secretsmanager:us-east-1:228281126655:secret:weam-stockai/dev/odoo-api-key-replace
   STOCKAI_ODOO_HOST: odoo.dev.stockai.fursa.click
   STOCKAI_ODOO_SEED_ENVIRONMENT: dev
