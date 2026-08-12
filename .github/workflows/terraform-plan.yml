@@ -103,8 +103,8 @@ jobs:
         if: always()
         run: |
           {
-            echo '## Terraform plan: ${{ matrix.name }}'
-            echo 'Result: `${{ steps.plan.outcome }}`'
+            echo "## Terraform plan: ${{ matrix.name }}"
+            echo "Result: ${{ steps.plan.outcome }}"
             if test -f '${{ matrix.root }}/plan.txt'; then
               echo
               echo '<details><summary>Saved plan</summary>'

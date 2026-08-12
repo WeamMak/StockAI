@@ -81,18 +81,18 @@ jobs:
             echo '## Test and quality stages'
             echo '| Stage | Result |'
             echo '|---|---|'
-            echo '| Formatting, lint, and types | ${{ steps.quality.outcome }} |'
-            echo '| Unit tests | ${{ steps.unit.outcome }} |'
-            echo '| Integration tests | ${{ steps.integration.outcome }} |'
-            echo '| End-to-end tests | ${{ steps.end_to_end.outcome }} |'
-            echo '| Frontend build | ${{ steps.frontend_build.outcome }} |'
+            echo "| Formatting, lint, and types | ${{ steps.quality.outcome }} |"
+            echo "| Unit tests | ${{ steps.unit.outcome }} |"
+            echo "| Integration tests | ${{ steps.integration.outcome }} |"
+            echo "| End-to-end tests | ${{ steps.end_to_end.outcome }} |"
+            echo "| Frontend build | ${{ steps.frontend_build.outcome }} |"
             if test -f reports/coverage/unit.xml; then
               echo
-              echo 'Python coverage report: `reports/coverage/unit.xml`'
+              echo "Python coverage report: \`reports/coverage/unit.xml\`"
             fi
             if test -f reports/coverage/frontend/coverage-summary.json; then
               echo
-              echo 'React coverage report: `reports/coverage/frontend/coverage-summary.json`'
+              echo "React coverage report: \`reports/coverage/frontend/coverage-summary.json\`"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -139,9 +139,9 @@ jobs:
             echo '## Container stages'
             echo '| Stage | Result |'
             echo '|---|---|'
-            echo '| Compose validation | ${{ steps.compose.outcome }} |'
-            echo '| Four-image build | ${{ steps.images.outcome }} |'
-            echo '| Odoo contract | ${{ steps.odoo_contract.outcome }} |'
+            echo "| Compose validation | ${{ steps.compose.outcome }} |"
+            echo "| Four-image build | ${{ steps.images.outcome }} |"
+            echo "| Odoo contract | ${{ steps.odoo_contract.outcome }} |"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Retain Odoo contract report
@@ -199,8 +199,8 @@ jobs:
             echo '## Infrastructure stages'
             echo '| Stage | Result |'
             echo '|---|---|'
-            echo '| Terraform validation | ${{ steps.terraform.outcome }} |'
-            echo '| Kubernetes validation | ${{ steps.kubernetes.outcome }} |'
+            echo "| Terraform validation | ${{ steps.terraform.outcome }} |"
+            echo "| Kubernetes validation | ${{ steps.kubernetes.outcome }} |"
           } >> "$GITHUB_STEP_SUMMARY"
 
   secrets:
@@ -222,7 +222,7 @@ jobs:
       - name: Publish secret-scan summary
         if: always()
         run: |
-          echo '## Secret scan: ${{ steps.gitleaks.outcome }}' \
+          echo "## Secret scan: ${{ steps.gitleaks.outcome }}" \
             >> "$GITHUB_STEP_SUMMARY"
 
   docker-scout:
@@ -279,7 +279,7 @@ jobs:
       - name: Publish Scout summary
         if: always()
         run: |
-          echo '## Docker Scout (${{ matrix.name }}): ${{ steps.scout.outcome }}' \
+          echo "## Docker Scout (${{ matrix.name }}): ${{ steps.scout.outcome }}" \
             >> "$GITHUB_STEP_SUMMARY"
 
       - name: Retain Scout report

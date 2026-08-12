@@ -143,8 +143,8 @@ jobs:
         if: always()
         run: |
           {
-            echo '## Terraform apply: ${{ inputs.root }}'
-            echo 'Protected environment: `${{ inputs.environment }}`'
-            echo 'Saved plan run: `${{ inputs.plan_run_id }}`'
-            echo 'Result: `${{ steps.apply.outcome }}`'
+            echo "## Terraform apply: ${{ inputs.root }}"
+            echo "Protected environment: ${{ inputs.environment }}"
+            echo "Saved plan run: ${{ inputs.plan_run_id }}"
+            echo "Result: ${{ steps.apply.outcome }}"
           } >> "$GITHUB_STEP_SUMMARY"
