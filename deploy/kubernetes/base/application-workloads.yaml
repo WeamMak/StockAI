@@ -1,0 +1,670 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stockai-frontend
+  labels: &frontend-labels
+    app.kubernetes.io/name: stockai-frontend
+    app.kubernetes.io/component: frontend
+    app.kubernetes.io/part-of: stockai
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: stockai-frontend
+  template:
+    metadata:
+      labels: *frontend-labels
+    spec:
+      serviceAccountName: stockai-frontend
+      automountServiceAccountToken: false
+      nodeSelector:
+        stockai.io/environment: stockai
+      tolerations:
+        - key: stockai.io/environment
+          operator: Equal
+          value: stockai
+          effect: NoSchedule
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 15
+      containers:
+        - name: frontend
+          image: stockai/frontend
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          startupProbe: &frontend-probe
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 2
+            timeoutSeconds: 2
+            failureThreshold: 15
+          livenessProbe:
+            <<: *frontend-probe
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            <<: *frontend-probe
+            periodSeconds: 5
+            failureThreshold: 2
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 101
+            runAsGroup: 101
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 32Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stockai-agent-api
+  labels: &api-labels
+    app.kubernetes.io/name: stockai-agent-api
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: stockai
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: stockai-agent-api
+  template:
+    metadata:
+      labels: *api-labels
+    spec:
+      serviceAccountName: stockai-agent-api
+      automountServiceAccountToken: false
+      nodeSelector:
+        stockai.io/environment: stockai
+      tolerations:
+        - key: stockai.io/environment
+          operator: Equal
+          value: stockai
+          effect: NoSchedule
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 45
+      containers:
+        - name: api
+          image: stockai/api
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: stockai-environment
+          env:
+            - name: PROCUREMENT_CRON_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: cron-token
+                  key: value
+            - name: PROCUREMENT_MCP_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: mcp-token
+                  key: value
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 2
+            timeoutSeconds: 2
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 2
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stockai-procurement-mcp
+  labels: &mcp-labels
+    app.kubernetes.io/name: stockai-procurement-mcp
+    app.kubernetes.io/component: mcp
+    app.kubernetes.io/part-of: stockai
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: stockai-procurement-mcp
+  template:
+    metadata:
+      labels: *mcp-labels
+    spec:
+      serviceAccountName: stockai-procurement-mcp
+      automountServiceAccountToken: false
+      nodeSelector:
+        stockai.io/environment: stockai
+      tolerations:
+        - key: stockai.io/environment
+          operator: Equal
+          value: stockai
+          effect: NoSchedule
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 45
+      containers:
+        - name: procurement-mcp
+          image: stockai/mcp
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: stockai-environment
+          env:
+            - name: PROCUREMENT_MCP_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: mcp-token
+                  key: value
+            - name: PROCUREMENT_ODOO_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: odoo-api-key
+                  key: value
+          ports:
+            - name: http
+              containerPort: 9000
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 100m
+              memory: 192Mi
+            limits:
+              cpu: 500m
+              memory: 384Mi
+          startupProbe: &mcp-probe
+            httpGet:
+              path: /metrics
+              port: http
+            periodSeconds: 2
+            timeoutSeconds: 2
+            failureThreshold: 30
+          livenessProbe:
+            <<: *mcp-probe
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            <<: *mcp-probe
+            periodSeconds: 5
+            failureThreshold: 2
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stockai-postgresql
+  labels: &postgresql-labels
+    app.kubernetes.io/name: stockai-postgresql
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: stockai
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: stockai-postgresql
+  template:
+    metadata:
+      labels: *postgresql-labels
+    spec:
+      serviceAccountName: stockai-postgresql
+      automountServiceAccountToken: false
+      nodeSelector:
+        stockai.io/environment: stockai
+      tolerations:
+        - key: stockai.io/environment
+          operator: Equal
+          value: stockai
+          effect: NoSchedule
+      securityContext:
+        fsGroup: 999
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: postgresql
+          image: postgres@sha256:e8db9bd3e9e1751eb639fb17be53cc6d1b62a322adf75b99e791767a7a16ce69
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: POSTGRES_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: stockai-environment
+                  key: PROCUREMENT_ODOO_DATABASE
+            - name: POSTGRES_USER
+              value: odoo
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: odoo-database-password
+                  key: value
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - name: postgresql
+              containerPort: 5432
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 150m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          startupProbe: &postgresql-probe
+            exec:
+              command: [pg_isready, -U, odoo]
+            periodSeconds: 2
+            timeoutSeconds: 2
+            failureThreshold: 60
+          livenessProbe:
+            <<: *postgresql-probe
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            <<: *postgresql-probe
+            periodSeconds: 5
+            failureThreshold: 2
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 999
+            runAsGroup: 999
+          volumeMounts:
+            - name: postgresql-data
+              mountPath: /var/lib/postgresql/data
+            - name: postgresql-run
+              mountPath: /var/run/postgresql
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: postgresql-data
+          persistentVolumeClaim:
+            claimName: postgresql-data
+        - name: postgresql-run
+          emptyDir:
+            sizeLimit: 8Mi
+        - name: tmp
+          emptyDir:
+            sizeLimit: 32Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stockai-odoo
+  labels: &odoo-labels
+    app.kubernetes.io/name: stockai-odoo
+    app.kubernetes.io/component: erp
+    app.kubernetes.io/part-of: stockai
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: stockai-odoo
+  template:
+    metadata:
+      labels: *odoo-labels
+    spec:
+      serviceAccountName: stockai-odoo
+      automountServiceAccountToken: false
+      nodeSelector:
+        stockai.io/environment: stockai
+      tolerations:
+        - key: stockai.io/environment
+          operator: Equal
+          value: stockai
+          effect: NoSchedule
+      securityContext:
+        fsGroup: 101
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 45
+      containers:
+        - name: odoo
+          image: stockai/odoo
+          imagePullPolicy: IfNotPresent
+          args:
+            - odoo
+            - server
+            - --database=$(PROCUREMENT_ODOO_DATABASE)
+            - --init=purchase,stock,purchase_stock,contacts,account,analytic,stockai_procurement
+            - --without-demo=true
+            - --db-filter=^$(PROCUREMENT_ODOO_DATABASE)$
+            - --no-database-list
+            - --proxy-mode
+            - --workers=0
+            - --max-cron-threads=0
+            - --log-level=warn
+          env:
+            - name: HOST
+              value: postgresql
+            - name: PORT
+              value: "5432"
+            - name: USER
+              value: odoo
+            - name: PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: odoo-database-password
+                  key: value
+            - name: PROCUREMENT_ODOO_DATABASE
+              valueFrom:
+                configMapKeyRef:
+                  name: stockai-environment
+                  key: PROCUREMENT_ODOO_DATABASE
+          ports:
+            - name: http
+              containerPort: 8069
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 300m
+              memory: 768Mi
+            limits:
+              cpu: "1"
+              memory: 1536Mi
+          startupProbe: &odoo-probe
+            httpGet:
+              path: /web/health?db_server_status=1
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 4
+            failureThreshold: 36
+          livenessProbe:
+            <<: *odoo-probe
+            periodSeconds: 15
+            failureThreshold: 3
+          readinessProbe:
+            <<: *odoo-probe
+            periodSeconds: 5
+            failureThreshold: 2
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 100
+            runAsGroup: 101
+          volumeMounts:
+            - name: odoo-filestore
+              mountPath: /var/lib/odoo
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: odoo-filestore
+          persistentVolumeClaim:
+            claimName: odoo-filestore
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: stockai-odoo-bootstrap
+  labels:
+    app.kubernetes.io/name: stockai-odoo-bootstrap
+    app.kubernetes.io/component: automation
+    app.kubernetes.io/part-of: stockai
+spec:
+  activeDeadlineSeconds: 300
+  backoffLimit: 6
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: stockai-odoo-bootstrap
+        app.kubernetes.io/component: automation
+        app.kubernetes.io/part-of: stockai
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: stockai-automation
+      automountServiceAccountToken: false
+      nodeSelector:
+        stockai.io/environment: stockai
+      tolerations:
+        - key: stockai.io/environment
+          operator: Equal
+          value: stockai
+          effect: NoSchedule
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: bootstrap
+          image: stockai/odoo
+          imagePullPolicy: IfNotPresent
+          command: [bash, -lc]
+          args:
+            - >-
+              exec odoo shell --no-http --database="$PROCUREMENT_ODOO_DATABASE"
+              --db_host="$HOST" --db_port="$PORT" --db_user="$USER"
+              --db_password="$PASSWORD" --log-level=error
+              < /opt/stockai/bootstrap.py
+          env:
+            - name: HOST
+              value: postgresql
+            - name: PORT
+              value: "5432"
+            - name: USER
+              value: odoo
+            - name: PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: odoo-database-password
+                  key: value
+            - name: PROCUREMENT_ODOO_DATABASE
+              valueFrom:
+                configMapKeyRef:
+                  name: stockai-environment
+                  key: PROCUREMENT_ODOO_DATABASE
+            - name: STOCKAI_ODOO_BOOTSTRAP_LOGIN
+              value: stockai-integration@example.invalid
+            - name: STOCKAI_ODOO_BOOTSTRAP_KEY_NAME
+              value: stockai-procurement-integration
+            - name: STOCKAI_ODOO_BOOTSTRAP_KEY_EXPIRY_DAYS
+              value: "30"
+            - name: STOCKAI_ODOO_BOOTSTRAP_ROTATE
+              value: "false"
+            - name: STOCKAI_ODOO_BOOTSTRAP_SINK
+              value: secretsmanager
+            - name: STOCKAI_ODOO_BOOTSTRAP_SECRET_ARN
+              valueFrom:
+                configMapKeyRef:
+                  name: stockai-environment
+                  key: STOCKAI_ODOO_BOOTSTRAP_SECRET_ARN
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 100
+            runAsGroup: 101
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: stockai-daily-scan
+  labels:
+    app.kubernetes.io/name: stockai-daily-scan
+    app.kubernetes.io/component: automation
+    app.kubernetes.io/part-of: stockai
+spec:
+  schedule: "0 5 * * *"
+  timeZone: UTC
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 120
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: stockai-daily-scan
+            app.kubernetes.io/component: automation
+            app.kubernetes.io/part-of: stockai
+        spec:
+          restartPolicy: Never
+          serviceAccountName: stockai-automation
+          automountServiceAccountToken: false
+          nodeSelector:
+            stockai.io/environment: stockai
+          tolerations:
+            - key: stockai.io/environment
+              operator: Equal
+              value: stockai
+              effect: NoSchedule
+          securityContext:
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: trigger-scan
+              image: stockai/api
+              imagePullPolicy: IfNotPresent
+              command: [python, -c]
+              args:
+                - |
+                  import os
+                  from urllib.request import Request, urlopen
+
+                  request = Request(
+                      "http://api:8000/internal/v1/scans",
+                      data=b"",
+                      method="POST",
+                      headers={"Authorization": f"Bearer {os.environ['PROCUREMENT_CRON_TOKEN']}"},
+                  )
+                  with urlopen(request, timeout=10) as response:
+                      if response.status != 202:
+                          raise RuntimeError("scheduled scan was not accepted")
+              env:
+                - name: PROCUREMENT_CRON_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: cron-token
+                      key: value
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  cpu: 100m
+                  memory: 64Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: [ALL]
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+                runAsUser: 10001
+                runAsGroup: 10001

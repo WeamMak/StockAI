@@ -1,0 +1,84 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  labels:
+    app.kubernetes.io/name: stockai-frontend
+    app.kubernetes.io/part-of: stockai
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: stockai-frontend
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  labels:
+    app.kubernetes.io/name: stockai-agent-api
+    app.kubernetes.io/part-of: stockai
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: stockai-agent-api
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: procurement-mcp
+  labels:
+    app.kubernetes.io/name: stockai-procurement-mcp
+    app.kubernetes.io/part-of: stockai
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: stockai-procurement-mcp
+  ports:
+    - name: http
+      port: 9000
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: odoo
+  labels:
+    app.kubernetes.io/name: stockai-odoo
+    app.kubernetes.io/part-of: stockai
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: stockai-odoo
+  ports:
+    - name: http
+      port: 8069
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgresql
+  labels:
+    app.kubernetes.io/name: stockai-postgresql
+    app.kubernetes.io/part-of: stockai
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: stockai-postgresql
+  ports:
+    - name: postgresql
+      port: 5432
+      targetPort: postgresql
+      protocol: TCP

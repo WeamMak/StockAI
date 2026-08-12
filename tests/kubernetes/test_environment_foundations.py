@@ -247,26 +247,27 @@ def test_namespace_configuration_and_secret_contracts_are_environment_scoped(
 
 
 @pytest.mark.parametrize("environment", ("dev", "prod"))
-def test_foundation_starts_default_deny_with_a_fixed_storage_budget(
+def test_environment_keeps_default_deny_with_a_fixed_storage_budget(
     environment: str,
 ) -> None:
     resources = _render(environment)
-    policies = _resources_of_kind(resources, "NetworkPolicy")
-    assert policies == [
-        {
-            "apiVersion": "networking.k8s.io/v1",
-            "kind": "NetworkPolicy",
-            "metadata": {
-                "labels": {"app.kubernetes.io/part-of": "stockai"},
-                "name": "default-deny-all",
-                "namespace": environment,
-            },
-            "spec": {
-                "podSelector": {},
-                "policyTypes": ["Ingress", "Egress"],
-            },
-        }
-    ]
+    policies = {
+        item["metadata"]["name"]: item
+        for item in _resources_of_kind(resources, "NetworkPolicy")
+    }
+    assert policies["default-deny-all"] == {
+        "apiVersion": "networking.k8s.io/v1",
+        "kind": "NetworkPolicy",
+        "metadata": {
+            "labels": {"app.kubernetes.io/part-of": "stockai"},
+            "name": "default-deny-all",
+            "namespace": environment,
+        },
+        "spec": {
+            "podSelector": {},
+            "policyTypes": ["Ingress", "Egress"],
+        },
+    }
 
     quotas = _resources_of_kind(resources, "ResourceQuota")
     assert len(quotas) == 1
@@ -274,12 +275,6 @@ def test_foundation_starts_default_deny_with_a_fixed_storage_budget(
         "persistentvolumeclaims": "3",
         "requests.storage": "15Gi",
     }
-
-    assert not any(
-        resource["kind"]
-        in {"CronJob", "DaemonSet", "Deployment", "Job", "Pod", "StatefulSet"}
-        for resource in resources
-    )
 
 
 def test_sync_updates_only_six_handles_and_two_zone_values(tmp_path: Path) -> None:
