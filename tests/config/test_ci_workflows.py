@@ -47,6 +47,29 @@ def test_pull_request_checks_cover_required_offline_stages() -> None:
     assert "zricethezav/gitleaks:v8.28.0" in source
 
 
+def test_pull_request_checks_pin_uv_and_prepare_fictional_compose_values() -> None:
+    source = (WORKFLOWS / "pr-checks.yml").read_text(encoding="utf-8")
+
+    assert "astral-sh/setup-uv@v9" not in source
+    assert source.count(
+        "astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9"
+    ) == 2
+    assert source.count("run: cp .env.example .env") == 2
+
+
+def test_secret_scan_baselines_only_reviewed_fingerprints() -> None:
+    fingerprints = {
+        line
+        for line in (PROJECT_ROOT / ".gitleaksignore")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line and not line.startswith("#")
+    }
+
+    assert len(fingerprints) == 6
+    assert all(fingerprint.count(":") >= 3 for fingerprint in fingerprints)
+
+
 def test_scout_runs_only_for_main_pull_requests_and_all_four_images() -> None:
     job = _workflow("pr-checks.yml")["jobs"]["docker-scout"]
 
@@ -59,6 +82,8 @@ def test_scout_runs_only_for_main_pull_requests_and_all_four_images() -> None:
         "odoo",
     }
     assert all(entry["image"] for entry in matrix)
+    scout_step = next(step for step in job["steps"] if step.get("id") == "scout")
+    assert scout_step["with"]["exit-code"] == "false"
 
 
 def test_terraform_plans_are_path_filtered_and_use_read_only_oidc() -> None:
