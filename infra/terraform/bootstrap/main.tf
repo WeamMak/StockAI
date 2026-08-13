@@ -577,7 +577,7 @@ data "aws_iam_policy_document" "github_apply_lifecycle" {
       "s3:DeleteBucket",
       "s3:DeleteBucketPolicy",
       "s3:DeleteBucketWebsite",
-      "s3:PutBucketLifecycleConfiguration",
+      "s3:PutLifecycleConfiguration",
       "s3:PutBucketOwnershipControls",
       "s3:PutBucketPolicy",
       "s3:PutBucketPublicAccessBlock",

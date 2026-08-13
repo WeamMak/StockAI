@@ -263,6 +263,24 @@ def test_plan_role_can_refresh_edge_resources() -> None:
     assert "arn:aws:s3:::${var.loki_bucket_name}" in scoped_reads
 
 
+def test_apply_role_can_replace_loki_lifecycle_configuration() -> None:
+    main = _read("main.tf")
+    lifecycle = _block(
+        main,
+        'data "aws_iam_policy_document" "github_apply_lifecycle" {',
+        'resource "aws_iam_policy" "github_apply_lifecycle" {',
+    )
+    loki = _block(
+        lifecycle,
+        'sid    = "ManageExactLokiBucket"',
+        "  statement {",
+    )
+
+    assert '"s3:PutLifecycleConfiguration"' in loki
+    assert '"s3:PutBucketLifecycleConfiguration"' not in loki
+    assert 'resources = ["arn:aws:s3:::${var.loki_bucket_name}"]' in loki
+
+
 def test_apply_role_can_create_and_update_the_complete_edge_lifecycle() -> None:
     main = _read("main.tf")
     lifecycle = _block(
