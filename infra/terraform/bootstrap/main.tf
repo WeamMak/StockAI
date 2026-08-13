@@ -716,6 +716,7 @@ data "aws_iam_policy_document" "github_apply_lifecycle" {
       "lambda:ListVersionsByFunction",
       "logs:ListTagsForResource",
       "s3:GetLifecycleConfiguration",
+      "s3:ListBucket",
     ]
     resources = [
       "arn:aws:cloudwatch:${var.aws_region}:${var.aws_account_id}:alarm:${var.cluster_name}-worker-lifecycle-dev-non-clean",
