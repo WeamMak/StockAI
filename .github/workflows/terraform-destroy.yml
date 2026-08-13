@@ -1,0 +1,305 @@
+name: Protected Terraform destroy
+
+on:
+  workflow_dispatch:
+    inputs:
+      deployment:
+        description: Exact cluster name from deploy/config/deployment.json
+        required: true
+        type: string
+      aws_account_id:
+        description: Exact twelve-digit target AWS account
+        required: true
+        type: string
+      confirmation:
+        description: Type destroy DEPLOYMENT in ACCOUNT
+        required: true
+        type: string
+
+concurrency:
+  group: terraform-destroy-${{ inputs.deployment }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+
+jobs:
+  quiesce:
+    runs-on: ubuntu-latest
+    environment: infrastructure-destroy
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
+        with:
+          version: "0.11.27"
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.15.8"
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: us-east-1
+          role-to-assume: ${{ vars.AWS_TERRAFORM_APPLY_ROLE_ARN }}
+          role-session-name: stockai-destroy-quiesce
+      - name: Verify confirmation and quiesce environment workloads through SSM
+        env:
+          ACCOUNT: ${{ inputs.aws_account_id }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+          DEPLOYMENT: ${{ inputs.deployment }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          expected="destroy ${DEPLOYMENT} in ${ACCOUNT}"
+          test "$CONFIRMATION" = "$expected" || { echo 'Exact destruction confirmation is required.' >&2; exit 2; }
+          test "$(jq -r .generated.cluster_name deploy/config/deployment.json)" = "$DEPLOYMENT"
+          test "$(jq -r .generated.aws_account_id deploy/config/deployment.json)" = "$ACCOUNT"
+          uv run --frozen python -m scripts.infra.provision verify-runner
+          terraform -chdir=infra/terraform/platform init -input=false -backend-config="bucket=${{ vars.TERRAFORM_STATE_BUCKET }}" -backend-config="key=${{ vars.TERRAFORM_STATE_KEY_PREFIX }}/platform/terraform.tfstate" -backend-config="region=us-east-1" -backend-config="dynamodb_table=${{ vars.TERRAFORM_LOCK_TABLE }}" -backend-config="encrypt=true"
+          uv run --frozen python -m scripts.infra.cluster_platform \
+            --instance-id "$(terraform -chdir=infra/terraform/platform output -raw control_plane_instance_id)" \
+            --cluster-name "$DEPLOYMENT" quiesce | tee -a "$GITHUB_STEP_SUMMARY"
+
+  plan-prod:
+    needs: quiesce
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
+        with:
+          version: "0.11.27"
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.15.8"
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: us-east-1
+          role-to-assume: ${{ vars.AWS_TERRAFORM_PLAN_ROLE_ARN }}
+          role-session-name: stockai-destroy-plan-prod
+      - name: Create reviewed prod destruction plan
+        run: |
+          uv run --frozen python -m scripts.infra.provision render-input --root prod --output infra/terraform/environments/prod/ci.auto.tfvars.json
+          terraform -chdir=infra/terraform/environments/prod init -input=false -backend-config="bucket=${{ vars.TERRAFORM_STATE_BUCKET }}" -backend-config="key=${{ vars.TERRAFORM_STATE_KEY_PREFIX }}/environments/prod/terraform.tfstate" -backend-config="region=us-east-1" -backend-config="dynamodb_table=${{ vars.TERRAFORM_LOCK_TABLE }}" -backend-config="encrypt=true"
+          cd infra/terraform/environments/prod
+          terraform plan -destroy -out=tfplan -refresh=false -no-color
+          terraform show -no-color tfplan > plan.txt
+          sha256sum tfplan > tfplan.sha256
+          { echo '## Saved prod destruction plan'; cat tfplan.sha256; sed -n '1,500p' plan.txt; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: destroy-plan-prod
+          path: infra/terraform/environments/prod/{tfplan,tfplan.sha256,plan.txt}
+          if-no-files-found: error
+          retention-days: 14
+
+  apply-prod:
+    needs: plan-prod
+    runs-on: ubuntu-latest
+    environment: infrastructure-destroy
+    steps:
+      - uses: actions/checkout@v6
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.15.8"
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: us-east-1
+          role-to-assume: ${{ vars.AWS_TERRAFORM_APPLY_ROLE_ARN }}
+          role-session-name: stockai-destroy-apply-prod
+      - uses: actions/download-artifact@v7
+        with:
+          name: destroy-plan-prod
+          path: reviewed-plan
+      - name: Apply exact prod destruction plan
+        run: |
+          terraform -chdir=infra/terraform/environments/prod init -input=false -backend-config="bucket=${{ vars.TERRAFORM_STATE_BUCKET }}" -backend-config="key=${{ vars.TERRAFORM_STATE_KEY_PREFIX }}/environments/prod/terraform.tfstate" -backend-config="region=us-east-1" -backend-config="dynamodb_table=${{ vars.TERRAFORM_LOCK_TABLE }}" -backend-config="encrypt=true"
+          cp reviewed-plan/tfplan reviewed-plan/tfplan.sha256 infra/terraform/environments/prod/
+          cd infra/terraform/environments/prod
+          sha256sum --check tfplan.sha256
+          terraform apply -no-color tfplan
+
+  plan-dev:
+    needs: apply-prod
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
+        with:
+          version: "0.11.27"
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.15.8"
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: us-east-1
+          role-to-assume: ${{ vars.AWS_TERRAFORM_PLAN_ROLE_ARN }}
+          role-session-name: stockai-destroy-plan-dev
+      - name: Create reviewed dev destruction plan
+        run: |
+          uv run --frozen python -m scripts.infra.provision render-input --root dev --output infra/terraform/environments/dev/ci.auto.tfvars.json
+          terraform -chdir=infra/terraform/environments/dev init -input=false -backend-config="bucket=${{ vars.TERRAFORM_STATE_BUCKET }}" -backend-config="key=${{ vars.TERRAFORM_STATE_KEY_PREFIX }}/environments/dev/terraform.tfstate" -backend-config="region=us-east-1" -backend-config="dynamodb_table=${{ vars.TERRAFORM_LOCK_TABLE }}" -backend-config="encrypt=true"
+          cd infra/terraform/environments/dev
+          terraform plan -destroy -out=tfplan -refresh=false -no-color
+          terraform show -no-color tfplan > plan.txt
+          sha256sum tfplan > tfplan.sha256
+          { echo '## Saved dev destruction plan'; cat tfplan.sha256; sed -n '1,500p' plan.txt; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: destroy-plan-dev
+          path: infra/terraform/environments/dev/{tfplan,tfplan.sha256,plan.txt}
+          if-no-files-found: error
+          retention-days: 14
+
+  apply-dev:
+    needs: plan-dev
+    runs-on: ubuntu-latest
+    environment: infrastructure-destroy
+    steps:
+      - uses: actions/checkout@v6
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.15.8"
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: us-east-1
+          role-to-assume: ${{ vars.AWS_TERRAFORM_APPLY_ROLE_ARN }}
+          role-session-name: stockai-destroy-apply-dev
+      - uses: actions/download-artifact@v7
+        with:
+          name: destroy-plan-dev
+          path: reviewed-plan
+      - name: Apply exact dev destruction plan
+        run: |
+          terraform -chdir=infra/terraform/environments/dev init -input=false -backend-config="bucket=${{ vars.TERRAFORM_STATE_BUCKET }}" -backend-config="key=${{ vars.TERRAFORM_STATE_KEY_PREFIX }}/environments/dev/terraform.tfstate" -backend-config="region=us-east-1" -backend-config="dynamodb_table=${{ vars.TERRAFORM_LOCK_TABLE }}" -backend-config="encrypt=true"
+          cp reviewed-plan/tfplan reviewed-plan/tfplan.sha256 infra/terraform/environments/dev/
+          cd infra/terraform/environments/dev
+          sha256sum --check tfplan.sha256
+          terraform apply -no-color tfplan
+
+  plan-edge:
+    needs: apply-dev
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
+        with:
+          version: "0.11.27"
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.15.8"
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: us-east-1
+          role-to-assume: ${{ vars.AWS_TERRAFORM_PLAN_ROLE_ARN }}
+          role-session-name: stockai-destroy-plan-edge
+      - name: Create reviewed edge destruction plan
+        run: |
+          uv run --frozen python -m scripts.infra.provision render-input --root edge --output infra/terraform/edge/ci.auto.tfvars.json
+          terraform -chdir=infra/terraform/edge init -input=false -backend-config="bucket=${{ vars.TERRAFORM_STATE_BUCKET }}" -backend-config="key=${{ vars.TERRAFORM_STATE_KEY_PREFIX }}/edge/terraform.tfstate" -backend-config="region=us-east-1" -backend-config="dynamodb_table=${{ vars.TERRAFORM_LOCK_TABLE }}" -backend-config="encrypt=true"
+          cd infra/terraform/edge
+          terraform plan -destroy -out=tfplan -refresh=false -no-color
+          terraform show -no-color tfplan > plan.txt
+          sha256sum tfplan > tfplan.sha256
+          { echo '## Saved edge destruction plan'; cat tfplan.sha256; sed -n '1,500p' plan.txt; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: destroy-plan-edge
+          path: infra/terraform/edge/{tfplan,tfplan.sha256,plan.txt}
+          if-no-files-found: error
+          retention-days: 14
+
+  apply-edge:
+    needs: plan-edge
+    runs-on: ubuntu-latest
+    environment: infrastructure-destroy
+    steps:
+      - uses: actions/checkout@v6
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.15.8"
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: us-east-1
+          role-to-assume: ${{ vars.AWS_TERRAFORM_APPLY_ROLE_ARN }}
+          role-session-name: stockai-destroy-apply-edge
+      - uses: actions/download-artifact@v7
+        with:
+          name: destroy-plan-edge
+          path: reviewed-plan
+      - name: Apply exact edge destruction plan
+        run: |
+          terraform -chdir=infra/terraform/edge init -input=false -backend-config="bucket=${{ vars.TERRAFORM_STATE_BUCKET }}" -backend-config="key=${{ vars.TERRAFORM_STATE_KEY_PREFIX }}/edge/terraform.tfstate" -backend-config="region=us-east-1" -backend-config="dynamodb_table=${{ vars.TERRAFORM_LOCK_TABLE }}" -backend-config="encrypt=true"
+          cp reviewed-plan/tfplan reviewed-plan/tfplan.sha256 infra/terraform/edge/
+          cd infra/terraform/edge
+          sha256sum --check tfplan.sha256
+          terraform apply -no-color tfplan
+
+  plan-platform:
+    needs: apply-edge
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
+        with:
+          version: "0.11.27"
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.15.8"
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: us-east-1
+          role-to-assume: ${{ vars.AWS_TERRAFORM_PLAN_ROLE_ARN }}
+          role-session-name: stockai-destroy-plan-platform
+      - name: Create reviewed platform destruction plan
+        run: |
+          uv run --frozen python -m scripts.infra.provision render-input --root platform --output infra/terraform/platform/ci.auto.tfvars.json
+          terraform -chdir=infra/terraform/platform init -input=false -backend-config="bucket=${{ vars.TERRAFORM_STATE_BUCKET }}" -backend-config="key=${{ vars.TERRAFORM_STATE_KEY_PREFIX }}/platform/terraform.tfstate" -backend-config="region=us-east-1" -backend-config="dynamodb_table=${{ vars.TERRAFORM_LOCK_TABLE }}" -backend-config="encrypt=true"
+          cd infra/terraform/platform
+          terraform plan -destroy -out=tfplan -refresh=false -no-color
+          terraform show -no-color tfplan > plan.txt
+          sha256sum tfplan > tfplan.sha256
+          { echo '## Saved platform destruction plan'; cat tfplan.sha256; sed -n '1,500p' plan.txt; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: destroy-plan-platform
+          path: infra/terraform/platform/{tfplan,tfplan.sha256,plan.txt}
+          if-no-files-found: error
+          retention-days: 14
+
+  apply-platform:
+    needs: plan-platform
+    runs-on: ubuntu-latest
+    environment: infrastructure-destroy
+    steps:
+      - uses: actions/checkout@v6
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.15.8"
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: us-east-1
+          role-to-assume: ${{ vars.AWS_TERRAFORM_APPLY_ROLE_ARN }}
+          role-session-name: stockai-destroy-apply-platform
+      - uses: actions/download-artifact@v7
+        with:
+          name: destroy-plan-platform
+          path: reviewed-plan
+      - name: Apply exact platform destruction plan
+        run: |
+          terraform -chdir=infra/terraform/platform init -input=false -backend-config="bucket=${{ vars.TERRAFORM_STATE_BUCKET }}" -backend-config="key=${{ vars.TERRAFORM_STATE_KEY_PREFIX }}/platform/terraform.tfstate" -backend-config="region=us-east-1" -backend-config="dynamodb_table=${{ vars.TERRAFORM_LOCK_TABLE }}" -backend-config="encrypt=true"
+          cp reviewed-plan/tfplan reviewed-plan/tfplan.sha256 infra/terraform/platform/
+          cd infra/terraform/platform
+          sha256sum --check tfplan.sha256
+          terraform apply -no-color tfplan
+          echo 'Bootstrap state, locking, and GitHub OIDC roles were preserved.' >> "$GITHUB_STEP_SUMMARY"

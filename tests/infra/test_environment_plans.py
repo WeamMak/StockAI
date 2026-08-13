@@ -13,6 +13,7 @@ from tests.infra.plan import TerraformPlan, create_plan, resources
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 ENVIRONMENTS_ROOT = PROJECT_ROOT / "infra" / "terraform" / "environments"
+APP_MODULE = PROJECT_ROOT / "infra" / "terraform" / "modules" / "app-environment"
 ACCOUNT_ID = "123456789012"
 LOG_BUCKET_ARN = "arn:aws:s3:::weam-stockai-t17-operational-logs"
 
@@ -290,6 +291,15 @@ def test_six_encrypted_retained_volumes_match_environment_azs(
             coordinates == {"volume_id": True}
             for coordinates in unknown[environment].values()
         )
+
+
+def test_protected_destroy_can_plan_environment_data_volumes() -> None:
+    source = (APP_MODULE / "main.tf").read_text(encoding="utf-8")
+    volume_block = source.split('resource "aws_ebs_volume" "data" {', maxsplit=1)[
+        1
+    ].split('data "aws_iam_policy_document" "worker_application"', maxsplit=1)[0]
+
+    assert "prevent_destroy" not in volume_block
 
 
 def test_only_prod_erp_volumes_receive_seven_daily_snapshots(

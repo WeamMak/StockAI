@@ -14,12 +14,14 @@ from scripts.infra.provision import (
     DEFAULT_DESCRIPTOR,
     ProvisionError,
     atomic_write_json,
+    capture_output,
     configure_github,
     generated_metadata,
     load_descriptor,
     provision,
     root_inputs,
     validate_descriptor,
+    verify_runner,
 )
 
 
@@ -110,6 +112,12 @@ def test_renders_all_root_inputs_without_github_json_blobs() -> None:
     prod = root_inputs(descriptor, "prod")
 
     assert bootstrap["github_repository_subject"].endswith("StockAI@1311929978")
+    assert bootstrap["github_apply_environments"] == [
+        "dev",
+        "infrastructure-destroy",
+        "infrastructure-provision",
+        "prod",
+    ]
     assert platform["ami_id"] == descriptor["generated"]["ami_id"]
     assert edge["vpc_id"] == descriptor["outputs"]["platform"]["vpc_id"]
     assert edge["domain_name"] == descriptor["inputs"]["domain_name"]
@@ -224,3 +232,50 @@ def test_rejected_saved_plan_never_runs_terraform_apply(
 
     assert any(command[:2] == ["terraform", "plan"] for command in commands)
     assert not any(command[:2] == ["terraform", "apply"] for command in commands)
+
+
+def test_verify_runner_rejects_wrong_aws_account_or_repository(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    descriptor = load_descriptor(DEFAULT_DESCRIPTOR)
+    monkeypatch.setattr(provision_module, "discover_account_id", lambda: "000000000000")
+
+    with pytest.raises(ProvisionError, match="AWS account"):
+        verify_runner(descriptor)
+
+    monkeypatch.setattr(
+        provision_module,
+        "discover_account_id",
+        lambda: descriptor["generated"]["aws_account_id"],
+    )
+    monkeypatch.setattr(
+        provision_module,
+        "discover_repository",
+        lambda: RepositoryIdentity("someone/else", "someone", 1, "else", 2),
+    )
+    with pytest.raises(ProvisionError, match="GitHub repository"):
+        verify_runner(descriptor)
+
+
+def test_capture_output_updates_only_the_requested_root(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    descriptor_path = tmp_path / "deployment.json"
+    descriptor = load_descriptor(DEFAULT_DESCRIPTOR)
+    original_edge = copy.deepcopy(descriptor["outputs"]["edge"])
+    atomic_write_json(descriptor_path, descriptor)
+    monkeypatch.setattr(
+        provision_module,
+        "_terraform_output",
+        lambda _: {"control_plane_instance_id": "i-0123456789abcdef0"},
+    )
+    root_path = tmp_path / "platform"
+    root_path.mkdir()
+
+    capture_output(descriptor_path, "platform", root_path=root_path)
+
+    updated = load_descriptor(descriptor_path)
+    assert updated["outputs"]["platform"] == {
+        "control_plane_instance_id": "i-0123456789abcdef0"
+    }
+    assert updated["outputs"]["edge"] == original_edge

@@ -32,10 +32,25 @@ variable "aws_region" {
   }
 }
 
+variable "cluster_name" {
+  description = "Deterministic StockAI cluster prefix used to scope lifecycle resources"
+  type        = string
+
+  validation {
+    condition     = can(regex("^[a-z][a-z0-9-]{2,31}$", var.cluster_name))
+    error_message = "Cluster name must be 3-32 lowercase letters, digits, or hyphens and start with a letter."
+  }
+}
+
 variable "github_apply_environments" {
   description = "Protected GitHub environments allowed to assume the Terraform apply role"
   type        = set(string)
-  default     = ["dev", "prod"]
+  default = [
+    "dev",
+    "infrastructure-destroy",
+    "infrastructure-provision",
+    "prod",
+  ]
 
   validation {
     condition = (
@@ -70,6 +85,40 @@ variable "project_name" {
   validation {
     condition     = can(regex("^[a-z][a-z0-9-]{2,31}$", var.project_name))
     error_message = "Project name must be 3-32 lowercase letters, digits, or hyphens and start with a letter."
+  }
+}
+
+variable "route53_zone_id" {
+  description = "Exact existing public hosted zone allowed for StockAI DNS records"
+  type        = string
+
+  validation {
+    condition     = can(regex("^Z[A-Z0-9]{8,31}$", var.route53_zone_id))
+    error_message = "Route 53 hosted-zone ID is invalid."
+  }
+}
+
+variable "loki_bucket_name" {
+  description = "Exact non-bootstrap S3 bucket managed by the edge Terraform root"
+  type        = string
+
+  validation {
+    condition = (
+      length(var.loki_bucket_name) >= 3 &&
+      length(var.loki_bucket_name) <= 63 &&
+      can(regex("^[a-z0-9][a-z0-9.-]*[a-z0-9]$", var.loki_bucket_name))
+    )
+    error_message = "Loki bucket name must be a valid 3-63 character lowercase S3 bucket name."
+  }
+}
+
+variable "owner_name" {
+  description = "Exact Owner tag required on mutable StockAI lifecycle resources"
+  type        = string
+
+  validation {
+    condition     = can(regex("^[a-z][a-z0-9-]{1,31}$", var.owner_name))
+    error_message = "Owner name must be 2-32 lowercase letters, digits, or hyphens."
   }
 }
 

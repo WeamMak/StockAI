@@ -3,12 +3,16 @@
 
 administrator_cidr = "203.0.113.10/32"
 aws_account_id      = "replace-with-your-12-digit-account-id"
+cluster_name        = "replace-with-your-stockai-cluster"
+loki_bucket_name    = "replace-with-your-stockai-loki-bucket"
+owner_name          = "replace-with-your-owner-tag"
+route53_zone_id     = "ZREPLACE123456789"
 
 # Resolve this immutable value with the `gh api` command in the runbook.
 github_repository_subject = "replace-with-your-owner@id/repository@id"
 
-# Both environments must be protected in GitHub before the apply role is used.
-github_apply_environments = ["dev", "prod"]
+# All environments must have required reviewers before the apply role is used.
+github_apply_environments = ["dev", "infrastructure-destroy", "infrastructure-provision", "prod"]
 
 # S3 names are globally unique. Keep this bucket dedicated to Terraform state.
 state_bucket_name     = "replace-with-your-unique-stockai-terraform-state-bucket"

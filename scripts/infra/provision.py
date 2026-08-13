@@ -32,6 +32,7 @@ DEFAULT_DESCRIPTOR = PROJECT_ROOT / "deploy" / "config" / "deployment.json"
 CHECKPOINT = PROJECT_ROOT / ".stockai-provision-checkpoint.json"
 MAX_DESCRIPTOR_BYTES = 256 * 1024
 ROOTS = ("bootstrap", "platform", "edge", "dev", "prod")
+LIFECYCLE_ROOTS = ("platform", "edge", "dev", "prod")
 ROOT_PATHS = {
     "bootstrap": PROJECT_ROOT / "infra" / "terraform" / "bootstrap",
     "platform": PROJECT_ROOT / "infra" / "terraform" / "platform",
@@ -282,9 +283,18 @@ def root_inputs(descriptor: Mapping[str, Any], root: str) -> dict[str, Any]:
         return {
             **common,
             "administrator_cidr": generated["administrator_cidr"],
-            "github_apply_environments": ["dev", "prod"],
+            "cluster_name": generated["cluster_name"],
+            "github_apply_environments": [
+                "dev",
+                "infrastructure-destroy",
+                "infrastructure-provision",
+                "prod",
+            ],
             "github_repository_subject": generated["github_repository_subject"],
+            "loki_bucket_name": generated["loki_bucket_name"],
+            "owner_name": generated["owner_name"],
             "project_name": generated["project_name"],
+            "route53_zone_id": inputs["route53_zone_id"],
             "state_bucket_name": generated["state_bucket_name"],
             "state_key_prefix": generated["state_key_prefix"],
             "state_lock_table_name": generated["state_lock_table_name"],
@@ -339,6 +349,38 @@ def root_inputs(descriptor: Mapping[str, Any], root: str) -> dict[str, Any]:
 
 def render_input(descriptor: Mapping[str, Any], root: str, path: Path) -> None:
     atomic_write_json(path, root_inputs(descriptor, root))
+
+
+def verify_runner(descriptor: Mapping[str, Any]) -> None:
+    """Verify that a non-interactive runner belongs to this deployment."""
+    validate_descriptor(descriptor)
+    if discover_account_id() != descriptor["generated"]["aws_account_id"]:
+        raise ProvisionError("authenticated AWS account does not match the deployment")
+    if discover_repository().full_name != descriptor["generated"]["github_repository"]:
+        raise ProvisionError(
+            "authenticated GitHub repository does not match the deployment"
+        )
+
+
+def capture_output(
+    descriptor_path: Path,
+    root: str,
+    *,
+    root_path: Path | None = None,
+) -> None:
+    """Atomically record typed Terraform outputs for one applied lifecycle root."""
+    if root not in LIFECYCLE_ROOTS:
+        raise ProvisionError("output capture is limited to lifecycle roots")
+    descriptor = load_descriptor(descriptor_path)
+    descriptor["outputs"][root] = _terraform_output(root_path or ROOT_PATHS[root])
+    atomic_write_json(descriptor_path, descriptor)
+
+
+def sync_outputs(descriptor_path: Path) -> None:
+    """Synchronize reviewed non-secret Terraform outputs into desired state."""
+    from scripts.config.sync_terraform_outputs import sync_from_deployment
+
+    sync_from_deployment(load_descriptor(descriptor_path))
 
 
 def _terraform_output(root_path: Path) -> dict[str, Any]:
@@ -517,6 +559,10 @@ def _parse_arguments() -> argparse.Namespace:
     render = subparsers.add_parser("render-input")
     render.add_argument("--root", choices=ROOTS, required=True)
     render.add_argument("--output", type=Path, required=True)
+    capture = subparsers.add_parser("capture-output")
+    capture.add_argument("--root", choices=LIFECYCLE_ROOTS, required=True)
+    subparsers.add_parser("verify-runner")
+    subparsers.add_parser("sync-outputs")
     subparsers.add_parser("configure-github")
     subparsers.add_parser("provision")
     return parser.parse_args()
@@ -562,6 +608,12 @@ def main() -> int:
             )
         elif arguments.command == "configure-github":
             configure_github(load_descriptor(arguments.descriptor))
+        elif arguments.command == "verify-runner":
+            verify_runner(load_descriptor(arguments.descriptor))
+        elif arguments.command == "capture-output":
+            capture_output(arguments.descriptor, arguments.root)
+        elif arguments.command == "sync-outputs":
+            sync_outputs(arguments.descriptor)
         else:
             provision(arguments.descriptor)
     except (

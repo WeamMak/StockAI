@@ -66,7 +66,11 @@ def test_secret_scan_baselines_only_reviewed_fingerprints() -> None:
         if line and not line.startswith("#")
     }
 
-    assert len(fingerprints) == 7
+    assert len(fingerprints) == 8
+    assert (
+        "c123a64e8f27f948855f315c5806637e7cdcae04:"
+        "tests/unit/infra/test_cluster_platform.py:generic-api-key:56"
+    ) in fingerprints
     assert all(fingerprint.count(":") >= 3 for fingerprint in fingerprints)
 
 
@@ -115,6 +119,84 @@ def test_terraform_apply_is_manual_protected_and_consumes_a_saved_plan() -> None
     assert "merged_at != null" in source
     assert "terraform apply -no-color" in source
     assert "terraform plan" not in source
+
+
+def test_t21b_lifecycle_workflows_are_manual_protected_and_keyless() -> None:
+    expected = {
+        "terraform-provision.yml": "infrastructure-provision",
+        "terraform-destroy.yml": "infrastructure-destroy",
+    }
+
+    for name, environment in expected.items():
+        workflow = _workflow(name)
+        source = (WORKFLOWS / name).read_text(encoding="utf-8")
+
+        assert set(workflow["on"]) == {"workflow_dispatch"}
+        assert workflow["permissions"] == {
+            "contents": "read",
+            "id-token": "write",
+        }
+        assert environment in source
+        assert "AWS_TERRAFORM_APPLY_ROLE_ARN" in source
+        assert "aws-actions/configure-aws-credentials" in source
+        assert "AWS_ACCESS_KEY_ID" not in source
+        assert "AWS_SECRET_ACCESS_KEY" not in source
+        assert "ssh" not in source.lower()
+        assert "kubectl" not in source
+        assert "schedule:" not in source
+        assert "push:" not in source
+        assert "pull_request:" not in source
+        assert "infra/terraform/bootstrap" not in source
+        assert "terraform apply -auto-approve" not in source
+
+
+def test_t21b_provision_uses_saved_plans_in_dependency_order() -> None:
+    source = (WORKFLOWS / "terraform-provision.yml").read_text(encoding="utf-8")
+
+    positions = [
+        source.index(f"apply-{root}:") for root in ("platform", "edge", "dev", "prod")
+    ]
+    assert positions == sorted(positions)
+    assert "needs: apply-platform" in source
+    assert "needs: apply-edge" in source
+    assert "needs: apply-dev" in source
+    assert source.index("cluster-platform:") > source.index("apply-prod:")
+    assert "terraform plan -out=tfplan" in source
+    assert "sha256sum tfplan" in source
+    assert "terraform apply -no-color tfplan" in source
+    assert "scripts.infra.provision" in source
+    assert "verify-runner" in source
+    assert "capture-output" in source
+    assert "sync-outputs" in source
+    assert "scripts.infra.cluster_platform" in source
+    assert "install" in source
+    assert 'expected="provision ${DEPLOYMENT} in ${ACCOUNT}"' in source
+
+
+def test_t21b_destroy_is_reverse_order_and_preserves_bootstrap() -> None:
+    source = (WORKFLOWS / "terraform-destroy.yml").read_text(encoding="utf-8")
+
+    positions = [
+        source.index(f"apply-{root}:") for root in ("prod", "dev", "edge", "platform")
+    ]
+    assert positions == sorted(positions)
+    assert "needs: quiesce" in source
+    assert "needs: apply-prod" in source
+    assert "needs: apply-dev" in source
+    assert "needs: apply-edge" in source
+    assert "terraform plan -destroy -out=tfplan" in source
+    assert "terraform apply -no-color tfplan" in source
+    assert "scripts.infra.cluster_platform" in source
+    assert "quiesce" in source
+    assert 'expected="destroy ${DEPLOYMENT} in ${ACCOUNT}"' in source
+    for protected in (
+        "terraform-state",
+        "terraform-lock",
+        "github_actions",
+        "github_plan",
+        "github_apply",
+    ):
+        assert protected not in source
 
 
 def test_every_workflow_retains_reports_or_publishes_a_summary() -> None:
