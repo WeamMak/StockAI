@@ -300,7 +300,6 @@ data "aws_iam_policy_document" "github_apply_lifecycle" {
       "ec2:CreateTags",
       "ec2:CreateVolume",
       "ec2:CreateVpc",
-      "ec2:RunInstances",
       "elasticloadbalancing:CreateLoadBalancer",
       "elasticloadbalancing:CreateTargetGroup",
       "events:PutRule",
@@ -319,6 +318,34 @@ data "aws_iam_policy_document" "github_apply_lifecycle" {
       variable = "aws:RequestTag/Owner"
       values   = [var.owner_name]
     }
+  }
+
+  statement {
+    sid     = "RunOnlyTaggedStockAIInstancesAndVolumes"
+    effect  = "Allow"
+    actions = ["ec2:RunInstances"]
+    resources = [
+      "arn:aws:ec2:${var.aws_region}:${var.aws_account_id}:instance/*",
+      "arn:aws:ec2:${var.aws_region}:${var.aws_account_id}:volume/*",
+    ]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestTag/Owner"
+      values   = [var.owner_name]
+    }
+  }
+
+  statement {
+    sid     = "UseOnlyRegionalRunInstanceDependencies"
+    effect  = "Allow"
+    actions = ["ec2:RunInstances"]
+    resources = [
+      "arn:aws:ec2:${var.aws_region}::image/*",
+      "arn:aws:ec2:${var.aws_region}:${var.aws_account_id}:network-interface/*",
+      "arn:aws:ec2:${var.aws_region}:${var.aws_account_id}:security-group/*",
+      "arn:aws:ec2:${var.aws_region}:${var.aws_account_id}:subnet/*",
+    ]
   }
 
   statement {
@@ -648,6 +675,8 @@ locals {
       "ManageNamedStockAIIam",
       "MutateOnlyOwnedStockAIResources",
       "PassOnlyApprovedStockAIRoles",
+      "RunOnlyTaggedStockAIInstancesAndVolumes",
+      "UseOnlyRegionalRunInstanceDependencies",
     ]
     services = [
       "ManageExactApplicationData",

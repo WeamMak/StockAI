@@ -256,6 +256,37 @@ def test_launch_template_versions_mutate_only_owner_tagged_templates() -> None:
     assert 'variable = "aws:ResourceTag/Owner"' in mutate_owned
 
 
+def test_run_instances_requires_owned_compute_and_scoped_dependencies() -> None:
+    main = _read("main.tf")
+    create_only = _block(
+        main,
+        'sid    = "CreateOnlyTaggedStockAIResources"',
+        "  statement {",
+    )
+    tagged_compute = _block(
+        main,
+        'sid     = "RunOnlyTaggedStockAIInstancesAndVolumes"',
+        "  statement {",
+    )
+    dependencies = _block(
+        main,
+        'sid     = "UseOnlyRegionalRunInstanceDependencies"',
+        "  statement {",
+    )
+
+    assert '"ec2:RunInstances"' not in create_only
+    assert '"ec2:RunInstances"' in tagged_compute
+    assert 'variable = "aws:RequestTag/Owner"' in tagged_compute
+    assert "instance/*" in tagged_compute
+    assert "volume/*" in tagged_compute
+    assert '"ec2:RunInstances"' in dependencies
+    assert "::image/*" in dependencies
+    assert "network-interface/*" in dependencies
+    assert "security-group/*" in dependencies
+    assert "subnet/*" in dependencies
+    assert 'resources = ["*"]' not in dependencies
+
+
 def test_account_repository_cidr_and_state_names_are_parameterized() -> None:
     variables = _read("variables.tf")
     outputs = _read("outputs.tf")
