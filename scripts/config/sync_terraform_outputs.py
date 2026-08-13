@@ -125,6 +125,206 @@ def sync_coordinates(
         path.write_text(rendered_document, encoding="utf-8")
 
 
+def _terraform_root_outputs(
+    deployment: Mapping[str, Any], root: str
+) -> Mapping[str, Any]:
+    outputs = deployment.get("outputs")
+    value = outputs.get(root) if isinstance(outputs, Mapping) else None
+    if not isinstance(value, Mapping):
+        raise SyncError(f"reviewed {root} Terraform outputs are unavailable")
+    return value
+
+
+def _required_string(values: Mapping[str, Any], key: str, root: str) -> str:
+    value = values.get(key)
+    if not isinstance(value, str) or not value:
+        raise SyncError(f"reviewed {root} output {key} is invalid")
+    return value
+
+
+def sync_from_deployment(
+    deployment: Mapping[str, Any], *, overlays_root: Path = DEFAULT_OVERLAYS_ROOT
+) -> None:
+    """Synchronize reviewed environment outputs into Git desired state."""
+
+    inputs = deployment.get("inputs")
+    generated = deployment.get("generated")
+    if not isinstance(inputs, Mapping) or not isinstance(generated, Mapping):
+        raise SyncError("deployment descriptor is malformed")
+    domain = _required_string(inputs, "domain_name", "deployment")
+    _required_string(generated, "cluster_name", "deployment")
+    edge = _terraform_root_outputs(deployment, "edge")
+    loki_arn = _required_string(edge, "loki_bucket_arn", "edge")
+    if not loki_arn.startswith("arn:aws:s3:::"):
+        raise SyncError("reviewed edge output loki_bucket_arn is invalid")
+    loki_bucket = loki_arn.removeprefix("arn:aws:s3:::")
+
+    coordinates: dict[str, dict[str, str]] = {}
+    environment_outputs: dict[str, Mapping[str, Any]] = {}
+    for environment in ENVIRONMENTS:
+        values = _terraform_root_outputs(deployment, environment)
+        environment_outputs[environment] = values
+        data_volumes = values.get("data_volumes")
+        scoped = (
+            data_volumes.get(environment) if isinstance(data_volumes, Mapping) else None
+        )
+        if not isinstance(scoped, Mapping) or set(scoped) != set(HANDLE_KEYS):
+            raise SyncError(f"reviewed {environment} data volumes are invalid")
+        environment_coordinates: dict[str, str] = {}
+        availability_zones: set[str] = set()
+        for workload in HANDLE_KEYS:
+            volume = scoped.get(workload)
+            if not isinstance(volume, Mapping):
+                raise SyncError(f"reviewed {environment} data volumes are invalid")
+            volume_id = _required_string(volume, "volume_id", environment)
+            availability_zone = _required_string(
+                volume, "availability_zone", environment
+            )
+            environment_coordinates[workload] = volume_id
+            availability_zones.add(availability_zone)
+        if len(availability_zones) != 1:
+            raise SyncError(f"reviewed {environment} volume zones do not match")
+        environment_coordinates["az"] = availability_zones.pop()
+        coordinates[environment] = environment_coordinates
+    _parse_input(json.dumps(coordinates))
+
+    documents: dict[Path, str] = {}
+    for environment in ENVIRONMENTS:
+        values = environment_outputs[environment]
+        config_path = overlays_root / environment / "environment-config.yaml"
+        try:
+            config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError) as error:
+            raise SyncError(
+                f"cannot read the reviewed {environment} overlay"
+            ) from error
+        if not isinstance(config, dict) or not isinstance(config.get("data"), dict):
+            raise SyncError(
+                f"the reviewed {environment} environment config is malformed"
+            )
+        data = config["data"]
+        data.update(
+            {
+                "PROCUREMENT_COGNITO_CLIENT_ID": _required_string(
+                    values, "cognito_client_id", environment
+                ),
+                "PROCUREMENT_COGNITO_DOMAIN_URL": (
+                    f"https://{_required_string(values, 'cognito_domain', environment)}"
+                    ".auth.us-east-1.amazoncognito.com"
+                ),
+                "PROCUREMENT_COGNITO_REDIRECT_URI": (
+                    f"https://app.{environment}.{domain}/auth/callback"
+                ),
+                "PROCUREMENT_COGNITO_USER_POOL_ID": _required_string(
+                    values, "cognito_user_pool_id", environment
+                ),
+                "PROCUREMENT_DYNAMODB_APPLICATION_TABLE": _required_string(
+                    values, "application_table_name", environment
+                ),
+                "PROCUREMENT_DYNAMODB_CHECKPOINT_TABLE": _required_string(
+                    values, "checkpoint_table_name", environment
+                ),
+                "STOCKAI_APPLICATION_HOST": f"app.{environment}.{domain}",
+                "STOCKAI_GRAFANA_HOST": f"grafana.{environment}.{domain}",
+                "STOCKAI_ODOO_HOST": f"odoo.{environment}.{domain}",
+            }
+        )
+        secret_arns = values.get("secret_arns")
+        if not isinstance(secret_arns, Mapping):
+            raise SyncError(f"reviewed {environment} secret ARNs are invalid")
+        data["STOCKAI_ODOO_BOOTSTRAP_SECRET_ARN"] = _required_string(
+            secret_arns, "odoo-api-key", environment
+        )
+        documents[config_path] = yaml.safe_dump(config, sort_keys=False)
+
+        secrets_path = overlays_root / environment / "external-secrets.yaml"
+        try:
+            secrets = list(yaml.safe_load_all(secrets_path.read_text(encoding="utf-8")))
+        except (OSError, yaml.YAMLError) as error:
+            raise SyncError(
+                f"cannot read the reviewed {environment} secrets"
+            ) from error
+        for document in secrets:
+            if isinstance(document, dict) and document.get("kind") == "ExternalSecret":
+                name = document.get("metadata", {}).get("name")
+                if not isinstance(name, str):
+                    raise SyncError(f"the reviewed {environment} secrets are malformed")
+                document["spec"]["data"][0]["remoteRef"]["key"] = _required_string(
+                    secret_arns, name, environment
+                )
+        documents[secrets_path] = yaml.safe_dump_all(secrets, sort_keys=False)
+
+        observability_path = (
+            overlays_root / environment / "observability" / "environment.yaml"
+        )
+        try:
+            observability = list(
+                yaml.safe_load_all(observability_path.read_text(encoding="utf-8"))
+            )
+        except (OSError, yaml.YAMLError) as error:
+            raise SyncError(
+                f"cannot read reviewed {environment} observability"
+            ) from error
+        for document in observability:
+            if not isinstance(document, dict):
+                continue
+            if (
+                document.get("kind") == "ConfigMap"
+                and document.get("metadata", {}).get("name")
+                == "stockai-observability-environment"
+            ):
+                document["data"]["LOKI_S3_BUCKET"] = loki_bucket
+                document["data"]["LOKI_S3_PREFIX"] = _required_string(
+                    values, "loki_prefix", environment
+                )
+                document["data"]["blackbox-targets.yaml"] = "\n".join(
+                    [
+                        "- targets:",
+                        f"    - https://app.{environment}.{domain}",
+                        f"    - https://odoo.{environment}.{domain}",
+                        f"    - https://grafana.{environment}.{domain}",
+                        "  labels:",
+                        f"    environment: {environment}",
+                        "",
+                    ]
+                )
+            if (
+                document.get("kind") == "Deployment"
+                and document.get("metadata", {}).get("name") == "stockai-loki"
+            ):
+                for variable in document["spec"]["template"]["spec"]["containers"][0][
+                    "env"
+                ]:
+                    if variable["name"] == "LOKI_S3_BUCKET":
+                        variable["value"] = loki_bucket
+                    elif variable["name"] == "LOKI_S3_PREFIX":
+                        variable["value"] = _required_string(
+                            values, "loki_prefix", environment
+                        )
+        documents[observability_path] = yaml.safe_dump_all(
+            observability, sort_keys=False
+        )
+
+    storage_documents: dict[Path, dict[str, Any]] = {}
+    for environment in ENVIRONMENTS:
+        path = overlays_root / environment / "storage-coordinates.yaml"
+        document = _load_coordinate_document(path, environment)
+        data = document["data"]
+        data["availabilityZone"] = coordinates[environment]["az"]
+        for workload, key in HANDLE_KEYS.items():
+            data[key] = coordinates[environment][workload]
+        storage_documents[path] = document
+    documents.update(
+        {
+            path: yaml.safe_dump(document, sort_keys=False)
+            for path, document in storage_documents.items()
+        }
+    )
+    for path, rendered in documents.items():
+        if path.read_text(encoding="utf-8") != rendered:
+            path.write_text(rendered, encoding="utf-8")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(

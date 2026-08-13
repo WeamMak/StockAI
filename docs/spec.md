@@ -852,9 +852,26 @@ edited through React, the agent, MCP write tools, or manager approval actions.
 
 [Project decision] Terraform creates one VPC, public subnets across two Availability Zones, route tables, an Internet Gateway, security groups, one fixed control-plane EC2 instance, separate dev and prod worker launch templates and ASGs, one internet-facing Application Load Balancer, and required stable administrative addressing.
 
-[Project decision] Because the AWS account is shared, project resource names use the `weam-stockai-` prefix and every taggable resource records `Owner = weam` in addition to the existing project, component, environment, and role tags where applicable. The T15 state bucket and lock table use the same owner/project prefix; the internal `stockai` state-key prefix does not identify a separate AWS resource.
+[Project decision] The existing deployment preserves its `weam-stockai-`
+resource prefix, `Owner = weam` tags, Terraform backend names, state keys, and
+all other resource identities. Guided provisioning must fail rather than rename
+or recreate those resources. A fresh independent clone derives deterministic,
+AWS-length-safe names and ownership tags from the authenticated AWS account and
+immutable GitHub repository identity so the operator does not type resource,
+cluster, backend, or owner names.
 
-[Project decision] Private subnets with a managed NAT Gateway were rejected because the small three-node project does not justify the fixed cost. The ALB is the only public application entry point; worker ingress is limited to the ALB security group and administrative access is restricted to a configured administrator CIDR.
+[Project decision] Private subnets with a managed NAT Gateway were rejected because the small three-node project does not justify the fixed cost. The ALB is the only public application entry point; worker ingress is limited to the ALB security group and administrative access is restricted to a configured administrator CIDR. Guided provisioning detects the caller's public IPv4 `/32`, displays it, and requires confirmation or an explicit trusted override; it never silently changes that CIDR on a rerun.
+
+[Project decision] T21A adds one resumable guided provisioning command for the
+fixed `us-east-1` architecture. The operator types only a user-owned lowercase
+Route 53 domain and its public hosted-zone ID, authenticates AWS and GitHub,
+confirms the detected administrator CIDR, and reviews each saved Terraform
+plan. The command discovers the AWS account and immutable GitHub repository
+identity, resolves the controlled Ubuntu AMI source, selects two usable
+Availability Zones, derives stable names and backend keys, transfers typed
+non-secret Terraform outputs between roots, and synchronizes Kubernetes desired
+state. Bootstrap, platform, edge, dev, and prod remain separate Terraform roots
+and states.
 
 [Project decision] The control plane remains an individually managed Terraform EC2 instance. Dev and prod workers are managed by separate single-AZ ASGs with active defaults `min = 1`, `desired = 1`, and `max = 3`. No scaling policy, Cluster Autoscaler, Karpenter, EKS, or NAT Gateway is used in the MVP.
 
@@ -881,9 +898,14 @@ edited through React, the agent, MCP write tools, or manager approval actions.
 | Lambda | `[Project decision]` | Heartbeat the lifecycle hook and coordinate bounded Kubernetes node cleanup | Instance/node identifiers and cleanup status only | One Terraform-managed function with resource restrictions where AWS supports them, plus read-only EC2 description and access only to its log group and cleanup metric namespace |
 | CloudWatch metrics and logs | `[Project decision]` | Native ALB/ASG/Lambda evidence and retained lifecycle-cleanup diagnostics | AWS service metrics plus sanitized cleanup logs; no procurement bodies | Grafana receives read-only metric queries; the Lambda log group is pre-created with 14-day retention and Lambda emits only cleanup outcome metrics |
 | EBS and EBS snapshots/DLM | `[Project decision]` | Replacement-safe Odoo/PostgreSQL data and durable Prometheus history | Six encrypted environment volumes; tagged prod Odoo/PostgreSQL snapshots | Terraform-created `gp3` volumes, static CSI bindings, scoped controller permissions, and seven daily crash-consistent snapshots of the prod ERP volumes |
-| AWS Budgets | `[Project decision]` | Keep the course environment within the agreed operating ceiling | AWS account cost totals only | Terraform; notifications at the target and ceiling to a configured operator address |
+[Project decision] AWS Budgets and its email notifications are removed from the
+MVP at the user's request. Terraform must remove the two existing
+`aws_budgets_budget.monthly` resources only through a reviewed saved edge plan;
+the removal does not authorize any other AWS deletion. Cost estimates, quota
+preflight, explicit plan review, bounded capacity, and the shutdown runbook
+remain required controls.
 
-[Project decision] SQS, SNS, SES, RDS, EFS, EKS, Cluster Autoscaler, Karpenter, and additional databases are omitted because no MVP requirement justifies them. Application logs remain in Loki; CloudWatch Logs is used only for the operational cleanup Lambda.
+[Project decision] SQS, SNS, SES, RDS, EFS, EKS, AWS Budgets, Cluster Autoscaler, Karpenter, and additional databases are omitted because no MVP requirement justifies them. Application logs remain in Loki; CloudWatch Logs is used only for the operational cleanup Lambda.
 
 ### 16.3 DNS
 
@@ -1068,6 +1090,24 @@ observability images use pinned upstream digests without project rebuilds.
 [Project decision] Python and React test jobs publish JUnit-compatible results and coverage summaries in the GitHub Actions job summary, with full reports retained as workflow artifacts.
 
 [Project decision] A small Terraform bootstrap stage creates the remote state and GitHub OIDC foundation reproducibly; subsequent Terraform state is encrypted, versioned, locked, and remote.
+
+[Project decision] First-time bootstrap uses a short-lived authorized local AWS
+session because an untrusted repository cannot grant itself IAM authority. The
+guided command then creates or updates the `dev` and `prod` GitHub environments
+and five non-secret repository variables for the plan/apply role ARNs, state
+bucket, state-key prefix, and lock table. The operator does not manually copy
+those values. Root inputs are generated from the reviewed deployment
+descriptor, authenticated AWS identity, controlled discovery, and typed
+Terraform outputs; the four `TERRAFORM_*_TFVARS_JSON` repository variables are
+not part of the post-T21A interface. Docker Hub username/token remain manually
+configured GitHub secrets.
+
+[Project decision] One guided command orchestrates bootstrap, platform, edge,
+dev, and prod in dependency order, but it displays and requires explicit
+approval of each saved plan before applying exactly that plan. Git pushes,
+pull requests, and merges never invoke this infrastructure provisioning path.
+GitHub Actions still validates/plans infrastructure and never deploys workloads
+with `kubectl`; Argo CD remains the workload deployment authority.
 
 ### 18.4 Planning approval gates
 
@@ -1341,9 +1381,17 @@ budgets or preferences.
 
 [Assumption] With roughly 176 EC2 active hours per month at normal desired capacity, low demo traffic, one continuously provisioned ALB, retained root volumes, six initial 5 GiB data volumes, and infrequent SSM/EventBridge/Lambda cleanup, the expected monthly total remains approximately $60–85. The exact estimate and temporary max-capacity scenario must be refreshed in the AWS Pricing Calculator before infrastructure approval.
 
-[Project decision] The revised operating target is below $70 per month and the review/alarm ceiling is $90 per month. Outside active development and demonstration periods, Terraform scales both worker ASGs to zero and the control plane is stopped; the ALB and storage continue to incur charges until Terraform destroys them.
+[Project decision] The revised operating target remains below $70 per month and
+the manual review threshold remains $90 per month. Outside active development
+and demonstration periods, Terraform scales both worker ASGs to zero and the
+control plane is stopped; the ALB and storage continue to incur charges until
+Terraform destroys them. These figures are review guidance, not
+Terraform-managed AWS Budget alarms.
 
-[Project decision] No automatic cost shutdown will interrupt an active workflow. Cost alerts prompt an operator to stop the environment safely.
+[Project decision] No automatic cost shutdown or email-backed AWS Budget is
+configured. Before approved infrastructure changes and during active demo
+periods, the operator reviews current AWS cost and follows the shutdown runbook
+when the manual threshold is reached.
 
 [Project decision] Bedrock, DynamoDB, S3, Cognito, SSM, EventBridge, Lambda, and bounded cleanup logging are expected to remain minor usage-based costs for the fictional demo workload.
 

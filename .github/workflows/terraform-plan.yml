@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - infra/terraform/**
+      - deploy/config/**
+      - scripts/infra/**
       - .github/workflows/terraform-plan.yml
       - .github/workflows/terraform-apply.yml
 
@@ -38,10 +40,6 @@ jobs:
     env:
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"
-      TFVARS_PLATFORM: ${{ vars.TERRAFORM_PLATFORM_TFVARS_JSON }}
-      TFVARS_EDGE: ${{ vars.TERRAFORM_EDGE_TFVARS_JSON }}
-      TFVARS_DEV: ${{ vars.TERRAFORM_DEV_TFVARS_JSON }}
-      TFVARS_PROD: ${{ vars.TERRAFORM_PROD_TFVARS_JSON }}
     steps:
       - name: Check out the pull request
         uses: actions/checkout@v6
@@ -59,22 +57,18 @@ jobs:
           role-to-assume: ${{ vars.AWS_TERRAFORM_PLAN_ROLE_ARN }}
           role-session-name: stockai-pr-${{ github.event.pull_request.number }}-${{ matrix.name }}
 
-      - name: Select reviewed non-secret variables
-        id: variables
-        working-directory: ${{ matrix.root }}
+      - name: Generate reviewed non-secret variables
         run: |
-          case '${{ matrix.name }}' in
-            platform) value=$TFVARS_PLATFORM ;;
-            edge) value=$TFVARS_EDGE ;;
-            dev) value=$TFVARS_DEV ;;
-            prod) value=$TFVARS_PROD ;;
-            *) echo 'unknown Terraform root' >&2; exit 2 ;;
-          esac
-          if test -z "$value"; then
-            echo 'The required TERRAFORM_*_TFVARS_JSON repository variable is empty.' >&2
+          expected_account=$(jq --raw-output '.generated.aws_account_id' deploy/config/deployment.json)
+          actual_account=$(aws sts get-caller-identity --query Account --output text)
+          if test "$actual_account" != "$expected_account"; then
+            echo 'The authenticated AWS account does not match the deployment descriptor.' >&2
             exit 2
           fi
-          printf '%s' "$value" > ci.auto.tfvars.json
+          python -m scripts.infra.provision \
+            render-input \
+            --root '${{ matrix.name }}' \
+            --output '${{ matrix.root }}/ci.auto.tfvars.json'
 
       - name: Initialize the remote backend
         working-directory: ${{ matrix.root }}

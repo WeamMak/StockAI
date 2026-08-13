@@ -34,9 +34,11 @@ override.tf.json
 *_override.tf
 *_override.tf.json
 *.tfvars
+*.auto.tfvars.json
 !*.tfvars.example
 .terraformrc
 terraform.rc
+.stockai-provision-checkpoint.json
 
 # Keep course source material ignored when untracked, but allow mandatory
 # planning artifacts to be reviewed and committed.

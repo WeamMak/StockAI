@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://stockai.example/deployment.schema.json",
+  "title": "StockAI deployment descriptor",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "inputs", "generated", "outputs"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["domain_name", "route53_zone_id"],
+      "properties": {
+        "domain_name": {
+          "type": "string",
+          "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$"
+        },
+        "route53_zone_id": {
+          "type": "string",
+          "pattern": "^Z[A-Z0-9]{8,31}$"
+        }
+      }
+    },
+    "generated": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "administrator_cidr", "ami_id", "availability_zones",
+        "aws_account_id", "aws_region", "cluster_name", "github_repository",
+        "github_repository_subject", "loki_bucket_name", "owner_name", "project_name",
+        "state_bucket_name", "state_key_prefix", "state_lock_table_name"
+      ],
+      "properties": {
+        "administrator_cidr": { "type": "string", "format": "ipv4-cidr" },
+        "ami_id": { "type": "string", "pattern": "^ami-[0-9a-f]{8,17}$" },
+        "availability_zones": {
+          "type": "array", "minItems": 2, "maxItems": 2,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^us-east-1[a-z]$" }
+        },
+        "aws_account_id": { "type": "string", "pattern": "^[0-9]{12}$" },
+        "aws_region": { "const": "us-east-1" },
+        "cluster_name": { "type": "string" },
+        "github_repository": { "type": "string" },
+        "github_repository_subject": { "type": "string" },
+        "loki_bucket_name": { "type": "string" },
+        "owner_name": { "type": "string" },
+        "project_name": { "type": "string" },
+        "state_bucket_name": { "type": "string" },
+        "state_key_prefix": { "const": "stockai" },
+        "state_lock_table_name": { "type": "string" }
+      }
+    },
+    "outputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "bootstrap": { "type": "object" },
+        "platform": { "type": "object" },
+        "edge": { "type": "object" },
+        "dev": { "type": "object" },
+        "prod": { "type": "object" }
+      }
+    }
+  }
+}

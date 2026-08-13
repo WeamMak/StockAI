@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "inputs": {
+    "domain_name": "stockai.fursa.click",
+    "route53_zone_id": "Z0068791177VM3T59WYDS"
+  },
+  "generated": {
+    "administrator_cidr": "147.235.223.133/32",
+    "ami_id": "ami-0b6d9d3d33ba97d99",
+    "availability_zones": [
+      "us-east-1a",
+      "us-east-1b"
+    ],
+    "aws_account_id": "228281126655",
+    "aws_region": "us-east-1",
+    "cluster_name": "weam-stockai",
+    "github_repository": "WeamMak/StockAI",
+    "github_repository_subject": "WeamMak@155534656/StockAI@1311929978",
+    "loki_bucket_name": "weam-stockai-loki-228281126655-us-east-1",
+    "owner_name": "weam",
+    "project_name": "stockai",
+    "state_bucket_name": "weam-stockai-terraform-state-us-east-1",
+    "state_key_prefix": "stockai",
+    "state_lock_table_name": "weam-stockai-terraform-locks"
+  },
+  "outputs": {
+    "bootstrap": {
+      "github_apply_role_arn": "arn:aws:iam::228281126655:role/stockai-github-terraform-apply",
+      "github_plan_role_arn": "arn:aws:iam::228281126655:role/stockai-github-terraform-plan"
+    },
+    "platform": {
+      "alb_subnet_ids": [
+        "subnet-02d712c7649a7e0fe",
+        "subnet-0940035f7889cf480"
+      ],
+      "control_plane_role_name": "weam-stockai-control-plane",
+      "dev_worker_asg_name": "weam-stockai-dev-workers",
+      "dev_worker_az": "us-east-1a",
+      "dev_worker_role_name": "weam-stockai-dev-worker",
+      "prod_worker_asg_name": "weam-stockai-prod-workers",
+      "prod_worker_az": "us-east-1b",
+      "prod_worker_role_name": "weam-stockai-prod-worker",
+      "vpc_id": "vpc-097f8e988a8259db7",
+      "worker_security_group_id": "sg-00119977cd02c5a5a"
+    },
+    "edge": {
+      "loki_bucket_arn": "arn:aws:s3:::weam-stockai-loki-228281126655-us-east-1"
+    }
+  }
+}

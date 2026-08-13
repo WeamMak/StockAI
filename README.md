@@ -48,54 +48,40 @@ below.
 
 ### Deploy an independent copy to AWS
 
-Each person deploying StockAI to a separate AWS account must bootstrap that
-account once. Authenticate the AWS CLI with an authorized, preferably
-short-lived session, then prepare the account-specific input:
+Authenticate the AWS CLI with an authorized, preferably short-lived session,
+and authenticate GitHub CLI with repository-administration permission. Then run
+the guided command:
 
 ```bash
-cd infra/terraform/bootstrap
-cp terraform.tfvars.example terraform.tfvars
 aws sts get-caller-identity
-terraform init
+gh auth status
+make infra-provision
 ```
 
-Replace every placeholder in the ignored `terraform.tfvars` with the
-deployment owner's twelve-digit AWS account ID, trusted administrator public
-IPv4 `/32`, globally unique state bucket name, lock-table name, and immutable
-GitHub subject for their repository or fork. The approved deployment region is
-`us-east-1`, and the default GitHub environments are `dev` and `prod`.
+For an independent account, the command asks only for the existing lowercase
+Route 53 domain and its public hosted-zone ID. It discovers the account,
+immutable repository identity, Canonical Ubuntu AMI, two Availability Zones,
+stable resource/backend names, and the caller's public IPv4 `/32`. Confirm the
+CIDR, review each saved Terraform plan, and type the displayed approval phrase
+before the exact plan can be applied. The command is resumable and never runs
+from a push or pull request.
 
 An AWS account can have only one OIDC provider for GitHub Actions. If the
-provider already exists in that account but is not managed by another
-Terraform state, adopt it into this bootstrap state before planning:
+provider already exists but is not managed by another Terraform state, stop at
+the bootstrap plan and follow the import procedure in the runbook. Do not
+create or import infrastructure through the AWS console.
 
-```bash
-terraform import \
-  aws_iam_openid_connect_provider.github_actions \
-  arn:aws:iam::<AWS_ACCOUNT_ID>:oidc-provider/token.actions.githubusercontent.com
-```
-
-Then validate and review the infrastructure before explicitly approving its
-creation:
-
-```bash
-terraform validate
-terraform plan -out=bootstrap.tfplan
-terraform show bootstrap.tfplan
-terraform apply bootstrap.tfplan
-terraform output
-```
-
-Follow the complete safety, verification, and recovery procedure in the
-[Terraform bootstrap runbook](docs/runbooks/terraform-bootstrap.md). A fork has
-a different immutable GitHub repository identity, so the original StockAI
-roles do not automatically trust workflows from that fork.
+The command creates the `dev` and `prod` GitHub environments and manages the
+five non-secret backend/role repository variables. The four large
+`TERRAFORM_*_TFVARS_JSON` variables are not used. Add only the external
+`DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` repository secrets yourself. Follow
+the complete [guided infrastructure runbook](docs/runbooks/infrastructure-provisioning.md).
 
 ### Manage the existing StockAI AWS deployment
 
 Do not run the bootstrap against the existing StockAI account using a fresh
 local state. An authorized maintainer needs access to the intended AWS account,
-the matching private `terraform.tfvars`, and the encrypted backup of
+and the encrypted backup of
 `infra/terraform/bootstrap/terraform.tfstate`. Without that state, Terraform
 does not know that it owns the existing resources and may attempt to create
 duplicates.
@@ -239,19 +225,20 @@ Terraform, Kubernetes, secret-scan, and report-retention jobs. Pull requests to
 Configure `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` as repository secrets for
 that job.
 
-Terraform plan jobs use GitHub OIDC and require these repository variables:
+Guided provisioning creates the GitHub environments and manages these
+non-secret repository variables from verified Terraform outputs:
 
 - `AWS_TERRAFORM_PLAN_ROLE_ARN`
+- `AWS_TERRAFORM_APPLY_ROLE_ARN`
 - `TERRAFORM_STATE_BUCKET`, `TERRAFORM_STATE_KEY_PREFIX`, and
   `TERRAFORM_LOCK_TABLE`
-- `TERRAFORM_PLATFORM_TFVARS_JSON`, `TERRAFORM_EDGE_TFVARS_JSON`,
-  `TERRAFORM_DEV_TFVARS_JSON`, and `TERRAFORM_PROD_TFVARS_JSON`
 
-Manual saved-plan applies additionally require `AWS_TERRAFORM_APPLY_ROLE_ARN`.
-Protect the GitHub `dev` and `prod` environments before enabling applies. The
-T15 roles begin with state-only permissions by design; add the separately
-reviewed resource-scoped workload policies through Terraform before using an
-apply workflow. Never replace those policies with broad administrator access.
+Terraform plan jobs generate their root inputs from the reviewed deployment
+descriptor; the four `TERRAFORM_*_TFVARS_JSON` variables are obsolete. Manual
+saved-plan applies remain the explicit mutation decision. The T15 roles begin
+with state-only permissions by design; add separately reviewed resource-scoped
+workload policies through Terraform before using an apply workflow. Never
+replace those policies with broad administrator access.
 
 The single verification command for the local backend walking skeleton is:
 

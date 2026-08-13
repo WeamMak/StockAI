@@ -15,16 +15,6 @@ locals {
     for hostname in flatten(values(local.environment_hostnames)) :
     replace(hostname, ".${var.domain_name}", "") => hostname
   }
-  monthly_budgets = {
-    monthly_review_ceiling = {
-      amount = 90
-      name   = "${var.cluster_name}-monthly-review-ceiling"
-    }
-    monthly_target = {
-      amount = 70
-      name   = "${var.cluster_name}-monthly-target"
-    }
-  }
   retention = {
     dev  = 14
     prod = 90
@@ -337,22 +327,4 @@ data "aws_iam_policy_document" "loki_bucket" {
 resource "aws_s3_bucket_policy" "loki" {
   bucket = aws_s3_bucket.loki.id
   policy = data.aws_iam_policy_document.loki_bucket.json
-}
-
-resource "aws_budgets_budget" "monthly" {
-  for_each = local.monthly_budgets
-
-  name         = each.value.name
-  budget_type  = "COST"
-  limit_amount = tostring(each.value.amount)
-  limit_unit   = "USD"
-  time_unit    = "MONTHLY"
-
-  notification {
-    comparison_operator        = "GREATER_THAN"
-    notification_type          = "ACTUAL"
-    subscriber_email_addresses = [var.budget_notification_email]
-    threshold                  = 100
-    threshold_type             = "PERCENTAGE"
-  }
 }
