@@ -191,6 +191,25 @@ def test_apply_lifecycle_is_scoped_and_plan_role_stays_read_only() -> None:
         assert resource not in lifecycle
 
 
+def test_launch_template_versions_mutate_only_owner_tagged_templates() -> None:
+    main = _read("main.tf")
+    create_only = _block(
+        main,
+        'sid    = "CreateOnlyTaggedStockAIResources"',
+        "  statement {",
+    )
+    mutate_owned = _block(
+        main,
+        'sid    = "MutateOnlyOwnedStockAIResources"',
+        "  statement {",
+    )
+
+    assert '"ec2:CreateLaunchTemplateVersion"' not in create_only
+    assert 'variable = "aws:RequestTag/Owner"' in create_only
+    assert '"ec2:CreateLaunchTemplateVersion"' in mutate_owned
+    assert 'variable = "aws:ResourceTag/Owner"' in mutate_owned
+
+
 def test_account_repository_cidr_and_state_names_are_parameterized() -> None:
     variables = _read("variables.tf")
     outputs = _read("outputs.tf")
