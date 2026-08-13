@@ -121,7 +121,7 @@ resource "aws_iam_openid_connect_provider" "github_actions" {
 
 data "aws_iam_policy_document" "github_plan_trust" {
   statement {
-    sid     = "GitHubPullRequestPlan"
+    sid     = "GitHubReadOnlyPlan"
     effect  = "Allow"
     actions = ["sts:AssumeRoleWithWebIdentity"]
 
@@ -139,7 +139,10 @@ data "aws_iam_policy_document" "github_plan_trust" {
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_repository_subject}:pull_request"]
+      values = [
+        "repo:${var.github_repository_subject}:pull_request",
+        "repo:${var.github_repository_subject}:ref:refs/heads/main",
+      ]
     }
   }
 }
@@ -174,7 +177,7 @@ data "aws_iam_policy_document" "github_apply_trust" {
 
 resource "aws_iam_role" "github_plan" {
   name                 = "${var.project_name}-github-terraform-plan"
-  description          = "GitHub pull-request role for Terraform state reads and locks"
+  description          = "GitHub pull-request and manual-main role for read-only Terraform plans"
   assume_role_policy   = data.aws_iam_policy_document.github_plan_trust.json
   max_session_duration = 3600
 }
