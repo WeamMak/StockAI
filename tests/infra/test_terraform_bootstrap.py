@@ -207,16 +207,16 @@ def test_plan_role_can_refresh_cloudwatch_resource_tags() -> None:
     assert '"cloudwatch:ListTagsForResource"' in lifecycle
     assert '"logs:ListTagsForResource"' in lifecycle
     assert (
-        'arn:aws:cloudwatch:${var.aws_region}:${var.aws_account_id}:alarm:'
-        '${var.project_name}-worker-lifecycle-dev-non-clean'
+        "arn:aws:cloudwatch:${var.aws_region}:${var.aws_account_id}:alarm:"
+        "${var.project_name}-worker-lifecycle-dev-non-clean"
     ) in lifecycle
     assert (
-        'arn:aws:cloudwatch:${var.aws_region}:${var.aws_account_id}:alarm:'
-        '${var.project_name}-worker-lifecycle-prod-non-clean'
+        "arn:aws:cloudwatch:${var.aws_region}:${var.aws_account_id}:alarm:"
+        "${var.project_name}-worker-lifecycle-prod-non-clean"
     ) in lifecycle
     assert (
-        'arn:aws:logs:${var.aws_region}:${var.aws_account_id}:log-group:'
-        '/aws/lambda/${var.project_name}-worker-lifecycle'
+        "arn:aws:logs:${var.aws_region}:${var.aws_account_id}:log-group:"
+        "/aws/lambda/${var.project_name}-worker-lifecycle"
     ) in lifecycle
     assert '"ReadOnlyDiscoveryAndCommandStatus"' in plan_discovery
     assert '"ReadOnlyStockAIObservabilityTags"' in plan_discovery
