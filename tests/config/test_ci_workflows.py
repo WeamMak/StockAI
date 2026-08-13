@@ -66,7 +66,7 @@ def test_secret_scan_baselines_only_reviewed_fingerprints() -> None:
         if line and not line.startswith("#")
     }
 
-    assert len(fingerprints) == 6
+    assert len(fingerprints) == 7
     assert all(fingerprint.count(":") >= 3 for fingerprint in fingerprints)
 
 
