@@ -640,6 +640,7 @@ data "aws_iam_policy_document" "github_apply_lifecycle" {
     effect = "Allow"
     actions = [
       "cloudwatch:ListTagsForResource",
+      "elasticloadbalancing:DescribeTargetHealth",
       "events:ListTargetsByRule",
       "lambda:ListVersionsByFunction",
       "logs:ListTagsForResource",
@@ -648,6 +649,8 @@ data "aws_iam_policy_document" "github_apply_lifecycle" {
       "arn:aws:cloudwatch:${var.aws_region}:${var.aws_account_id}:alarm:${var.cluster_name}-worker-lifecycle-dev-non-clean",
       "arn:aws:cloudwatch:${var.aws_region}:${var.aws_account_id}:alarm:${var.cluster_name}-worker-lifecycle-errors",
       "arn:aws:cloudwatch:${var.aws_region}:${var.aws_account_id}:alarm:${var.cluster_name}-worker-lifecycle-prod-non-clean",
+      "arn:aws:elasticloadbalancing:${var.aws_region}:${var.aws_account_id}:targetgroup/${var.cluster_name}-dev-ingress/*",
+      "arn:aws:elasticloadbalancing:${var.aws_region}:${var.aws_account_id}:targetgroup/${var.cluster_name}-prod-ingress/*",
       "arn:aws:events:${var.aws_region}:${var.aws_account_id}:rule/${var.cluster_name}-worker-termination",
       "arn:aws:lambda:${var.aws_region}:${var.aws_account_id}:function:${var.cluster_name}-worker-lifecycle",
       "arn:aws:logs:${var.aws_region}:${var.aws_account_id}:log-group:/aws/lambda/${var.cluster_name}-worker-lifecycle",

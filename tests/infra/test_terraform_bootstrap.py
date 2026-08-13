@@ -205,6 +205,7 @@ def test_plan_role_can_refresh_worker_lifecycle_resources() -> None:
     )
 
     assert '"cloudwatch:ListTagsForResource"' in lifecycle
+    assert '"elasticloadbalancing:DescribeTargetHealth"' in lifecycle
     assert '"events:ListTargetsByRule"' in lifecycle
     assert '"lambda:ListVersionsByFunction"' in lifecycle
     assert '"logs:ListTagsForResource"' in lifecycle
@@ -223,6 +224,14 @@ def test_plan_role_can_refresh_worker_lifecycle_resources() -> None:
     assert (
         "arn:aws:events:${var.aws_region}:${var.aws_account_id}:rule/"
         "${var.cluster_name}-worker-termination"
+    ) in lifecycle
+    assert (
+        "arn:aws:elasticloadbalancing:${var.aws_region}:${var.aws_account_id}:"
+        "targetgroup/${var.cluster_name}-dev-ingress/*"
+    ) in lifecycle
+    assert (
+        "arn:aws:elasticloadbalancing:${var.aws_region}:${var.aws_account_id}:"
+        "targetgroup/${var.cluster_name}-prod-ingress/*"
     ) in lifecycle
     assert (
         "arn:aws:logs:${var.aws_region}:${var.aws_account_id}:log-group:"
