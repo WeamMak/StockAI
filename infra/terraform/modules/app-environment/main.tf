@@ -107,7 +107,7 @@ resource "aws_cognito_user_pool" "main" {
   name                     = "${var.cluster_name}-${var.environment}"
   alias_attributes         = ["email"]
   auto_verified_attributes = ["email"]
-  deletion_protection      = var.environment == "prod" ? "ACTIVE" : "INACTIVE"
+  deletion_protection      = var.enable_cognito_deletion_protection ? "ACTIVE" : "INACTIVE"
   mfa_configuration        = "OFF"
 
   account_recovery_setting {

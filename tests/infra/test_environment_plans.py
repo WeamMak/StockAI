@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import Any, cast
@@ -300,6 +301,30 @@ def test_protected_destroy_can_plan_environment_data_volumes() -> None:
     ].split('data "aws_iam_policy_document" "worker_application"', maxsplit=1)[0]
 
     assert "prevent_destroy" not in volume_block
+
+
+def test_prod_cognito_deletion_protection_can_only_be_disabled_explicitly() -> None:
+    root = (ENVIRONMENTS_ROOT / "prod" / "main.tf").read_text(encoding="utf-8")
+    variables = (ENVIRONMENTS_ROOT / "prod" / "variables.tf").read_text(
+        encoding="utf-8"
+    )
+    module = PROJECT_ROOT / "infra" / "terraform" / "modules" / "app-environment"
+    module_main = (module / "main.tf").read_text(encoding="utf-8")
+    module_variables = (module / "variables.tf").read_text(encoding="utf-8")
+
+    assert (
+        "enable_cognito_deletion_protection = var.enable_cognito_deletion_protection"
+        in root
+    )
+    assert 'variable "enable_cognito_deletion_protection"' in variables
+    assert "default     = true" in variables
+    assert 'variable "enable_cognito_deletion_protection"' in module_variables
+    assert "default     = false" in module_variables
+    assert re.search(
+        r"deletion_protection\s*=\s*var\.enable_cognito_deletion_protection\s*"
+        r'\?\s*"ACTIVE"\s*:\s*"INACTIVE"',
+        module_main,
+    )
 
 
 def test_only_prod_erp_volumes_receive_seven_daily_snapshots(

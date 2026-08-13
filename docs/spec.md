@@ -1091,7 +1091,18 @@ observability images use pinned upstream digests without project rebuilds.
 11. `[Explicit course requirement]` The prod Argo CD application tracks `main` and the prod overlay; GitHub Actions never deploys production directly.
 12. `[Explicit course requirement]` Hotfixes branch from `main` and are reconciled back into `dev`.
 
-[Project decision] GitHub Actions authenticates to AWS through OIDC and narrowly scoped roles rather than long-lived AWS access keys.
+[Project decision; approved T21B security amendment] GitHub Actions
+authenticates to AWS through OIDC rather than long-lived AWS access keys. The
+Terraform plan role uses the AWS-managed `ReadOnlyAccess` policy so refreshed
+plans can discover provider-managed attributes across the target account
+without iterative per-API grants. The protected Terraform apply role uses the
+AWS-managed `AdministratorAccess` policy because the project owner accepts the
+broader account-level mutation boundary for this single-project course
+account. The apply role retains explicit denies for the bootstrap state bucket,
+lock table, GitHub OIDC provider, and bootstrap roles, so neither lifecycle
+workflow can directly mutate or destroy that foundation. The user and course
+staff approved this documented departure from least-privilege lifecycle IAM
+for the single-project course account.
 
 [Project decision] Docker Scout runs at the required dev-push and main-PR
 points as report-only evidence. Vulnerability findings, scanner errors, and
@@ -1139,6 +1150,15 @@ through OIDC. It creates and publishes a saved plan before each protected apply
 job, then applies only the reviewed plan in exact `platform`, `edge`, `dev`,
 and `prod` dependency order. It never applies bootstrap and is never triggered
 by a push, pull request, merge, or schedule.
+
+[Project decision; approved T21B security amendment] The broad AWS permission
+sets do not broaden workflow triggers or deployment authority. Pull-request
+and manual plan jobs use only the read-oriented plan role; mutation jobs use
+the administrator apply role only after entering the appropriate protected
+GitHub environment. Exact confirmations, saved-plan checksums, sequential root
+ordering, state locking, and the prohibition on direct application deployment
+remain unchanged. Administrator access reduces IAM integration failures but
+does not address stale plans, state drift, interrupted applies, or stale locks.
 
 [Project decision] After the four non-bootstrap roots are ready, the protected
 provisioning workflow uses bounded SSM Run Command against only the tagged
@@ -1217,7 +1237,12 @@ authority.
 
 [Project decision] Lambda may describe the terminating EC2 instance, send only the approved SSM document to the control plane, poll that command, heartbeat/complete lifecycle actions for only the two worker ASGs, and write only its pre-created log group and cleanup metric namespace. Where an AWS read/list API does not support resource scoping, event allowlisting and EC2/ASG/node identity checks provide the additional boundary. The function receives no worker instance profile or application permissions.
 
-[Project decision] GitHub OIDC roles distinguish read-only pull-request planning from protected apply/promotion.
+[Project decision; approved T21B security amendment] GitHub OIDC roles
+distinguish account-wide read-only pull-request/manual planning through
+AWS-managed `ReadOnlyAccess` from protected account-wide Terraform mutation
+through AWS-managed `AdministratorAccess`. Explicit deny statements continue
+to protect the bootstrap state bucket, lock table, OIDC provider, and bootstrap
+roles from the apply role. No static AWS credentials are stored in GitHub.
 
 [Assumption] Because this is a self-managed low-cost cluster without pod-level AWS identity, pods on one worker can potentially reach that worker’s role credentials. Environment-specific workers, hard scheduling, RBAC, NetworkPolicy, and narrow node roles reduce but do not eliminate this residual risk.
 
@@ -1537,6 +1562,7 @@ when the manual threshold is reached.
 | Loki with S3 object storage | `[Project decision]` | CR-12, CR-16 | CloudWatch Logs; direct raw S3 files | Queryable logs while satisfying S3 retention requirement |
 | Kustomize | `[Project decision]` | CR-08, CR-11 | Duplicated YAML; Helm | Small shared base with explicit environment differences |
 | GitHub Actions plus Argo CD | `[Explicit course requirement]` | CR-11 | Direct `kubectl`; manual deploy | Required GitOps source of truth and promotion |
+| Broad OIDC Terraform permission sets | `[Project decision; approved T21B security amendment]` | CR-10, CR-11, CR-15, CR-16 | Per-action least privilege; static administrator keys; local-only Terraform | `ReadOnlyAccess` removes provider-refresh permission churn and protected `AdministratorAccess` removes apply permission churn without static keys; explicit denies preserve direct bootstrap access, and the user and course staff accepted the account-wide blast radius for the course account |
 | GPT-OSS 20B only | `[Project decision]` | CR-03, CR-16 | Amazon Nova; model fallback | User-selected course-approved low-cost model with predictable behavior |
 | Public subnets with one ALB and no NAT | `[Project decision]` | CR-04, CR-07, CR-15, CR-16 | Direct worker exposure; private subnets with NAT | Provides managed HTTPS ingress while avoiding NAT cost in the small course environment |
 
@@ -1548,6 +1574,7 @@ when the manual threshold is reached.
 | LLM output is nondeterministic. | `[Project decision]` | Structured output, low-variance configuration, deterministic validation, manual fallback, no fallback model. |
 | Preference changes could silently alter an in-flight recommendation. | `[Project decision]` | Snapshot the immutable effective profile and include its version in the evidence hash; new versions apply only to later scans. |
 | An administrator could configure an extreme or conflicting preference. | `[Project decision]` | Bound fields, enforce one effective profile per scope/time, separate configuration from approval, and route invalid resolution to manual review. |
+| The protected Terraform apply role has account-wide administrator authority. | `[Project decision; approved T21B security amendment]` | Use keyless OIDC, manual dispatch, a protected GitHub environment, exact confirmation, reviewed saved plans/checksums, sequential jobs, state locking, and explicit denies on the bootstrap state/OIDC foundation. Keep this authority confined to the single-project course account and revisit least privilege before any production reuse. |
 | A custom Odoo add-on increases upgrade and operational work. | `[Project decision]` | Keep one narrow add-on for typed budgets, revision-bound PO methods, preferences, views, and access control; pin the base digest and contract-test every extension before promotion. |
 | Odoo data may be incomplete or inconsistent. | `[Project decision]` | Evidence confidence, strict eligibility, typed errors, and human review. |
 | Return movements are only a proxy for product quality. | `[Project decision]` | Label the metric accurately and show evidence counts. |

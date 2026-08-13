@@ -63,6 +63,12 @@ variable "domain_name" {
   }
 }
 
+variable "enable_cognito_deletion_protection" {
+  description = "Protect this environment's Cognito user pool from deletion"
+  type        = bool
+  default     = false
+}
+
 variable "enable_odoo_key_bootstrap" {
   description = "Temporarily attach exact-secret write permission for the finite Odoo key bootstrap job"
   type        = bool

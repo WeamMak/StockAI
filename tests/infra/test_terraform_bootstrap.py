@@ -145,101 +145,110 @@ def test_oidc_roles_preserve_scoped_state_permissions() -> None:
 
     assert "aws_iam_policy_attachment" not in main
     assert 'resource "aws_iam_role_policy_attachment"' in main
-    assert "AdministratorAccess" not in main
     assert "PowerUserAccess" not in main
 
 
-def test_apply_lifecycle_is_scoped_and_plan_role_stays_read_only() -> None:
+def test_oidc_roles_use_the_approved_managed_permission_sets() -> None:
     main = _read("main.tf")
-    plan_access = _block(
+    plan_permissions = _block(
         main,
-        'data "aws_iam_policy_document" "github_plan_state_access" {',
-        'data "aws_iam_policy_document" "github_apply_state_access" {',
+        'resource "aws_iam_role_policy_attachment" "github_plan_read_only" {',
+        'resource "aws_iam_role_policy_attachment" "github_apply_administrator" {',
     )
-    lifecycle = _block(
+    apply_permissions = _block(
         main,
-        'data "aws_iam_policy_document" "github_apply_lifecycle" {',
-        'resource "aws_iam_policy" "github_apply_lifecycle" {',
+        'resource "aws_iam_role_policy_attachment" "github_apply_administrator" {',
+        'data "aws_iam_policy_document" "github_apply_foundation_protection" {',
     )
 
-    assert "Create" not in plan_access
-    assert "Update" not in plan_access
-    assert "Delete" not in plan_access.replace("dynamodb:DeleteItem", "")
-    assert "iam:PassRole" in lifecycle
-    assert "${var.cluster_name}-control-plane" in lifecycle
-    assert "ssm:SendCommand" in lifecycle
-    assert "AWS-RunShellScript" in lifecycle
-    assert "ec2:ResourceTag/Role" in lifecycle
-    assert 'values   = ["control-plane"]' in lifecycle
-    assert "aws:ResourceTag/Owner" in lifecycle
-    assert "aws:RequestTag/Owner" in lifecycle
-    assert "AdministratorAccess" not in lifecycle
-    assert "PowerUserAccess" not in lifecycle
-    assert "github_apply_lifecycle_statement_groups" in main
-    assert "for_each = local.github_apply_lifecycle_statement_groups" in main
-    assert 'resource "aws_iam_policy" "github_plan_discovery"' in main
-    assert '"ReadOnlyDiscoveryAndCommandStatus"' in main
+    assert "role       = aws_iam_role.github_plan.name" in plan_permissions
+    assert 'policy_arn = "arn:aws:iam::aws:policy/ReadOnlyAccess"' in plan_permissions
+    assert "AdministratorAccess" not in plan_permissions
+    assert "role       = aws_iam_role.github_apply.name" in apply_permissions
+    assert (
+        'policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"'
+        in apply_permissions
+    )
+    assert "ReadOnlyAccess" not in apply_permissions
 
-    bootstrap_resources = (
+    for obsolete_name in (
+        "github_apply_lifecycle",
+        "github_apply_lifecycle_statement_groups",
+        "github_plan_discovery",
+    ):
+        assert obsolete_name not in main
+
+
+def test_administrator_apply_role_cannot_mutate_bootstrap_foundation() -> None:
+    main = _read("main.tf")
+    attachment_start = (
+        'resource "aws_iam_role_policy_attachment" '
+        '"github_apply_foundation_protection" {'
+    )
+    protection = _block(
+        main,
+        'data "aws_iam_policy_document" "github_apply_foundation_protection" {',
+        'resource "aws_iam_policy" "github_apply_foundation_protection" {',
+    )
+
+    for sid in (
+        "DenyStateBucketMutation",
+        "DenyStateObjectDeletion",
+        "DenyLockTableMutation",
+        "DenyOIDCProviderMutation",
+        "DenyBootstrapRoleMutation",
+        "DenyBootstrapPolicyMutation",
+    ):
+        assert re.search(rf'sid\s*=\s*"{sid}"', protection)
+
+    for resource in (
         "aws_s3_bucket.terraform_state.arn",
+        "local.state_object_arn",
         "aws_dynamodb_table.terraform_lock.arn",
         "aws_iam_openid_connect_provider.github_actions.arn",
         "aws_iam_role.github_plan.arn",
         "aws_iam_role.github_apply.arn",
-    )
-    for resource in bootstrap_resources:
-        assert resource not in lifecycle
+        "${var.project_name}-github-terraform-plan-state",
+        "${var.project_name}-github-terraform-apply-state",
+        "${var.project_name}-github-terraform-foundation-protection",
+    ):
+        assert resource in protection
 
+    for action in (
+        "s3:DeleteBucket*",
+        "s3:DeleteObject",
+        "dynamodb:DeleteTable",
+        "iam:DeleteOpenIDConnectProvider",
+        "iam:DetachRolePolicy",
+        "iam:DeletePolicy",
+    ):
+        assert f'"{action}"' in protection
 
-def test_plan_role_can_refresh_cloudwatch_resource_tags() -> None:
-    main = _read("main.tf")
-    lifecycle = _block(
+    for required_state_action in (
+        "s3:GetObject",
+        "s3:PutObject",
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:DeleteItem",
+    ):
+        assert f'"{required_state_action}"' not in protection
+
+    policy = _block(
         main,
-        'data "aws_iam_policy_document" "github_apply_lifecycle" {',
-        'resource "aws_iam_policy" "github_apply_lifecycle" {',
+        'resource "aws_iam_policy" "github_apply_foundation_protection" {',
+        attachment_start,
     )
-    plan_discovery = _block(
-        main,
-        'resource "aws_iam_policy" "github_plan_discovery" {',
-        'resource "aws_iam_role_policy_attachment" "github_plan_discovery" {',
-    )
-
-    assert '"cloudwatch:ListTagsForResource"' in lifecycle
-    assert '"logs:ListTagsForResource"' in lifecycle
+    attachment = main.split(attachment_start, maxsplit=1)[1]
+    assert "${var.project_name}-github-terraform-foundation-protection" in policy
     assert (
-        "arn:aws:cloudwatch:${var.aws_region}:${var.aws_account_id}:alarm:"
-        "${var.cluster_name}-worker-lifecycle-dev-non-clean"
-    ) in lifecycle
-    assert (
-        "arn:aws:cloudwatch:${var.aws_region}:${var.aws_account_id}:alarm:"
-        "${var.cluster_name}-worker-lifecycle-prod-non-clean"
-    ) in lifecycle
-    assert (
-        "arn:aws:logs:${var.aws_region}:${var.aws_account_id}:log-group:"
-        "/aws/lambda/${var.cluster_name}-worker-lifecycle"
-    ) in lifecycle
-    assert "${var.project_name}-worker-lifecycle" not in lifecycle
-    assert '"ReadOnlyDiscoveryAndCommandStatus"' in plan_discovery
-    assert '"ReadOnlyStockAIObservabilityTags"' in plan_discovery
-
-
-def test_launch_template_versions_mutate_only_owner_tagged_templates() -> None:
-    main = _read("main.tf")
-    create_only = _block(
-        main,
-        'sid    = "CreateOnlyTaggedStockAIResources"',
-        "  statement {",
+        "policy      = "
+        "data.aws_iam_policy_document.github_apply_foundation_protection.json" in policy
     )
-    mutate_owned = _block(
-        main,
-        'sid    = "MutateOnlyOwnedStockAIResources"',
-        "  statement {",
+    assert "role       = aws_iam_role.github_apply.name" in attachment
+    assert (
+        "policy_arn = aws_iam_policy.github_apply_foundation_protection.arn"
+        in attachment
     )
-
-    assert '"ec2:CreateLaunchTemplateVersion"' not in create_only
-    assert 'variable = "aws:RequestTag/Owner"' in create_only
-    assert '"ec2:CreateLaunchTemplateVersion"' in mutate_owned
-    assert 'variable = "aws:ResourceTag/Owner"' in mutate_owned
 
 
 def test_account_repository_cidr_and_state_names_are_parameterized() -> None:

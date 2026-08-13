@@ -182,6 +182,11 @@ def test_t21b_destroy_is_reverse_order_and_preserves_bootstrap() -> None:
     ]
     assert positions == sorted(positions)
     assert "needs: quiesce" in source
+    assert "plan-prod-deletion-protection:" in source
+    assert "apply-prod-deletion-protection:" in source
+    assert "needs: apply-prod-deletion-protection" in source
+    assert "-var=enable_cognito_deletion_protection=false" in source
+    assert "terraform apply -no-color deactivate.tfplan" in source
     assert "needs: apply-prod" in source
     assert "needs: apply-dev" in source
     assert "needs: apply-edge" in source
