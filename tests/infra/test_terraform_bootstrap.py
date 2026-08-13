@@ -178,7 +178,7 @@ def test_apply_lifecycle_is_scoped_and_plan_role_stays_read_only() -> None:
     assert "github_apply_lifecycle_statement_groups" in main
     assert "for_each = local.github_apply_lifecycle_statement_groups" in main
     assert 'resource "aws_iam_policy" "github_plan_discovery"' in main
-    assert 'statement.Sid == "ReadOnlyDiscoveryAndCommandStatus"' in main
+    assert '"ReadOnlyDiscoveryAndCommandStatus"' in main
 
     bootstrap_resources = (
         "aws_s3_bucket.terraform_state.arn",
@@ -189,6 +189,37 @@ def test_apply_lifecycle_is_scoped_and_plan_role_stays_read_only() -> None:
     )
     for resource in bootstrap_resources:
         assert resource not in lifecycle
+
+
+def test_plan_role_can_refresh_cloudwatch_resource_tags() -> None:
+    main = _read("main.tf")
+    lifecycle = _block(
+        main,
+        'data "aws_iam_policy_document" "github_apply_lifecycle" {',
+        'resource "aws_iam_policy" "github_apply_lifecycle" {',
+    )
+    plan_discovery = _block(
+        main,
+        'resource "aws_iam_policy" "github_plan_discovery" {',
+        'resource "aws_iam_role_policy_attachment" "github_plan_discovery" {',
+    )
+
+    assert '"cloudwatch:ListTagsForResource"' in lifecycle
+    assert '"logs:ListTagsForResource"' in lifecycle
+    assert (
+        'arn:aws:cloudwatch:${var.aws_region}:${var.aws_account_id}:alarm:'
+        '${var.project_name}-worker-lifecycle-dev-non-clean'
+    ) in lifecycle
+    assert (
+        'arn:aws:cloudwatch:${var.aws_region}:${var.aws_account_id}:alarm:'
+        '${var.project_name}-worker-lifecycle-prod-non-clean'
+    ) in lifecycle
+    assert (
+        'arn:aws:logs:${var.aws_region}:${var.aws_account_id}:log-group:'
+        '/aws/lambda/${var.project_name}-worker-lifecycle'
+    ) in lifecycle
+    assert '"ReadOnlyDiscoveryAndCommandStatus"' in plan_discovery
+    assert '"ReadOnlyStockAIObservabilityTags"' in plan_discovery
 
 
 def test_launch_template_versions_mutate_only_owner_tagged_templates() -> None:
