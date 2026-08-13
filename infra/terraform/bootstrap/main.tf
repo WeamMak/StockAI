@@ -596,6 +596,20 @@ data "aws_iam_policy_document" "github_apply_lifecycle" {
   }
 
   statement {
+    sid    = "ReadOnlyStockAIObservabilityTags"
+    effect = "Allow"
+    actions = [
+      "cloudwatch:ListTagsForResource",
+      "logs:ListTagsForResource",
+    ]
+    resources = [
+      "arn:aws:cloudwatch:${var.aws_region}:${var.aws_account_id}:alarm:${var.project_name}-worker-lifecycle-dev-non-clean",
+      "arn:aws:cloudwatch:${var.aws_region}:${var.aws_account_id}:alarm:${var.project_name}-worker-lifecycle-prod-non-clean",
+      "arn:aws:logs:${var.aws_region}:${var.aws_account_id}:log-group:/aws/lambda/${var.project_name}-worker-lifecycle",
+    ]
+  }
+
+  statement {
     sid    = "DenyBootstrapFoundationMutation"
     effect = "Deny"
     actions = [
@@ -639,6 +653,7 @@ locals {
     operations = [
       "DenyBootstrapFoundationMutation",
       "ReadOnlyDiscoveryAndCommandStatus",
+      "ReadOnlyStockAIObservabilityTags",
       "RunPlatformOnlyOnTaggedControlPlane",
       "UseOnlyRunShellScript",
     ]
@@ -673,7 +688,10 @@ resource "aws_iam_policy" "github_plan_discovery" {
     Version = "2012-10-17"
     Statement = [
       for statement in local.github_apply_lifecycle_document.Statement : statement
-      if statement.Sid == "ReadOnlyDiscoveryAndCommandStatus"
+      if contains([
+        "ReadOnlyDiscoveryAndCommandStatus",
+        "ReadOnlyStockAIObservabilityTags",
+      ], statement.Sid)
     ]
   })
 }
