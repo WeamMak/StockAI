@@ -273,6 +273,11 @@ def test_run_instances_requires_owned_compute_and_scoped_dependencies() -> None:
         'sid     = "UseOnlyRegionalRunInstanceDependencies"',
         "  statement {",
     )
+    launch_templates = _block(
+        main,
+        'sid       = "UseOnlyOwnedStockAILaunchTemplates"',
+        "  statement {",
+    )
 
     assert '"ec2:RunInstances"' not in create_only
     assert '"ec2:RunInstances"' in tagged_compute
@@ -285,6 +290,9 @@ def test_run_instances_requires_owned_compute_and_scoped_dependencies() -> None:
     assert "security-group/*" in dependencies
     assert "subnet/*" in dependencies
     assert 'resources = ["*"]' not in dependencies
+    assert '"ec2:RunInstances"' in launch_templates
+    assert "launch-template/*" in launch_templates
+    assert 'variable = "aws:ResourceTag/Owner"' in launch_templates
 
 
 def test_account_repository_cidr_and_state_names_are_parameterized() -> None:

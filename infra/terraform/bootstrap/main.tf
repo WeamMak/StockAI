@@ -349,6 +349,19 @@ data "aws_iam_policy_document" "github_apply_lifecycle" {
   }
 
   statement {
+    sid       = "UseOnlyOwnedStockAILaunchTemplates"
+    effect    = "Allow"
+    actions   = ["ec2:RunInstances"]
+    resources = ["arn:aws:ec2:${var.aws_region}:${var.aws_account_id}:launch-template/*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:ResourceTag/Owner"
+      values   = [var.owner_name]
+    }
+  }
+
+  statement {
     sid    = "MutateOnlyOwnedStockAIResources"
     effect = "Allow"
     actions = [
@@ -676,6 +689,7 @@ locals {
       "MutateOnlyOwnedStockAIResources",
       "PassOnlyApprovedStockAIRoles",
       "RunOnlyTaggedStockAIInstancesAndVolumes",
+      "UseOnlyOwnedStockAILaunchTemplates",
       "UseOnlyRegionalRunInstanceDependencies",
     ]
     services = [
