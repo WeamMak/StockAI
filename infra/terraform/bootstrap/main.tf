@@ -715,6 +715,7 @@ data "aws_iam_policy_document" "github_apply_lifecycle" {
       "events:ListTargetsByRule",
       "lambda:ListVersionsByFunction",
       "logs:ListTagsForResource",
+      "s3:GetAccelerateConfiguration",
       "s3:GetLifecycleConfiguration",
       "s3:ListBucket",
     ]

@@ -259,6 +259,7 @@ def test_plan_role_can_refresh_edge_resources() -> None:
     assert '"elasticloadbalancing:Describe*"' in discovery
     assert 'resources = ["*"]' in discovery
     assert '"cognito-idp:GetGroup"' in discovery
+    assert '"s3:GetAccelerateConfiguration"' in scoped_reads
     assert '"s3:GetLifecycleConfiguration"' in scoped_reads
     assert '"s3:ListBucket"' in scoped_reads
     assert "arn:aws:s3:::${var.loki_bucket_name}" in scoped_reads
