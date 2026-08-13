@@ -162,6 +162,7 @@ def test_t21b_provision_uses_saved_plans_in_dependency_order() -> None:
     assert "needs: apply-dev" in source
     assert source.index("cluster-platform:") > source.index("apply-prod:")
     assert "terraform plan -out=tfplan" in source
+    assert "-refresh=false" not in source
     assert "sha256sum tfplan" in source
     assert "terraform apply -no-color tfplan" in source
     assert "scripts.infra.provision" in source
@@ -185,6 +186,7 @@ def test_t21b_destroy_is_reverse_order_and_preserves_bootstrap() -> None:
     assert "needs: apply-dev" in source
     assert "needs: apply-edge" in source
     assert "terraform plan -destroy -out=tfplan" in source
+    assert "-refresh=false" not in source
     assert "terraform apply -no-color tfplan" in source
     assert "scripts.infra.cluster_platform" in source
     assert "quiesce" in source
