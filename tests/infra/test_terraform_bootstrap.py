@@ -102,6 +102,7 @@ def test_github_oidc_trust_uses_exact_audience_and_immutable_subjects() -> None:
         assert "StringLike" not in trust
 
     assert "repo:${var.github_repository_subject}:pull_request" in plan_trust
+    assert "repo:${var.github_repository_subject}:ref:refs/heads/main" in plan_trust
     assert (
         "repo:${var.github_repository_subject}:environment:${environment}"
         in apply_trust
