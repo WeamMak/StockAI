@@ -63,8 +63,68 @@ jobs:
             --instance-id "$(terraform -chdir=infra/terraform/platform output -raw control_plane_instance_id)" \
             --cluster-name "$DEPLOYMENT" quiesce | tee -a "$GITHUB_STEP_SUMMARY"
 
-  plan-prod:
+  plan-prod-deletion-protection:
     needs: quiesce
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
+        with:
+          version: "0.11.27"
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.15.8"
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: us-east-1
+          role-to-assume: ${{ vars.AWS_TERRAFORM_PLAN_ROLE_ARN }}
+          role-session-name: stockai-destroy-plan-prod-protection
+      - name: Create reviewed plan to disable prod Cognito deletion protection
+        run: |
+          uv run --frozen python -m scripts.infra.provision render-input --root prod --output infra/terraform/environments/prod/ci.auto.tfvars.json
+          terraform -chdir=infra/terraform/environments/prod init -input=false -backend-config="bucket=${{ vars.TERRAFORM_STATE_BUCKET }}" -backend-config="key=${{ vars.TERRAFORM_STATE_KEY_PREFIX }}/environments/prod/terraform.tfstate" -backend-config="region=us-east-1" -backend-config="dynamodb_table=${{ vars.TERRAFORM_LOCK_TABLE }}" -backend-config="encrypt=true"
+          cd infra/terraform/environments/prod
+          terraform plan -var=enable_cognito_deletion_protection=false -out=deactivate.tfplan -no-color
+          terraform show -no-color deactivate.tfplan > deactivate-plan.txt
+          sha256sum deactivate.tfplan > deactivate.tfplan.sha256
+          { echo '## Saved prod Cognito deletion-protection plan'; cat deactivate.tfplan.sha256; sed -n '1,500p' deactivate-plan.txt; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: deactivate-prod-deletion-protection-plan
+          path: infra/terraform/environments/prod/{deactivate.tfplan,deactivate.tfplan.sha256,deactivate-plan.txt}
+          if-no-files-found: error
+          retention-days: 14
+
+  apply-prod-deletion-protection:
+    needs: plan-prod-deletion-protection
+    runs-on: ubuntu-latest
+    environment: infrastructure-destroy
+    steps:
+      - uses: actions/checkout@v6
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.15.8"
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: us-east-1
+          role-to-assume: ${{ vars.AWS_TERRAFORM_APPLY_ROLE_ARN }}
+          role-session-name: stockai-destroy-apply-prod-protection
+      - uses: actions/download-artifact@v7
+        with:
+          name: deactivate-prod-deletion-protection-plan
+          path: reviewed-plan
+      - name: Apply exact prod Cognito deletion-protection plan
+        run: |
+          terraform -chdir=infra/terraform/environments/prod init -input=false -backend-config="bucket=${{ vars.TERRAFORM_STATE_BUCKET }}" -backend-config="key=${{ vars.TERRAFORM_STATE_KEY_PREFIX }}/environments/prod/terraform.tfstate" -backend-config="region=us-east-1" -backend-config="dynamodb_table=${{ vars.TERRAFORM_LOCK_TABLE }}" -backend-config="encrypt=true"
+          cp reviewed-plan/deactivate.tfplan reviewed-plan/deactivate.tfplan.sha256 infra/terraform/environments/prod/
+          cd infra/terraform/environments/prod
+          sha256sum --check deactivate.tfplan.sha256
+          terraform apply -no-color deactivate.tfplan
+
+  plan-prod:
+    needs: apply-prod-deletion-protection
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -85,7 +145,7 @@ jobs:
           uv run --frozen python -m scripts.infra.provision render-input --root prod --output infra/terraform/environments/prod/ci.auto.tfvars.json
           terraform -chdir=infra/terraform/environments/prod init -input=false -backend-config="bucket=${{ vars.TERRAFORM_STATE_BUCKET }}" -backend-config="key=${{ vars.TERRAFORM_STATE_KEY_PREFIX }}/environments/prod/terraform.tfstate" -backend-config="region=us-east-1" -backend-config="dynamodb_table=${{ vars.TERRAFORM_LOCK_TABLE }}" -backend-config="encrypt=true"
           cd infra/terraform/environments/prod
-          terraform plan -destroy -out=tfplan -no-color
+          terraform plan -destroy -out=tfplan -var=enable_cognito_deletion_protection=false -no-color
           terraform show -no-color tfplan > plan.txt
           sha256sum tfplan > tfplan.sha256
           { echo '## Saved prod destruction plan'; cat tfplan.sha256; sed -n '1,500p' plan.txt; } >> "$GITHUB_STEP_SUMMARY"

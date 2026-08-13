@@ -205,7 +205,7 @@ def test_plan_role_can_refresh_worker_lifecycle_resources() -> None:
     )
 
     assert '"cloudwatch:ListTagsForResource"' in lifecycle
-    assert '"elasticloadbalancing:DescribeTargetHealth"' in lifecycle
+    assert '"elasticloadbalancing:Describe*"' in lifecycle
     assert '"events:ListTargetsByRule"' in lifecycle
     assert '"lambda:ListVersionsByFunction"' in lifecycle
     assert '"logs:ListTagsForResource"' in lifecycle
@@ -224,14 +224,6 @@ def test_plan_role_can_refresh_worker_lifecycle_resources() -> None:
     assert (
         "arn:aws:events:${var.aws_region}:${var.aws_account_id}:rule/"
         "${var.cluster_name}-worker-termination"
-    ) in lifecycle
-    assert (
-        "arn:aws:elasticloadbalancing:${var.aws_region}:${var.aws_account_id}:"
-        "targetgroup/${var.cluster_name}-dev-ingress/*"
-    ) in lifecycle
-    assert (
-        "arn:aws:elasticloadbalancing:${var.aws_region}:${var.aws_account_id}:"
-        "targetgroup/${var.cluster_name}-prod-ingress/*"
     ) in lifecycle
     assert (
         "arn:aws:logs:${var.aws_region}:${var.aws_account_id}:log-group:"
@@ -264,11 +256,128 @@ def test_plan_role_can_refresh_edge_resources() -> None:
         "  statement {",
     )
 
-    assert '"elasticloadbalancing:DescribeLoadBalancers"' in discovery
-    assert '"elasticloadbalancing:DescribeTargetGroups"' in discovery
+    assert '"elasticloadbalancing:Describe*"' in discovery
     assert 'resources = ["*"]' in discovery
+    assert '"cognito-idp:GetGroup"' in discovery
     assert '"s3:GetLifecycleConfiguration"' in scoped_reads
     assert "arn:aws:s3:::${var.loki_bucket_name}" in scoped_reads
+
+
+def test_apply_role_can_create_and_update_the_complete_edge_lifecycle() -> None:
+    main = _read("main.tf")
+    lifecycle = _block(
+        main,
+        'data "aws_iam_policy_document" "github_apply_lifecycle" {',
+        'resource "aws_iam_policy" "github_apply_lifecycle" {',
+    )
+    create_only = _block(
+        lifecycle,
+        'sid    = "CreateOnlyTaggedStockAIResources"',
+        "  statement {",
+    )
+    create_tags = _block(
+        lifecycle,
+        'sid    = "TagOnlyDuringOwnedELBCreate"',
+        "  statement {",
+    )
+    mutate_edge = _block(
+        lifecycle,
+        'sid    = "ManageStockAINetworkEdgeAndIdentity"',
+        "  statement {",
+    )
+
+    for action in (
+        "elasticloadbalancing:CreateListener",
+        "elasticloadbalancing:CreateRule",
+    ):
+        assert f'"{action}"' in create_only
+        assert f'"{action}"' not in mutate_edge
+    assert 'variable = "aws:RequestTag/Owner"' in create_only
+    assert '"elasticloadbalancing:AddTags"' in create_tags
+    assert 'variable = "aws:RequestTag/Owner"' in create_tags
+    assert 'variable = "elasticloadbalancing:CreateAction"' in create_tags
+    for create_action in (
+        "CreateListener",
+        "CreateLoadBalancer",
+        "CreateRule",
+        "CreateTargetGroup",
+    ):
+        assert f'"{create_action}"' in create_tags
+    for action in (
+        "cognito-idp:TagResource",
+        "cognito-idp:UntagResource",
+        "elasticloadbalancing:SetSecurityGroups",
+        "elasticloadbalancing:SetSubnets",
+    ):
+        assert f'"{action}"' in mutate_edge
+    assert 'variable = "aws:ResourceTag/Owner"' in mutate_edge
+
+
+def test_apply_role_can_update_owned_tags_and_exact_join_parameter() -> None:
+    main = _read("main.tf")
+    lifecycle = _block(
+        main,
+        'data "aws_iam_policy_document" "github_apply_lifecycle" {',
+        'resource "aws_iam_policy" "github_apply_lifecycle" {',
+    )
+    mutate_owned = _block(
+        lifecycle,
+        'sid    = "MutateOnlyOwnedStockAIResources"',
+        "  statement {",
+    )
+    application_data = _block(
+        lifecycle,
+        'sid    = "ManageExactApplicationData"',
+        "  statement {",
+    )
+
+    for action in (
+        "cloudwatch:TagResource",
+        "cloudwatch:UntagResource",
+        "dlm:TagResource",
+        "dlm:UntagResource",
+        "ec2:CreateTags",
+        "events:TagResource",
+        "events:UntagResource",
+        "lambda:TagResource",
+        "lambda:UntagResource",
+        "logs:TagResource",
+        "logs:UntagResource",
+    ):
+        assert f'"{action}"' in mutate_owned
+    assert 'variable = "aws:ResourceTag/Owner"' in mutate_owned
+    assert '"ssm:PutParameter"' in application_data
+    assert (
+        "arn:aws:ssm:${var.aws_region}:${var.aws_account_id}:parameter/stockai/"
+        "${var.cluster_name}/kubeadm/join-command"
+    ) in application_data
+
+
+def test_apply_role_can_create_only_required_aws_service_linked_roles() -> None:
+    main = _read("main.tf")
+    lifecycle = _block(
+        main,
+        'data "aws_iam_policy_document" "github_apply_lifecycle" {',
+        'resource "aws_iam_policy" "github_apply_lifecycle" {',
+    )
+    service_roles = _block(
+        lifecycle,
+        'sid     = "CreateOnlyRequiredAWSServiceLinkedRoles"',
+        "  statement {",
+    )
+
+    assert 'actions = ["iam:CreateServiceLinkedRole"]' in service_roles
+    assert (
+        "role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling"
+    ) in service_roles
+    assert (
+        "role/aws-service-role/elasticloadbalancing.amazonaws.com/"
+        "AWSServiceRoleForElasticLoadBalancing"
+    ) in service_roles
+    assert "role/aws-service-role/*" not in service_roles
+    assert 'variable = "iam:AWSServiceName"' in service_roles
+    assert '"autoscaling.amazonaws.com"' in service_roles
+    assert '"elasticloadbalancing.amazonaws.com"' in service_roles
 
 
 def test_launch_template_versions_mutate_only_owner_tagged_templates() -> None:

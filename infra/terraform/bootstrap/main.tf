@@ -300,7 +300,9 @@ data "aws_iam_policy_document" "github_apply_lifecycle" {
       "ec2:CreateTags",
       "ec2:CreateVolume",
       "ec2:CreateVpc",
+      "elasticloadbalancing:CreateListener",
       "elasticloadbalancing:CreateLoadBalancer",
+      "elasticloadbalancing:CreateRule",
       "elasticloadbalancing:CreateTargetGroup",
       "events:PutRule",
       "iam:CreateInstanceProfile",
@@ -321,6 +323,37 @@ data "aws_iam_policy_document" "github_apply_lifecycle" {
   }
 
   statement {
+    sid    = "TagOnlyDuringOwnedELBCreate"
+    effect = "Allow"
+    actions = [
+      "elasticloadbalancing:AddTags",
+    ]
+    resources = [
+      "arn:aws:elasticloadbalancing:${var.aws_region}:${var.aws_account_id}:listener-rule/app/${var.cluster_name}-*/*/*",
+      "arn:aws:elasticloadbalancing:${var.aws_region}:${var.aws_account_id}:listener/app/${var.cluster_name}-*/*/*",
+      "arn:aws:elasticloadbalancing:${var.aws_region}:${var.aws_account_id}:loadbalancer/app/${var.cluster_name}-*/*",
+      "arn:aws:elasticloadbalancing:${var.aws_region}:${var.aws_account_id}:targetgroup/${var.cluster_name}-*/*",
+    ]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestTag/Owner"
+      values   = [var.owner_name]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "elasticloadbalancing:CreateAction"
+      values = [
+        "CreateListener",
+        "CreateLoadBalancer",
+        "CreateRule",
+        "CreateTargetGroup",
+      ]
+    }
+  }
+
+  statement {
     sid     = "RunOnlyTaggedStockAIInstancesAndVolumes"
     effect  = "Allow"
     actions = ["ec2:RunInstances"]
@@ -333,6 +366,25 @@ data "aws_iam_policy_document" "github_apply_lifecycle" {
       test     = "StringEquals"
       variable = "aws:RequestTag/Owner"
       values   = [var.owner_name]
+    }
+  }
+
+  statement {
+    sid     = "CreateOnlyRequiredAWSServiceLinkedRoles"
+    effect  = "Allow"
+    actions = ["iam:CreateServiceLinkedRole"]
+    resources = [
+      "arn:aws:iam::${var.aws_account_id}:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling",
+      "arn:aws:iam::${var.aws_account_id}:role/aws-service-role/elasticloadbalancing.amazonaws.com/AWSServiceRoleForElasticLoadBalancing",
+    ]
+
+    condition {
+      test     = "StringEquals"
+      variable = "iam:AWSServiceName"
+      values = [
+        "autoscaling.amazonaws.com",
+        "elasticloadbalancing.amazonaws.com",
+      ]
     }
   }
 
@@ -381,7 +433,11 @@ data "aws_iam_policy_document" "github_apply_lifecycle" {
       "autoscaling:DeleteTags",
       "cloudwatch:DeleteAlarms",
       "cloudwatch:PutMetricAlarm",
+      "cloudwatch:TagResource",
+      "cloudwatch:UntagResource",
       "dlm:DeleteLifecyclePolicy",
+      "dlm:TagResource",
+      "dlm:UntagResource",
       "dlm:UpdateLifecyclePolicy",
       "ec2:AttachInternetGateway",
       "ec2:AttachVolume",
@@ -390,6 +446,7 @@ data "aws_iam_policy_document" "github_apply_lifecycle" {
       "ec2:AuthorizeSecurityGroupIngress",
       "ec2:CreateLaunchTemplateVersion",
       "ec2:CreateRoute",
+      "ec2:CreateTags",
       "ec2:DeleteInternetGateway",
       "ec2:DeleteLaunchTemplate",
       "ec2:DeleteLaunchTemplateVersions",
@@ -405,22 +462,31 @@ data "aws_iam_policy_document" "github_apply_lifecycle" {
       "ec2:DisassociateRouteTable",
       "ec2:ModifyLaunchTemplate",
       "ec2:ModifyInstanceAttribute",
+      "ec2:ModifyInstanceMetadataOptions",
       "ec2:ModifySubnetAttribute",
       "ec2:ModifyVolume",
       "ec2:ModifyVpcAttribute",
       "ec2:RevokeSecurityGroupEgress",
       "ec2:RevokeSecurityGroupIngress",
+      "ec2:StartInstances",
+      "ec2:StopInstances",
       "ec2:TerminateInstances",
       "events:DeleteRule",
       "events:PutTargets",
       "events:RemoveTargets",
+      "events:TagResource",
+      "events:UntagResource",
       "lambda:AddPermission",
       "lambda:DeleteFunction",
       "lambda:RemovePermission",
+      "lambda:TagResource",
+      "lambda:UntagResource",
       "lambda:UpdateFunctionCode",
       "lambda:UpdateFunctionConfiguration",
       "logs:DeleteLogGroup",
       "logs:PutRetentionPolicy",
+      "logs:TagResource",
+      "logs:UntagResource",
       "secretsmanager:DeleteSecret",
       "secretsmanager:RestoreSecret",
       "secretsmanager:TagResource",
@@ -491,6 +557,7 @@ data "aws_iam_policy_document" "github_apply_lifecycle" {
       "dynamodb:UpdateTimeToLive",
       "ssm:AddTagsToResource",
       "ssm:DeleteParameter",
+      "ssm:PutParameter",
       "ssm:RemoveTagsFromResource",
     ]
     resources = [
@@ -533,12 +600,12 @@ data "aws_iam_policy_document" "github_apply_lifecycle" {
       "cognito-idp:DeleteUserPoolClient",
       "cognito-idp:DeleteUserPoolDomain",
       "cognito-idp:SetUserPoolMfaConfig",
+      "cognito-idp:TagResource",
+      "cognito-idp:UntagResource",
       "cognito-idp:UpdateGroup",
       "cognito-idp:UpdateUserPool",
       "cognito-idp:UpdateUserPoolClient",
       "elasticloadbalancing:AddTags",
-      "elasticloadbalancing:CreateListener",
-      "elasticloadbalancing:CreateRule",
       "elasticloadbalancing:DeleteListener",
       "elasticloadbalancing:DeleteLoadBalancer",
       "elasticloadbalancing:DeleteRule",
@@ -549,6 +616,9 @@ data "aws_iam_policy_document" "github_apply_lifecycle" {
       "elasticloadbalancing:ModifyTargetGroup",
       "elasticloadbalancing:ModifyTargetGroupAttributes",
       "elasticloadbalancing:RemoveTags",
+      "elasticloadbalancing:SetIpAddressType",
+      "elasticloadbalancing:SetSecurityGroups",
+      "elasticloadbalancing:SetSubnets",
     ]
     resources = [
       "arn:aws:cognito-idp:${var.aws_region}:${var.aws_account_id}:userpool/*",
@@ -607,14 +677,14 @@ data "aws_iam_policy_document" "github_apply_lifecycle" {
       "autoscaling:Describe*",
       "cloudwatch:DescribeAlarms",
       "cognito-idp:Describe*",
+      "cognito-idp:GetGroup",
       "cognito-idp:List*",
       "dlm:GetLifecyclePolicy",
       "dlm:ListTagsForResource",
       "dynamodb:Describe*",
       "dynamodb:ListTagsOfResource",
       "ec2:Describe*",
-      "elasticloadbalancing:DescribeLoadBalancers",
-      "elasticloadbalancing:DescribeTargetGroups",
+      "elasticloadbalancing:Describe*",
       "events:DescribeRule",
       "events:ListTagsForResource",
       "iam:Get*",
@@ -642,7 +712,6 @@ data "aws_iam_policy_document" "github_apply_lifecycle" {
     effect = "Allow"
     actions = [
       "cloudwatch:ListTagsForResource",
-      "elasticloadbalancing:DescribeTargetHealth",
       "events:ListTargetsByRule",
       "lambda:ListVersionsByFunction",
       "logs:ListTagsForResource",
@@ -652,8 +721,6 @@ data "aws_iam_policy_document" "github_apply_lifecycle" {
       "arn:aws:cloudwatch:${var.aws_region}:${var.aws_account_id}:alarm:${var.cluster_name}-worker-lifecycle-dev-non-clean",
       "arn:aws:cloudwatch:${var.aws_region}:${var.aws_account_id}:alarm:${var.cluster_name}-worker-lifecycle-errors",
       "arn:aws:cloudwatch:${var.aws_region}:${var.aws_account_id}:alarm:${var.cluster_name}-worker-lifecycle-prod-non-clean",
-      "arn:aws:elasticloadbalancing:${var.aws_region}:${var.aws_account_id}:targetgroup/${var.cluster_name}-dev-ingress/*",
-      "arn:aws:elasticloadbalancing:${var.aws_region}:${var.aws_account_id}:targetgroup/${var.cluster_name}-prod-ingress/*",
       "arn:aws:events:${var.aws_region}:${var.aws_account_id}:rule/${var.cluster_name}-worker-termination",
       "arn:aws:lambda:${var.aws_region}:${var.aws_account_id}:function:${var.cluster_name}-worker-lifecycle",
       "arn:aws:logs:${var.aws_region}:${var.aws_account_id}:log-group:/aws/lambda/${var.cluster_name}-worker-lifecycle",
@@ -691,6 +758,7 @@ locals {
   github_apply_lifecycle_document = jsondecode(data.aws_iam_policy_document.github_apply_lifecycle.json)
   github_apply_lifecycle_statement_groups = {
     core = [
+      "CreateOnlyRequiredAWSServiceLinkedRoles",
       "CreateOnlyTaggedStockAIResources",
       "ManageNamedStockAIIam",
       "MutateOnlyOwnedStockAIResources",
@@ -704,6 +772,7 @@ locals {
       "ManageExactLokiBucket",
       "ManageOnlyApprovedHostedZone",
       "ManageStockAINetworkEdgeAndIdentity",
+      "TagOnlyDuringOwnedELBCreate",
     ]
     operations = [
       "DenyBootstrapFoundationMutation",
