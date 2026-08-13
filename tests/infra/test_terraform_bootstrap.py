@@ -191,7 +191,7 @@ def test_apply_lifecycle_is_scoped_and_plan_role_stays_read_only() -> None:
         assert resource not in lifecycle
 
 
-def test_plan_role_can_refresh_cloudwatch_resource_tags() -> None:
+def test_plan_role_can_refresh_worker_lifecycle_resources() -> None:
     main = _read("main.tf")
     lifecycle = _block(
         main,
@@ -205,6 +205,7 @@ def test_plan_role_can_refresh_cloudwatch_resource_tags() -> None:
     )
 
     assert '"cloudwatch:ListTagsForResource"' in lifecycle
+    assert '"events:ListTargetsByRule"' in lifecycle
     assert '"lambda:ListVersionsByFunction"' in lifecycle
     assert '"logs:ListTagsForResource"' in lifecycle
     assert (
@@ -214,6 +215,14 @@ def test_plan_role_can_refresh_cloudwatch_resource_tags() -> None:
     assert (
         "arn:aws:cloudwatch:${var.aws_region}:${var.aws_account_id}:alarm:"
         "${var.cluster_name}-worker-lifecycle-prod-non-clean"
+    ) in lifecycle
+    assert (
+        "arn:aws:cloudwatch:${var.aws_region}:${var.aws_account_id}:alarm:"
+        "${var.cluster_name}-worker-lifecycle-errors"
+    ) in lifecycle
+    assert (
+        "arn:aws:events:${var.aws_region}:${var.aws_account_id}:rule/"
+        "${var.cluster_name}-worker-termination"
     ) in lifecycle
     assert (
         "arn:aws:logs:${var.aws_region}:${var.aws_account_id}:log-group:"
