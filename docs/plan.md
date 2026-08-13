@@ -13,12 +13,14 @@ ORM-bootstrap contracts selected after T10 discovery.
 
 **Tech Stack:** Python 3.12, FastAPI, LangGraph, Python MCP SDK, React, TypeScript, Vite, Odoo 19 Community, PostgreSQL, Terraform, AWS EC2/Auto Scaling/SSM/EventBridge/Lambda/EBS/ALB/ACM/Route 53, kubeadm Kubernetes, Kustomize, Argo CD, Prometheus, Grafana, Loki, Alertmanager, GitHub Actions.
 
-**Status:** T21 implementation and local verification complete; awaiting
-review and pull-request workflow verification
+**Status:** T21A is merged; the synchronized T21B infrastructure-lifecycle and
+T22/T24 immutable-promotion amendments await review and explicit
+implementation authorization
 
-**Date:** 2026-08-09
+**Date:** 2026-08-13
 
-**Source design:** User- and course-staff-approved `docs/spec.md` dated 2026-08-07
+**Source design:** Previously approved `docs/spec.md` plus its proposed
+2026-08-13 synchronized amendment
 
 **Current gate:** The user approved the exact 2026-08-07 revision, confirmed
 course-staff approval, and explicitly authorized implementation to resume. T10,
@@ -30,13 +32,15 @@ approved and merged through PR #19 at `f89a089`. T16 is approved and merged
 through PR #20 at `debbb5f`. T17 through T19A are complete and merged, including
 the accepted T18B deferred live failure drill. T19B is merged through PR #27 at
 `055aa01`. T20A is merged through PR #28 at `970aa8d`. T20B is merged through
-PR #29 at `1e1b98d`. T21 implementation and local verification are complete;
-its live pull-request workflow checks remain pending.
+PR #29 at `1e1b98d`. T21A is merged through PR #31 at `0b87a61`. T21B below
+defines the next proposed infrastructure-lifecycle task.
 
-**Proposed plan amendment:** T21A below is planning-only and is not authorized
-for implementation until the matching deployment-interface changes in
-`docs/spec.md` and this plan amendment receive user and course-staff approval.
-T21 remains the active implementation task until that gate is satisfied.
+**Proposed plan amendment:** T21B records the user-reported course-staff-
+approved scope for protected GitHub-managed provisioning and destruction;
+T22/T24 define the requested immutable dev-to-feature-to-main promotion path.
+Implementation remains blocked until the user and course staff review the
+exact synchronized specification and plan text and the user then explicitly
+authorizes the affected task.
 
 ## 1. Approval status and purpose
 
@@ -270,10 +274,13 @@ workflow:
    `dev` directly.
 9. Allow the dev workflow and Argo CD to publish and reconcile the immutable
    artifact; validate it in the dev namespace.
-10. Copy or cherry-pick the generated, verified release manifest back to the
-    feature branch and open its pull request to `main`.
-11. Merge only after required tests, validation, and Docker Scout checks pass.
-12. Let the main workflow promote the same immutable digest; let prod Argo CD
+10. From the feature branch, run `make promote-dev`, review and commit the
+    exact dev-validated prod digest/provenance changes, and open its pull
+    request to `main`.
+11. Merge only after blocking tests and validation pass and the report-only
+    Docker Scout job has recorded its available scan/report outcome.
+12. Let the merge place the prepared prod digest on `main`; let the main
+    workflow verify it without rebuilding or committing, let prod Argo CD
     reconcile it, then perform the task’s production smoke check.
 13. Do not start a dependent task until the prior task is in `main` and prod is
     healthy.
@@ -325,6 +332,7 @@ capabilities and Make targets must remain stable.
 | `make terraform-validate` | Format, initialize without apply, validate, lint, plan-test every root, and package/unit-test lifecycle Lambda code |
 | `make kubernetes-validate` | Render both Kustomize overlays and run schema/policy checks |
 | `make security-scan` | Dependency, secret, filesystem, configuration, and image checks; Docker Scout remains required in CI |
+| `make promote-dev` | From a clean feature branch, verify the `origin/dev` release and prepare the exact prod digest/provenance changes without commit, push, merge, AWS, or Kubernetes access |
 | `make smoke-dev` | Public HTTPS, auth, real Bedrock, real MCP, real Odoo, DynamoDB, audit, metrics, and logs |
 | `make smoke-prod` | Same critical path against prod with prod-only fictional seed data |
 | `make test-resilience` | HPA/manual ASG capacity, clean/fail-open termination, retained-volume reattachment, inactive/startup warming, and recovery drills |
@@ -2068,7 +2076,10 @@ verification.
    exist, then run Python and React tests with JUnit/coverage summaries, builds,
    Compose validation, Terraform checks/plans, Kustomize/schema checks, secret
    scans, and action lint on every pull request.
-- [x] **Step 3:** Run Docker Scout on pull requests targeting `main`.
+- [x] **Step 3:** Run Docker Scout on pull requests targeting `main`, retain
+   its report, and treat vulnerability findings as report-only while keeping
+   release-integrity, test, secret-scan, and infrastructure validation failures
+   blocking.
 - [x] **Step 4:** Authenticate AWS plan jobs through read-only GitHub OIDC.
 - [x] **Step 5:** Make path-filtered Terraform applies use protected GitHub environments and
    apply roles; never auto-apply an unreviewed plan.
@@ -2239,36 +2250,222 @@ and synchronizes Kubernetes desired state. The existing StockAI deployment
 plans with no resource identity replacements, and no workflow references the
 four removed TFVARS JSON variables.
 
+#### T21B — Add protected GitHub-managed infrastructure lifecycle
+
+**Task status:** Proposed amendment reflecting the user- and
+course-staff-approved scope; implementation remains blocked until this exact
+plan text is reviewed and the user explicitly authorizes T21B implementation.
+
+**Files**
+
+- Create `.github/workflows/terraform-provision.yml` and
+  `.github/workflows/terraform-destroy.yml` for separately protected, manual
+  lifecycle operations.
+- Create `scripts/infra/cluster_platform.py` and
+  `tests/unit/infra/test_cluster_platform.py` for bounded SSM command
+  construction, polling, redaction, and readiness verification.
+- Modify `scripts/infra/provision.py` only to expose the existing discovery,
+  generated-input, backend, and typed-output operations needed by a
+  non-interactive GitHub runner; preserve the interactive local
+  `make infra-provision` path.
+- Modify `infra/terraform/bootstrap/main.tf`, its variables/outputs only when
+  necessary, and `tests/infra/test_terraform_bootstrap.py` to add reviewed,
+  resource-scoped lifecycle permissions to the existing GitHub apply role.
+- Modify `tests/config/test_ci_workflows.py`,
+  `docs/runbooks/infrastructure-provisioning.md`, `README.md`, and
+  `docs/implementation-status.md` for lifecycle contracts and operator use.
+
+**Interfaces**
+
+- Consumes: the T21A deployment descriptor and generated root inputs; the
+  existing bootstrap state bucket, lock table, GitHub OIDC provider, plan role,
+  and apply role; a protected GitHub environment approval; and an exact manual
+  confirmation identifying the requested operation and deployment.
+- Produces: a manual provision path that applies `platform`, `edge`, `dev`, and
+  `prod` in dependency order, then establishes and verifies the shared
+  Kubernetes platform; and a separately protected destruction path that
+  quiesces workloads and destroys `prod`, `dev`, `edge`, and `platform` in
+  reverse dependency order.
+- Preserves: the complete `bootstrap` root and state, GitHub OIDC foundation,
+  Terraform state bucket and locking, the local T21A recovery path, and Argo
+  CD as the only application-workload deployment authority.
+- Excludes: automatic apply or destroy on pushes, merges, schedules, or pull
+  requests; permanent AWS access keys; an SSH private-key repository secret;
+  direct GitHub-runner `kubectl`; image build/promotion; and application
+  workload installation.
+
+**Work and tests**
+
+- [ ] **Step 1: Freeze the manual lifecycle workflow contracts with failing
+  tests.** Assert that both workflows use only `workflow_dispatch`, declare
+  `id-token: write` with least other token permissions, use independent
+  concurrency groups, select their distinct protected GitHub environments,
+  reject missing or incorrect exact confirmations, and contain no push, pull
+  request, schedule, static AWS key, SSH key, runner-side `kubectl`, or
+  bootstrap apply/destroy path. Assert the provision order
+  `platform -> edge -> dev -> prod` and destruction order
+  `prod -> dev -> edge -> platform`, with failure stopping all later roots.
+- [ ] **Step 2: Add reviewed least-privilege lifecycle permissions.** Extend
+  the bootstrap-managed GitHub apply role with only the actions Terraform and
+  the cluster-platform SSM step require for the existing StockAI network,
+  compute, ASG, lifecycle, EBS, ALB/ACM/Route 53, S3, DynamoDB, Secrets
+  Manager, Cognito, EventBridge, Lambda, CloudWatch, IAM, and SSM resources.
+  Restrict resource-capable actions to deterministic StockAI names, paths,
+  ARNs, and required ownership tags; isolate unavoidable AWS list/describe
+  actions in reviewed read-only statements. Test that the plan role remains
+  read-only, `iam:PassRole` names only approved StockAI roles, SSM commands
+  target only the tagged control-plane instance, and neither role can mutate
+  the bootstrap bucket, lock table, OIDC provider, or bootstrap roles.
+- [ ] **Step 3: Implement saved-plan sequential provisioning.** Authenticate
+  with the apply role through OIDC, verify the T21A descriptor against the AWS
+  account and repository identity, generate ignored inputs, and for each of
+  `platform`, `edge`, `dev`, and `prod` run remote-backend initialization,
+  create a saved plan, publish its human-readable summary and checksum, and
+  apply that exact saved plan only after the workflow's protected-environment
+  approval. Pass typed Terraform outputs to dependent roots and synchronize
+  the approved non-secret outputs into Kubernetes desired state. A rerun must
+  be idempotent and a failed root must prevent all dependent roots and cluster
+  installation.
+- [ ] **Step 4: Complete the shared Kubernetes platform through SSM.** Wait
+  with bounded polling for EC2 cloud-init, `/etc/kubernetes/admin.conf`, the
+  StockAI control-plane completion marker, and the expected Ready control
+  plane and dev/prod workers. Calico remains owned by the existing
+  control-plane user data and must not be independently reinstalled. Send a
+  pinned, non-secret SSM command to the tagged control plane that obtains the
+  exact approved repository revision, renders
+  `deploy/kubernetes/cluster`, applies the shared NGINX Ingress, EBS CSI,
+  metrics-server, kube-state-metrics, and Argo CD resources, and waits for
+  their readiness. Poll the command to a bounded terminal state, redact
+  failures, remove temporary files, and publish only non-secret health
+  evidence. Do not install dev/prod Argo CD `Application` resources or any
+  StockAI application workload; those remain T22/T24 responsibilities.
+- [ ] **Step 5: Implement separately protected destruction.** Require a
+  destruction-specific environment and exact deployment/account confirmation.
+  Through bounded SSM commands, suspend/remove Argo-managed environment
+  applications and namespaces when present and wait for workload volume
+  detachment. Generate and publish destruction plans before applying them in
+  exact `prod`, `dev`, `edge`, `platform` order. Stop on an unexpected target
+  or failed root, retain auditable summaries, and prove that the workflow has
+  no code path to the bootstrap root, its state object, bucket, lock table,
+  OIDC provider, or GitHub roles.
+- [ ] **Step 6: Verify lifecycle safety and document recovery.** Run focused
+  workflow, orchestration, IAM, Terraform, Kustomize, ShellCheck/actionlint,
+  and complete repository checks. Exercise mocked no-change, rejected
+  confirmation, rejected environment, interrupted root, SSM timeout, unhealthy
+  controller, partial destruction, and safe rerun paths. Document protected
+  environment setup, approval evidence, expected summaries, retry/recovery,
+  the preserved-bootstrap boundary, and when to use the local
+  `make infra-provision` fallback. A live destruction/recreation drill requires
+  a separately reviewed plan and explicit user authorization; tests alone do
+  not authorize it.
+
+**Verification:** Run
+`pytest tests/unit/infra/test_cluster_platform.py tests/infra/test_terraform_bootstrap.py tests/config/test_ci_workflows.py -v`,
+all infrastructure and Kubernetes tests, actionlint, ShellCheck, Terraform
+formatting/provider-schema validation, `make check`, and `git diff --check`.
+For live acceptance, manually approve the provision workflow, verify all four
+saved plans and checksums, confirm three Ready nodes and healthy shared
+controllers, and prove a second run plans no changes. Exercise destruction
+only after its independently reviewed destructive plan is explicitly approved.
+
+**Dependencies:** T21A and the already implemented T18A–T18C cluster bootstrap
+and shared-controller resources.
+
+**Requirements:** CR-07, CR-08, CR-10, CR-11, CR-15, CR-16; spec sections
+16–18, 20, 22.5, and 23.
+
+**Complete when:** An authorized operator can use protected manual GitHub
+workflows to provision the four non-bootstrap Terraform roots and establish a
+healthy shared Kubernetes platform without static AWS or SSH credentials, or
+to run the separately protected reverse-order destruction path, while normal
+branch activity never mutates infrastructure, bootstrap remains preserved,
+and Argo CD retains application deployment responsibility.
+
 #### T22 — Implement dev build, GitOps update, and Argo CD reconciliation
 
 **Files**
 
 - Create `.github/workflows/dev-images.yml`,
   `deploy/kubernetes/argocd/dev-application.yaml`,
-  `scripts/release/update_dev_overlay.py`, and
-  `tests/unit/release/test_update_dev_overlay.py`.
+  `scripts/release/update_dev_overlay.py`,
+  `scripts/release/promote_dev.py`,
+  `tests/unit/release/test_update_dev_overlay.py`, and
+  `tests/unit/release/test_promote_dev.py`.
+- Modify `Makefile` to add the stable `make promote-dev` interface and modify
+  `.github/workflows/pr-checks.yml` plus its workflow regression assertions to
+  keep Docker Scout report-only while preserving all blocking validation.
+
+**Interfaces**
+
+- Consumes: relevant project changes on `dev`, the two Docker Hub secrets, the
+  complete prior release when an image is unchanged, and for promotion a clean
+  local feature branch plus the validated release at `origin/dev`.
+- Produces: four immutable Docker Hub digest references, retained Scout
+  outcome/report metadata, a dev release manifest and dev Kustomize update,
+  and a local `make promote-dev` operation that prepares the matching prod
+  manifest/overlay changes on the feature branch.
+- Excludes: committing or pushing from `make promote-dev`, direct writes to
+  protected `main`, rebuilding during promotion, Terraform mutation, and any
+  GitHub Actions `kubectl` deployment.
 
 **Work and tests**
 
-- [ ] **Step 1:** On relevant `dev` pushes, build only changed project images, publish
-   immutable Docker Hub digests, create provenance, run Docker Scout, and
-   update the dev overlay and release manifest.
-- [ ] **Step 2:** Prevent workflow loops on bot-only desired-state commits.
-- [ ] **Step 3:** Configure dev Argo CD to track the `dev` revision and dev overlay.
-- [ ] **Step 4:** Query Argo CD through its authenticated API for sync/health status; do not
-   use `kubectl` in GitHub Actions.
-- [ ] **Step 5:** Define how the generated release manifest is copied or cherry-picked back
-   to the originating feature branch before its main pull request.
+- [ ] **Step 1: Build and publish only changed dev images.** On relevant `dev`
+  pushes, calculate the four approved build-input identities, build only the
+  changed frontend, API, MCP, or Odoo images, push immutable Docker Hub
+  references, resolve registry digests, and carry forward an unchanged image
+  only from a fully verified prior release. Record the source revision,
+  application/build-input identities, all four digests, and provenance in the
+  schema-validated release manifest.
+- [ ] **Step 2: Make Docker Scout report-only.** Scan the newly published dev
+  digests, retain the machine-readable and human-readable reports, and publish
+  the scan/tool outcome in the job summary and release metadata. Vulnerability
+  findings, scanner errors, and report upload errors must never block image
+  publication, the desired-state update, or Argo CD reconciliation. Keep
+  secret scanning, digest/provenance verification, tests, builds, and manifest
+  validation blocking. The required main-PR Scout check similarly reports its
+  outcome without using vulnerability findings as a merge gate.
+- [ ] **Step 3: Update dev desired state without workflow loops.** Update only
+  the four approved digest fields and release record on `dev`, validate both
+  Kustomize overlays and the release schema, commit with the repository
+  `GITHUB_TOKEN`, and use path/actor/message guards so the bot-only desired
+  state commit cannot rebuild or republish images.
+- [ ] **Step 4: Configure and observe dev Argo CD.** Configure the dev Argo CD
+  Application to track the `dev` revision and dev overlay. Query Argo CD
+  through its authenticated API for bounded sync/health status and publish the
+  result; do not run `kubectl` from GitHub Actions.
+- [ ] **Step 5: Add exact feature-to-prod preparation.** Implement
+  `make promote-dev` through `scripts/release/promote_dev.py`. Require a clean
+  branch other than `dev` or `main`, fetch/read `origin/dev` without modifying
+  it, validate the complete release and all four immutable digests, and compare
+  its recorded application/build-input identities with the feature branch.
+  On an exact match, copy the four digests and provenance into the prod overlay
+  and prod release record and run release/Kustomize validation. Stop without
+  mutation on stale, missing, mutable, incomplete, mismatched, or tampered
+  input. Leave the resulting files unstaged for human review; never commit,
+  push, merge, call AWS, contact Kubernetes, or modify either protected branch.
+- [ ] **Step 6: Freeze promotion and report behavior with regressions.** Test a
+  dirty branch, `dev`/`main`, stale release, feature mismatch, missing image,
+  mutable tag, tampered provenance, successful four-digest copy, unchanged
+  second run, and failure after validation without partial writes. Assert that
+  Scout cannot fail the dev or PR workflow and that every non-Scout release
+  integrity and validation failure remains blocking.
 
-**Verification:** Run a no-change path, one-image path, four-image path,
-tampered digest path, Argo failure path, and successful dev reconciliation.
+**Verification:** Run the focused release/workflow tests, a no-change path,
+one-image path, four-image path, Scout findings/error paths, workflow-loop
+path, tampered or mismatched promotion paths, successful `make promote-dev`,
+Argo failure path, and successful dev reconciliation. Verify that the prod
+changes produced on the feature branch exactly match the dev release and that
+the command made no Git, AWS, or Kubernetes side effect beyond local files.
 
-**Dependencies:** T21A.
+**Dependencies:** T21B.
 
 **Requirements:** CR-08, CR-11, CR-15; spec section 18.3.
 
-**Complete when:** A dev push changes Git desired state and Argo CD, not GitHub
-Actions, performs deployment.
+**Complete when:** A dev push publishes and records the immutable release,
+report-only Scout cannot block reconciliation, dev Argo CD deploys from Git,
+and `make promote-dev` safely prepares the exact validated prod digests on the
+originating feature branch for its pull request to `main`.
 
 #### T23 — Deploy and validate the cloud walking skeleton in dev
 
@@ -2281,11 +2478,13 @@ Actions, performs deployment.
 
 **Work and tests**
 
-- [ ] **Step 1:** Use T21A's guided provisioning command and generated
-   deployment configuration to apply only approved saved plans, bootstrap the
-   cluster, synchronize non-secret Terraform outputs, and verify Argo CD
-   readiness without manually entering account ID, AMI, AZs, resource/state
-   names, cross-root outputs, or Kubernetes volume coordinates.
+- [ ] **Step 1:** Run T21B's protected manual provisioning workflow with the
+   T21A-generated deployment configuration. Review the saved plans, apply the
+   four non-bootstrap roots, establish the shared Kubernetes platform through
+   SSM, synchronize non-secret Terraform outputs, and verify control-plane,
+   worker, NGINX Ingress, EBS CSI, metrics, and Argo CD readiness without
+   manually entering account ID, AMI, AZs, resource/state names, cross-root
+   outputs, Kubernetes volume coordinates, static AWS keys, or an SSH key.
 - [ ] **Step 2:** Reconcile the complete dev stack through Argo CD.
 - [ ] **Step 3:** Seed fictional dev Odoo and bootstrap fictional Cognito users.
 - [ ] **Step 4:** Exercise real Cognito login, real Bedrock GPT-OSS, real MCP transport, real
@@ -2302,7 +2501,7 @@ Actions, performs deployment.
 **Verification:** Run `make smoke-dev`; inspect the same correlation ID in UI,
 API/MCP logs, metrics, DynamoDB audit, and Odoo.
 
-**Dependencies:** T22 and authorized AWS apply/deployment.
+**Dependencies:** T21B, T22, and authorized AWS apply/deployment.
 
 **Requirements:** CR-02 through CR-13, CR-15, CR-16 as applicable to the
 walking skeleton.
@@ -2316,17 +2515,21 @@ with no unapproved write behavior.
 
 - Create `.github/workflows/main-promote.yml`,
   `deploy/kubernetes/argocd/prod-application.yaml`,
-  `scripts/release/update_prod_overlay.py`,
-  `tests/unit/release/test_update_prod_overlay.py`,
   `tests/smoke/test_prod_skeleton.py`, and
   `docs/runbooks/prod-promotion.md`.
 
 **Work and tests**
 
-- [ ] **Step 1:** Make the merge to protected `main` the explicit production decision.
-- [ ] **Step 2:** Verify the release manifest and promote the exact dev-tested digests without
-   rebuilding.
-- [ ] **Step 3:** Update prod desired state in Git and let prod Argo CD reconcile `main`.
+- [ ] **Step 1:** Make the feature pull-request merge to protected `main` the
+   explicit production decision; no workflow or GitHub App may bypass the
+   branch protection to commit directly to `main`.
+- [ ] **Step 2:** Verify that the prod overlay and release record already
+   committed by `make promote-dev` contain the exact dev-tested digests and
+   provenance; never rebuild, retag, or select a mutable image.
+- [ ] **Step 3:** Configure prod Argo CD to track the prod overlay on `main`.
+   The pull-request merge itself changes the desired digest; the main workflow
+   performs verification and observes reconciliation but makes no Git commit
+   and performs no direct deployment.
 - [ ] **Step 4:** Use separate prod Cognito, tables, secrets, Odoo/PostgreSQL, seed,
    observability, hostnames, retained EBS volumes, ASG, role, labels/taint, and
    Availability Zone placement.
@@ -2922,7 +3125,7 @@ full presentation and live interaction within 15 minutes.
 | G1 — Local skeleton | Unit/integration reports and manual browser check | Local API → LangGraph → real MCP transport → result works |
 | G2 — Odoo boundary | Executable Odoo contract, repeatable seed, live MCP read | No unresolved Odoo contract assumption |
 | G3 — Container | Image builds, Compose E2E, image contract checks | Local system runs from pinned containers |
-| G4 — Platform | Guided T21A provisioning evidence, Terraform/cluster/Kustomize/CI validation, and bounded clean/fail-open node-replacement drills | Reproducible AWS, automatically synchronized configuration, isolated worker ASGs, and full dev/prod desired state |
+| G4 — Platform | Guided T21A configuration plus protected T21B lifecycle evidence, Terraform/cluster/Kustomize/CI validation, and bounded clean/fail-open node-replacement drills | Reproducible AWS, automatically synchronized configuration, isolated worker ASGs, and a healthy shared Kubernetes platform |
 | G5 — Dev skeleton | Real Bedrock/Odoo/MCP/DynamoDB/Cognito smoke, retained-volume replacement, and observability evidence | Full walking skeleton healthy and replacement-safe in dev |
 | G6 — Prod skeleton | Same-digest proof, Argo health, prod smoke | Promotion workflow proven |
 | G7 — Functional MVP | All Phase 5 tasks, including the three small preference tasks T27A–T27C, and safety tests | Preference-aware, approval-gated fictional PO workflow works end to end |
@@ -2941,16 +3144,16 @@ No stretch work may begin before G9.
 | CR-04 HTTP API/UI | T03, T05, T06, T14, T25–T27, T27A–T27C, T28–T31 | API/UI tests, live dashboard, Odoo preference UI |
 | CR-05 Reliability contracts | T02–T05, T12, T18B, T27B–T27C, T28–T33 | Errors, preference validation, retries, fallback, lifecycle bounds, reconciliation, shutdown tests |
 | CR-06 Real MCP interaction | T04, T07, T11A–T11B, T25–T27, T27A–T27C, T28–T31 | Streamable HTTP tests and demo traces |
-| CR-07 Self-managed EC2 Kubernetes | T16, T18A–T18C, T21A | Terraform state, guided provisioning, ASG/node inventory, finite join, controlled replacement, no EKS |
+| CR-07 Self-managed EC2 Kubernetes | T16, T18A–T18C, T21A–T21B | Terraform state, protected provisioning, ASG/node inventory, finite join, controlled replacement, no EKS |
 | CR-08 Complete dev/prod | T17, T19A–T24 | Generated separate configuration, full-stack overlays, namespaces, Argo apps, smoke |
 | CR-09 Workload quality | T18A–T20B, T32, T33 | Probes, resources, HPA, retained CSI volumes, secrets, graceful shutdown/drain evidence |
-| CR-10 Terraform | T15–T18B, T21A | Validated/applied ASG, lifecycle, storage, edge, service state, guided orchestration, and reproducible runbooks |
+| CR-10 Terraform | T15–T18B, T21A–T21B | Validated/applied ASG, lifecycle, storage, edge, service state, protected orchestration/destruction, and reproducible runbooks |
 | CR-11 CI/CD/GitOps | T21–T24, T27A | Generated GitHub configuration, four-image PR/dev/main flows, Argo reconciliation, digest identity |
 | CR-12 Observability | T03–T05, T18B, T20A–T20B, T25–T27, T27A–T27C, T28–T34 | Application/ASG/cleanup metrics, logs, S3 objects, dashboards, fired alerts |
 | CR-13 Automated testing | Every behavior task; T34 audit | Unit/integration/UI/smoke/JUnit/coverage evidence |
 | CR-14 Presentation | T06, T23, T30, T34, T35 | Timed live demo, dashboard, pipeline, reflection |
 | CR-15 Security | T02–T04, T11A–T11B, T12–T24, T25–T27, T27A–T27C, T28–T33 | IAM/RBAC/CSRF/idempotency/redaction/network/preference/approval tests |
-| CR-16 Decision/AWS justification | T15–T18B, T21A, T23, T33–T35 | Plans, guided deployment evidence, lifecycle/cost evidence, implementation status, explanation |
+| CR-16 Decision/AWS justification | T15–T18B, T21A–T21B, T23, T33–T35 | Plans, protected deployment evidence, lifecycle/cost evidence, implementation status, explanation |
 
 ## 11. Test coverage map
 
