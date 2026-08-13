@@ -2252,9 +2252,10 @@ four removed TFVARS JSON variables.
 
 #### T21B — Add protected GitHub-managed infrastructure lifecycle
 
-**Task status:** Proposed amendment reflecting the user- and
-course-staff-approved scope; implementation remains blocked until this exact
-plan text is reviewed and the user explicitly authorizes T21B implementation.
+**Task status:** Implementation exists, but the proposed broad-IAM amendment
+below is documentation-only and remains blocked until the user and course
+staff approve this exact amended scope. Existing lifecycle IAM must not be
+replaced merely because this text is present.
 
 **Files**
 
@@ -2268,9 +2269,12 @@ plan text is reviewed and the user explicitly authorizes T21B implementation.
   generated-input, backend, and typed-output operations needed by a
   non-interactive GitHub runner; preserve the interactive local
   `make infra-provision` path.
-- Modify `infra/terraform/bootstrap/main.tf`, its variables/outputs only when
-  necessary, and `tests/infra/test_terraform_bootstrap.py` to add reviewed,
-  resource-scoped lifecycle permissions to the existing GitHub apply role.
+- Modify `infra/terraform/bootstrap/main.tf` and
+  `tests/infra/test_terraform_bootstrap.py` to replace the accumulated
+  per-service lifecycle allow policies with AWS-managed `ReadOnlyAccess` on
+  the plan role and AWS-managed `AdministratorAccess` on the protected apply
+  role. Preserve explicit denies for the bootstrap state bucket, lock table,
+  GitHub OIDC provider, and bootstrap roles.
 - Modify `tests/config/test_ci_workflows.py`,
   `docs/runbooks/infrastructure-provisioning.md`, `README.md`, and
   `docs/implementation-status.md` for lifecycle contracts and operator use.
@@ -2305,17 +2309,19 @@ plan text is reviewed and the user explicitly authorizes T21B implementation.
   bootstrap apply/destroy path. Assert the provision order
   `platform -> edge -> dev -> prod` and destruction order
   `prod -> dev -> edge -> platform`, with failure stopping all later roots.
-- [ ] **Step 2: Add reviewed least-privilege lifecycle permissions.** Extend
-  the bootstrap-managed GitHub apply role with only the actions Terraform and
-  the cluster-platform SSM step require for the existing StockAI network,
-  compute, ASG, lifecycle, EBS, ALB/ACM/Route 53, S3, DynamoDB, Secrets
-  Manager, Cognito, EventBridge, Lambda, CloudWatch, IAM, and SSM resources.
-  Restrict resource-capable actions to deterministic StockAI names, paths,
-  ARNs, and required ownership tags; isolate unavoidable AWS list/describe
-  actions in reviewed read-only statements. Test that the plan role remains
-  read-only, `iam:PassRole` names only approved StockAI roles, SSM commands
-  target only the tagged control-plane instance, and neither role can mutate
-  the bootstrap bucket, lock table, OIDC provider, or bootstrap roles.
+- [ ] **Step 2 amendment: Replace lifecycle allowlists with broad OIDC
+  permission sets.** Attach AWS-managed `ReadOnlyAccess` to the plan role and
+  AWS-managed `AdministratorAccess` to the protected apply role. Remove the
+  accumulated service-specific allow policies after proving the managed
+  policies cover refreshed plans and applies. Retain the existing scoped state
+  access/locking policies and a dedicated explicit-deny policy protecting the
+  bootstrap state bucket, lock table, GitHub OIDC provider, and bootstrap
+  roles. Test that the plan role has no AWS mutation policy beyond required
+  Terraform state locking, the apply role can assume authority only through
+  the protected GitHub environments, bootstrap explicit denies override
+  administrator access, and no static credentials or automatic mutation
+  trigger is introduced. Record this as a deliberate course-account security
+  trade-off rather than least privilege.
 - [ ] **Step 3: Implement saved-plan sequential provisioning.** Authenticate
   with the apply role through OIDC, verify the T21A descriptor against the AWS
   account and repository identity, generate ignored inputs, and for each of
@@ -2363,6 +2369,10 @@ plan text is reviewed and the user explicitly authorizes T21B implementation.
 `pytest tests/unit/infra/test_cluster_platform.py tests/infra/test_terraform_bootstrap.py tests/config/test_ci_workflows.py -v`,
 all infrastructure and Kubernetes tests, actionlint, ShellCheck, Terraform
 formatting/provider-schema validation, `make check`, and `git diff --check`.
+For the broad-IAM amendment, inspect a fresh local bootstrap saved plan and
+require it to show only managed-policy attachment/removal and explicit-deny
+policy changes; applying that bootstrap plan requires separate explicit user
+approval after course-staff approval of this amendment.
 For live acceptance, manually approve the provision workflow, verify all four
 saved plans and checksums, confirm three Ready nodes and healthy shared
 controllers, and prove a second run plans no changes. Exercise destruction
@@ -2380,6 +2390,13 @@ healthy shared Kubernetes platform without static AWS or SSH credentials, or
 to run the separately protected reverse-order destruction path, while normal
 branch activity never mutates infrastructure, bootstrap remains preserved,
 and Argo CD retains application deployment responsibility.
+
+The proposed broad-IAM amendment is additionally complete only when the plan
+role uses AWS-managed `ReadOnlyAccess`, the protected apply role uses
+AWS-managed `AdministratorAccess`, the bootstrap foundation remains protected
+by explicit denies, the accumulated per-service lifecycle allow policies are
+removed, and a fresh no-change lifecycle run succeeds without per-API IAM
+patches.
 
 #### T22 — Implement dev build, GitOps update, and Argo CD reconciliation
 
