@@ -1,10 +1,12 @@
 # AI Procurement Agent — Design Specification
 
-**Status:** T10 Odoo contract revision approved by user and course staff
+**Status:** Proposed T21B infrastructure-lifecycle and T22/T24 immutable
+promotion amendment; awaiting exact user and course-staff review
 
-**Date:** 2026-08-07
+**Date:** 2026-08-13
 
-**Implementation note:** T10 executable contract complete; awaiting task review
+**Implementation note:** Planning amendment only; it does not authorize T21B,
+T22, or T24 implementation
 
 **Approval record:** The previous specification was approved by the user and
 course staff on 2026-07-25. The company/category/product preference,
@@ -15,6 +17,12 @@ the same revision was confirmed by the user on 2026-08-02.
 The user selected the T10 remediation direction and approved this exact written
 revision on 2026-08-07. The user then confirmed course-staff approval and
 explicitly authorized T10 implementation to resume on 2026-08-07.
+
+On 2026-08-13 the user requested this synchronized amendment for protected
+manual Terraform lifecycle workflows, SSM-based shared-cluster installation,
+local feature-branch preparation of dev-validated prod digests, protected-main
+promotion, and report-only Docker Scout. The exact amended text remains subject
+to the approval gates below.
 
 ## 1. Document status and classification
 
@@ -1076,14 +1084,30 @@ observability images use pinned upstream digests without project rebuilds.
 4. `[Explicit course requirement]` A `dev` push builds changed images, pushes immutable artifacts, runs Docker Scout, and updates the dev Kustomize desired digest.
 5. `[Explicit course requirement]` The dev Argo CD application tracks the `dev` revision and dev overlay; GitHub Actions does not run `kubectl`.
 6. `[Explicit course requirement]` Validate the release in the dev namespace.
-7. `[Explicit course requirement]` Update the feature branch with the dev-validated immutable digest/provenance record and open a pull request to `main`.
-8. `[Explicit course requirement]` Every pull request runs the complete automated test suite and reports results; the required promotion pull request targets `main` and also validates Terraform/Kustomize and runs Docker Scout. The normal workflow creates no pull request to `dev`.
+7. `[Explicit course requirement]` Update the original feature branch with the dev-validated immutable digest/provenance record, review and commit those changes, and open the feature branch pull request to `main`.
+8. `[Explicit course requirement]` Every pull request runs the complete automated test suite and reports results; the required promotion pull request targets `main` and also validates Terraform/Kustomize, verifies that prod references the exact dev release, and runs Docker Scout. The normal workflow creates no pull request to `dev`.
 9. `[Explicit course requirement]` Merging to `main` is the explicit production promotion decision.
-10. `[Explicit course requirement]` The main workflow verifies and promotes the same dev-validated immutable digest rather than rebuilding a different artifact.
+10. `[Explicit course requirement]` Merging the reviewed feature pull request places the already prepared prod digest changes on `main`; the main workflow verifies the same dev-validated immutable digests without rebuilding or committing a different artifact.
 11. `[Explicit course requirement]` The prod Argo CD application tracks `main` and the prod overlay; GitHub Actions never deploys production directly.
 12. `[Explicit course requirement]` Hotfixes branch from `main` and are reconciled back into `dev`.
 
 [Project decision] GitHub Actions authenticates to AWS through OIDC and narrowly scoped roles rather than long-lived AWS access keys.
+
+[Project decision] Docker Scout runs at the required dev-push and main-PR
+points as report-only evidence. Vulnerability findings, scanner errors, and
+report-upload errors are recorded in the job summary/release metadata when
+available but do not block image publication, GitOps reconciliation, or pull
+request merging. Tests, builds, secret scanning, release-integrity checks, and
+Terraform/Kustomize validation remain blocking.
+
+[Project decision] `make promote-dev` is a local preparation command, not a
+deployment command. It requires a clean feature branch that is neither `dev`
+nor `main`, reads the validated release manifest from `origin/dev`, verifies
+that its recorded application/build inputs correspond to the feature content,
+copies all four exact Docker Hub digests and provenance into the prod overlay
+and release record, and runs release and Kustomize validation. It stops on a
+missing, stale, incomplete, mutable, or mismatched release and never commits,
+pushes, merges, modifies `dev`/`main`, calls AWS, or contacts Kubernetes.
 
 [Project decision] Terraform pull-request jobs run formatting, validation, static checks, and plans. Applies require the appropriate protected environment and are path-filtered to infrastructure changes.
 
@@ -1106,8 +1130,36 @@ configured GitHub secrets.
 dev, and prod in dependency order, but it displays and requires explicit
 approval of each saved plan before applying exactly that plan. Git pushes,
 pull requests, and merges never invoke this infrastructure provisioning path.
-GitHub Actions still validates/plans infrastructure and never deploys workloads
-with `kubectl`; Argo CD remains the workload deployment authority.
+This local path remains the first-time bootstrap and recovery interface because
+the repository cannot create its own initial AWS trust.
+
+[Project decision] After bootstrap exists, a manually dispatched,
+protected GitHub provisioning workflow may use the bootstrap-managed apply role
+through OIDC. It creates and publishes a saved plan before each protected apply
+job, then applies only the reviewed plan in exact `platform`, `edge`, `dev`,
+and `prod` dependency order. It never applies bootstrap and is never triggered
+by a push, pull request, merge, or schedule.
+
+[Project decision] After the four non-bootstrap roots are ready, the protected
+provisioning workflow uses bounded SSM Run Command against only the tagged
+control-plane instance to verify cloud-init/kubeadm and install the pinned
+shared NGINX Ingress, EBS CSI, metrics-server, kube-state-metrics, and Argo CD
+resources from the approved repository revision. Calico remains installed by
+control-plane user data. This platform step installs no StockAI application
+workload and exposes no SSH private key; later GitOps tasks create the dev/prod
+Argo CD Applications and Argo CD remains the workload deployment authority.
+
+[Project decision] A separate manually dispatched workflow uses an independent
+protected destruction environment and exact deployment/account confirmation.
+It quiesces Argo-managed workloads, then applies reviewed destruction plans in
+`prod`, `dev`, `edge`, and `platform` order. It cannot target bootstrap, the
+state bucket/locking foundation, the OIDC provider, or its GitHub roles. A
+partial failure stops subsequent roots and follows the documented recovery
+path.
+
+GitHub Actions still validates/plans infrastructure and never deploys
+application workloads with `kubectl`; Argo CD remains the workload deployment
+authority.
 
 ### 18.4 Planning approval gates
 
@@ -1361,7 +1413,7 @@ budgets or preferences.
 
 ### 22.5 Infrastructure and delivery validation
 
-[Project decision] Automated checks cover Python formatting/lint/type/tests, React lint/type/tests/build, Lambda packaging/unit tests, Docker builds, Docker Scout, Terraform formatting/validation/static checks/plans, Kustomize rendering, Kubernetes schema validation, and Argo CD desired-state smoke checks.
+[Project decision] Automated checks cover Python formatting/lint/type/tests, React lint/type/tests/build, Lambda packaging/unit tests, Docker builds, report-only Docker Scout on dev pushes and main pull requests, Terraform formatting/validation/static checks/plans, Kustomize rendering, Kubernetes schema validation, and Argo CD desired-state smoke checks.
 
 [Project decision] Resource tests verify that each environment fits one `t3.medium` worker under the seeded load and that the frontend, Agent API, and MCP HPAs each scale from one toward three replicas at 50% average CPU and scale down after load. A test first records pending pods at insufficient node capacity, then changes one dev ASG desired-capacity variable through Terraform and verifies scheduling on the joined replacement-safe worker; this is manual node capacity, not automatic node scaling.
 
