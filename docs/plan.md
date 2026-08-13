@@ -32,15 +32,13 @@ approved and merged through PR #19 at `f89a089`. T16 is approved and merged
 through PR #20 at `debbb5f`. T17 through T19A are complete and merged, including
 the accepted T18B deferred live failure drill. T19B is merged through PR #27 at
 `055aa01`. T20A is merged through PR #28 at `970aa8d`. T20B is merged through
-PR #29 at `1e1b98d`. T21A is merged through PR #31 at `0b87a61`. T21B below
-defines the next proposed infrastructure-lifecycle task.
+PR #29 at `1e1b98d`. T21A is merged through PR #31 at `0b87a61`. T21B is
+implemented, and its broad-IAM amendment is approved for the course account.
 
-**Proposed plan amendment:** T21B records the user-reported course-staff-
-approved scope for protected GitHub-managed provisioning and destruction;
-T22/T24 define the requested immutable dev-to-feature-to-main promotion path.
-Implementation remains blocked until the user and course staff review the
-exact synchronized specification and plan text and the user then explicitly
-authorizes the affected task.
+**Approved plan amendment:** T21B records the user- and course-staff-approved
+scope for protected GitHub-managed provisioning and destruction; T22/T24
+define the requested immutable dev-to-feature-to-main promotion path. The user
+explicitly authorized the broad-IAM implementation on the current T21B branch.
 
 ## 1. Approval status and purpose
 
@@ -2252,10 +2250,9 @@ four removed TFVARS JSON variables.
 
 #### T21B — Add protected GitHub-managed infrastructure lifecycle
 
-**Task status:** Implementation exists, but the proposed broad-IAM amendment
-below is documentation-only and remains blocked until the user and course
-staff approve this exact amended scope. Existing lifecycle IAM must not be
-replaced merely because this text is present.
+**Task status:** Implementation exists, and the user and course staff approved
+the broad-IAM amendment for implementation on the current T21B branch. Live
+bootstrap apply and lifecycle verification remain separately gated.
 
 **Files**
 
@@ -2309,7 +2306,7 @@ replaced merely because this text is present.
   bootstrap apply/destroy path. Assert the provision order
   `platform -> edge -> dev -> prod` and destruction order
   `prod -> dev -> edge -> platform`, with failure stopping all later roots.
-- [ ] **Step 2 amendment: Replace lifecycle allowlists with broad OIDC
+- [x] **Step 2 amendment: Replace lifecycle allowlists with broad OIDC
   permission sets.** Attach AWS-managed `ReadOnlyAccess` to the plan role and
   AWS-managed `AdministratorAccess` to the protected apply role. Remove the
   accumulated service-specific allow policies after proving the managed
@@ -2391,7 +2388,7 @@ to run the separately protected reverse-order destruction path, while normal
 branch activity never mutates infrastructure, bootstrap remains preserved,
 and Argo CD retains application deployment responsibility.
 
-The proposed broad-IAM amendment is additionally complete only when the plan
+The approved broad-IAM amendment is additionally complete only when the plan
 role uses AWS-managed `ReadOnlyAccess`, the protected apply role uses
 AWS-managed `AdministratorAccess`, the bootstrap foundation remains protected
 by explicit denies, the accumulated per-service lifecycle allow policies are

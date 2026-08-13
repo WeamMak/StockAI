@@ -145,317 +145,110 @@ def test_oidc_roles_preserve_scoped_state_permissions() -> None:
 
     assert "aws_iam_policy_attachment" not in main
     assert 'resource "aws_iam_role_policy_attachment"' in main
-    assert "AdministratorAccess" not in main
     assert "PowerUserAccess" not in main
 
 
-def test_apply_lifecycle_is_scoped_and_plan_role_stays_read_only() -> None:
+def test_oidc_roles_use_the_approved_managed_permission_sets() -> None:
     main = _read("main.tf")
-    plan_access = _block(
+    plan_permissions = _block(
         main,
-        'data "aws_iam_policy_document" "github_plan_state_access" {',
-        'data "aws_iam_policy_document" "github_apply_state_access" {',
+        'resource "aws_iam_role_policy_attachment" "github_plan_read_only" {',
+        'resource "aws_iam_role_policy_attachment" "github_apply_administrator" {',
     )
-    lifecycle = _block(
+    apply_permissions = _block(
         main,
-        'data "aws_iam_policy_document" "github_apply_lifecycle" {',
-        'resource "aws_iam_policy" "github_apply_lifecycle" {',
+        'resource "aws_iam_role_policy_attachment" "github_apply_administrator" {',
+        'data "aws_iam_policy_document" "github_apply_foundation_protection" {',
     )
 
-    assert "Create" not in plan_access
-    assert "Update" not in plan_access
-    assert "Delete" not in plan_access.replace("dynamodb:DeleteItem", "")
-    assert "iam:PassRole" in lifecycle
-    assert "${var.cluster_name}-control-plane" in lifecycle
-    assert "ssm:SendCommand" in lifecycle
-    assert "AWS-RunShellScript" in lifecycle
-    assert "ec2:ResourceTag/Role" in lifecycle
-    assert 'values   = ["control-plane"]' in lifecycle
-    assert "aws:ResourceTag/Owner" in lifecycle
-    assert "aws:RequestTag/Owner" in lifecycle
-    assert "AdministratorAccess" not in lifecycle
-    assert "PowerUserAccess" not in lifecycle
-    assert "github_apply_lifecycle_statement_groups" in main
-    assert "for_each = local.github_apply_lifecycle_statement_groups" in main
-    assert 'resource "aws_iam_policy" "github_plan_discovery"' in main
-    assert '"ReadOnlyDiscoveryAndCommandStatus"' in main
+    assert "role       = aws_iam_role.github_plan.name" in plan_permissions
+    assert 'policy_arn = "arn:aws:iam::aws:policy/ReadOnlyAccess"' in plan_permissions
+    assert "AdministratorAccess" not in plan_permissions
+    assert "role       = aws_iam_role.github_apply.name" in apply_permissions
+    assert (
+        'policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"'
+        in apply_permissions
+    )
+    assert "ReadOnlyAccess" not in apply_permissions
 
-    bootstrap_resources = (
+    for obsolete_name in (
+        "github_apply_lifecycle",
+        "github_apply_lifecycle_statement_groups",
+        "github_plan_discovery",
+    ):
+        assert obsolete_name not in main
+
+
+def test_administrator_apply_role_cannot_mutate_bootstrap_foundation() -> None:
+    main = _read("main.tf")
+    attachment_start = (
+        'resource "aws_iam_role_policy_attachment" '
+        '"github_apply_foundation_protection" {'
+    )
+    protection = _block(
+        main,
+        'data "aws_iam_policy_document" "github_apply_foundation_protection" {',
+        'resource "aws_iam_policy" "github_apply_foundation_protection" {',
+    )
+
+    for sid in (
+        "DenyStateBucketMutation",
+        "DenyStateObjectDeletion",
+        "DenyLockTableMutation",
+        "DenyOIDCProviderMutation",
+        "DenyBootstrapRoleMutation",
+        "DenyBootstrapPolicyMutation",
+    ):
+        assert re.search(rf'sid\s*=\s*"{sid}"', protection)
+
+    for resource in (
         "aws_s3_bucket.terraform_state.arn",
+        "local.state_object_arn",
         "aws_dynamodb_table.terraform_lock.arn",
         "aws_iam_openid_connect_provider.github_actions.arn",
         "aws_iam_role.github_plan.arn",
         "aws_iam_role.github_apply.arn",
-    )
-    for resource in bootstrap_resources:
-        assert resource not in lifecycle
-
-
-def test_plan_role_can_refresh_worker_lifecycle_resources() -> None:
-    main = _read("main.tf")
-    lifecycle = _block(
-        main,
-        'data "aws_iam_policy_document" "github_apply_lifecycle" {',
-        'resource "aws_iam_policy" "github_apply_lifecycle" {',
-    )
-    plan_discovery = _block(
-        main,
-        'resource "aws_iam_policy" "github_plan_discovery" {',
-        'resource "aws_iam_role_policy_attachment" "github_plan_discovery" {',
-    )
-
-    assert '"cloudwatch:ListTagsForResource"' in lifecycle
-    assert '"elasticloadbalancing:Describe*"' in lifecycle
-    assert '"events:ListTargetsByRule"' in lifecycle
-    assert '"lambda:ListVersionsByFunction"' in lifecycle
-    assert '"logs:ListTagsForResource"' in lifecycle
-    assert (
-        "arn:aws:cloudwatch:${var.aws_region}:${var.aws_account_id}:alarm:"
-        "${var.cluster_name}-worker-lifecycle-dev-non-clean"
-    ) in lifecycle
-    assert (
-        "arn:aws:cloudwatch:${var.aws_region}:${var.aws_account_id}:alarm:"
-        "${var.cluster_name}-worker-lifecycle-prod-non-clean"
-    ) in lifecycle
-    assert (
-        "arn:aws:cloudwatch:${var.aws_region}:${var.aws_account_id}:alarm:"
-        "${var.cluster_name}-worker-lifecycle-errors"
-    ) in lifecycle
-    assert (
-        "arn:aws:events:${var.aws_region}:${var.aws_account_id}:rule/"
-        "${var.cluster_name}-worker-termination"
-    ) in lifecycle
-    assert (
-        "arn:aws:logs:${var.aws_region}:${var.aws_account_id}:log-group:"
-        "/aws/lambda/${var.cluster_name}-worker-lifecycle"
-    ) in lifecycle
-    assert (
-        "arn:aws:lambda:${var.aws_region}:${var.aws_account_id}:function:"
-        "${var.cluster_name}-worker-lifecycle"
-    ) in lifecycle
-    assert "${var.project_name}-worker-lifecycle" not in lifecycle
-    assert '"ReadOnlyDiscoveryAndCommandStatus"' in plan_discovery
-    assert '"ReadOnlyStockAIObservabilityTags"' in plan_discovery
-
-
-def test_plan_role_can_refresh_edge_resources() -> None:
-    main = _read("main.tf")
-    lifecycle = _block(
-        main,
-        'data "aws_iam_policy_document" "github_apply_lifecycle" {',
-        'resource "aws_iam_policy" "github_apply_lifecycle" {',
-    )
-    discovery = _block(
-        lifecycle,
-        'sid    = "ReadOnlyDiscoveryAndCommandStatus"',
-        "  statement {",
-    )
-    scoped_reads = _block(
-        lifecycle,
-        'sid    = "ReadOnlyStockAIObservabilityTags"',
-        "  statement {",
-    )
-
-    assert '"elasticloadbalancing:Describe*"' in discovery
-    assert 'resources = ["*"]' in discovery
-    assert '"cognito-idp:GetGroup"' in discovery
-    assert '"s3:GetAccelerateConfiguration"' in scoped_reads
-    assert '"s3:GetLifecycleConfiguration"' in scoped_reads
-    assert '"s3:ListBucket"' in scoped_reads
-    assert "arn:aws:s3:::${var.loki_bucket_name}" in scoped_reads
-
-
-def test_apply_role_can_replace_loki_lifecycle_configuration() -> None:
-    main = _read("main.tf")
-    lifecycle = _block(
-        main,
-        'data "aws_iam_policy_document" "github_apply_lifecycle" {',
-        'resource "aws_iam_policy" "github_apply_lifecycle" {',
-    )
-    loki = _block(
-        lifecycle,
-        'sid    = "ManageExactLokiBucket"',
-        "  statement {",
-    )
-
-    assert '"s3:PutLifecycleConfiguration"' in loki
-    assert '"s3:PutBucketLifecycleConfiguration"' not in loki
-    assert 'resources = ["arn:aws:s3:::${var.loki_bucket_name}"]' in loki
-
-
-def test_apply_role_can_create_and_update_the_complete_edge_lifecycle() -> None:
-    main = _read("main.tf")
-    lifecycle = _block(
-        main,
-        'data "aws_iam_policy_document" "github_apply_lifecycle" {',
-        'resource "aws_iam_policy" "github_apply_lifecycle" {',
-    )
-    create_only = _block(
-        lifecycle,
-        'sid    = "CreateOnlyTaggedStockAIResources"',
-        "  statement {",
-    )
-    create_tags = _block(
-        lifecycle,
-        'sid    = "TagOnlyDuringOwnedELBCreate"',
-        "  statement {",
-    )
-    mutate_edge = _block(
-        lifecycle,
-        'sid    = "ManageStockAINetworkEdgeAndIdentity"',
-        "  statement {",
-    )
+        "${var.project_name}-github-terraform-plan-state",
+        "${var.project_name}-github-terraform-apply-state",
+        "${var.project_name}-github-terraform-foundation-protection",
+    ):
+        assert resource in protection
 
     for action in (
-        "elasticloadbalancing:CreateListener",
-        "elasticloadbalancing:CreateRule",
+        "s3:DeleteBucket*",
+        "s3:DeleteObject",
+        "dynamodb:DeleteTable",
+        "iam:DeleteOpenIDConnectProvider",
+        "iam:DetachRolePolicy",
+        "iam:DeletePolicy",
     ):
-        assert f'"{action}"' in create_only
-        assert f'"{action}"' not in mutate_edge
-    assert 'variable = "aws:RequestTag/Owner"' in create_only
-    assert '"elasticloadbalancing:AddTags"' in create_tags
-    assert 'variable = "aws:RequestTag/Owner"' in create_tags
-    assert 'variable = "elasticloadbalancing:CreateAction"' in create_tags
-    for create_action in (
-        "CreateListener",
-        "CreateLoadBalancer",
-        "CreateRule",
-        "CreateTargetGroup",
-    ):
-        assert f'"{create_action}"' in create_tags
-    for action in (
-        "cognito-idp:TagResource",
-        "cognito-idp:UntagResource",
-        "elasticloadbalancing:SetSecurityGroups",
-        "elasticloadbalancing:SetSubnets",
-    ):
-        assert f'"{action}"' in mutate_edge
-    assert 'variable = "aws:ResourceTag/Owner"' in mutate_edge
+        assert f'"{action}"' in protection
 
+    for required_state_action in (
+        "s3:GetObject",
+        "s3:PutObject",
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:DeleteItem",
+    ):
+        assert f'"{required_state_action}"' not in protection
 
-def test_apply_role_can_update_owned_tags_and_exact_join_parameter() -> None:
-    main = _read("main.tf")
-    lifecycle = _block(
+    policy = _block(
         main,
-        'data "aws_iam_policy_document" "github_apply_lifecycle" {',
-        'resource "aws_iam_policy" "github_apply_lifecycle" {',
+        'resource "aws_iam_policy" "github_apply_foundation_protection" {',
+        attachment_start,
     )
-    mutate_owned = _block(
-        lifecycle,
-        'sid    = "MutateOnlyOwnedStockAIResources"',
-        "  statement {",
-    )
-    application_data = _block(
-        lifecycle,
-        'sid    = "ManageExactApplicationData"',
-        "  statement {",
-    )
-
-    for action in (
-        "cloudwatch:TagResource",
-        "cloudwatch:UntagResource",
-        "dlm:TagResource",
-        "dlm:UntagResource",
-        "ec2:CreateTags",
-        "events:TagResource",
-        "events:UntagResource",
-        "lambda:TagResource",
-        "lambda:UntagResource",
-        "logs:TagResource",
-        "logs:UntagResource",
-    ):
-        assert f'"{action}"' in mutate_owned
-    assert 'variable = "aws:ResourceTag/Owner"' in mutate_owned
-    assert '"ssm:PutParameter"' in application_data
+    attachment = main.split(attachment_start, maxsplit=1)[1]
+    assert "${var.project_name}-github-terraform-foundation-protection" in policy
     assert (
-        "arn:aws:ssm:${var.aws_region}:${var.aws_account_id}:parameter/stockai/"
-        "${var.cluster_name}/kubeadm/join-command"
-    ) in application_data
-
-
-def test_apply_role_can_create_only_required_aws_service_linked_roles() -> None:
-    main = _read("main.tf")
-    lifecycle = _block(
-        main,
-        'data "aws_iam_policy_document" "github_apply_lifecycle" {',
-        'resource "aws_iam_policy" "github_apply_lifecycle" {',
+        "policy      = "
+        "data.aws_iam_policy_document.github_apply_foundation_protection.json" in policy
     )
-    service_roles = _block(
-        lifecycle,
-        'sid     = "CreateOnlyRequiredAWSServiceLinkedRoles"',
-        "  statement {",
-    )
-
-    assert 'actions = ["iam:CreateServiceLinkedRole"]' in service_roles
+    assert "role       = aws_iam_role.github_apply.name" in attachment
     assert (
-        "role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling"
-    ) in service_roles
-    assert (
-        "role/aws-service-role/elasticloadbalancing.amazonaws.com/"
-        "AWSServiceRoleForElasticLoadBalancing"
-    ) in service_roles
-    assert "role/aws-service-role/*" not in service_roles
-    assert 'variable = "iam:AWSServiceName"' in service_roles
-    assert '"autoscaling.amazonaws.com"' in service_roles
-    assert '"elasticloadbalancing.amazonaws.com"' in service_roles
-
-
-def test_launch_template_versions_mutate_only_owner_tagged_templates() -> None:
-    main = _read("main.tf")
-    create_only = _block(
-        main,
-        'sid    = "CreateOnlyTaggedStockAIResources"',
-        "  statement {",
+        "policy_arn = aws_iam_policy.github_apply_foundation_protection.arn"
+        in attachment
     )
-    mutate_owned = _block(
-        main,
-        'sid    = "MutateOnlyOwnedStockAIResources"',
-        "  statement {",
-    )
-
-    assert '"ec2:CreateLaunchTemplateVersion"' not in create_only
-    assert 'variable = "aws:RequestTag/Owner"' in create_only
-    assert '"ec2:CreateLaunchTemplateVersion"' in mutate_owned
-    assert 'variable = "aws:ResourceTag/Owner"' in mutate_owned
-
-
-def test_run_instances_requires_owned_compute_and_scoped_dependencies() -> None:
-    main = _read("main.tf")
-    create_only = _block(
-        main,
-        'sid    = "CreateOnlyTaggedStockAIResources"',
-        "  statement {",
-    )
-    tagged_compute = _block(
-        main,
-        'sid     = "RunOnlyTaggedStockAIInstancesAndVolumes"',
-        "  statement {",
-    )
-    dependencies = _block(
-        main,
-        'sid     = "UseOnlyRegionalRunInstanceDependencies"',
-        "  statement {",
-    )
-    launch_templates = _block(
-        main,
-        'sid       = "UseOnlyOwnedStockAILaunchTemplates"',
-        "  statement {",
-    )
-
-    assert '"ec2:RunInstances"' not in create_only
-    assert '"ec2:RunInstances"' in tagged_compute
-    assert 'variable = "aws:RequestTag/Owner"' in tagged_compute
-    assert "instance/*" in tagged_compute
-    assert "volume/*" in tagged_compute
-    assert '"ec2:RunInstances"' in dependencies
-    assert "::image/*" in dependencies
-    assert "network-interface/*" in dependencies
-    assert "security-group/*" in dependencies
-    assert "subnet/*" in dependencies
-    assert 'resources = ["*"]' not in dependencies
-    assert '"ec2:RunInstances"' in launch_templates
-    assert "launch-template/*" in launch_templates
-    assert 'variable = "aws:ResourceTag/Owner"' in launch_templates
 
 
 def test_account_repository_cidr_and_state_names_are_parameterized() -> None:
