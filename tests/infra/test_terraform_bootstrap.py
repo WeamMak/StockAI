@@ -205,6 +205,7 @@ def test_plan_role_can_refresh_cloudwatch_resource_tags() -> None:
     )
 
     assert '"cloudwatch:ListTagsForResource"' in lifecycle
+    assert '"lambda:ListVersionsByFunction"' in lifecycle
     assert '"logs:ListTagsForResource"' in lifecycle
     assert (
         "arn:aws:cloudwatch:${var.aws_region}:${var.aws_account_id}:alarm:"
@@ -217,6 +218,10 @@ def test_plan_role_can_refresh_cloudwatch_resource_tags() -> None:
     assert (
         "arn:aws:logs:${var.aws_region}:${var.aws_account_id}:log-group:"
         "/aws/lambda/${var.cluster_name}-worker-lifecycle"
+    ) in lifecycle
+    assert (
+        "arn:aws:lambda:${var.aws_region}:${var.aws_account_id}:function:"
+        "${var.cluster_name}-worker-lifecycle"
     ) in lifecycle
     assert "${var.project_name}-worker-lifecycle" not in lifecycle
     assert '"ReadOnlyDiscoveryAndCommandStatus"' in plan_discovery

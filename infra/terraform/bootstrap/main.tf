@@ -600,11 +600,13 @@ data "aws_iam_policy_document" "github_apply_lifecycle" {
     effect = "Allow"
     actions = [
       "cloudwatch:ListTagsForResource",
+      "lambda:ListVersionsByFunction",
       "logs:ListTagsForResource",
     ]
     resources = [
       "arn:aws:cloudwatch:${var.aws_region}:${var.aws_account_id}:alarm:${var.cluster_name}-worker-lifecycle-dev-non-clean",
       "arn:aws:cloudwatch:${var.aws_region}:${var.aws_account_id}:alarm:${var.cluster_name}-worker-lifecycle-prod-non-clean",
+      "arn:aws:lambda:${var.aws_region}:${var.aws_account_id}:function:${var.cluster_name}-worker-lifecycle",
       "arn:aws:logs:${var.aws_region}:${var.aws_account_id}:log-group:/aws/lambda/${var.cluster_name}-worker-lifecycle",
     ]
   }
