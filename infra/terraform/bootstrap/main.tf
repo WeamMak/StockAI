@@ -613,6 +613,8 @@ data "aws_iam_policy_document" "github_apply_lifecycle" {
       "dynamodb:Describe*",
       "dynamodb:ListTagsOfResource",
       "ec2:Describe*",
+      "elasticloadbalancing:DescribeLoadBalancers",
+      "elasticloadbalancing:DescribeTargetGroups",
       "events:DescribeRule",
       "events:ListTagsForResource",
       "iam:Get*",
@@ -644,6 +646,7 @@ data "aws_iam_policy_document" "github_apply_lifecycle" {
       "events:ListTargetsByRule",
       "lambda:ListVersionsByFunction",
       "logs:ListTagsForResource",
+      "s3:GetLifecycleConfiguration",
     ]
     resources = [
       "arn:aws:cloudwatch:${var.aws_region}:${var.aws_account_id}:alarm:${var.cluster_name}-worker-lifecycle-dev-non-clean",
@@ -654,6 +657,7 @@ data "aws_iam_policy_document" "github_apply_lifecycle" {
       "arn:aws:events:${var.aws_region}:${var.aws_account_id}:rule/${var.cluster_name}-worker-termination",
       "arn:aws:lambda:${var.aws_region}:${var.aws_account_id}:function:${var.cluster_name}-worker-lifecycle",
       "arn:aws:logs:${var.aws_region}:${var.aws_account_id}:log-group:/aws/lambda/${var.cluster_name}-worker-lifecycle",
+      "arn:aws:s3:::${var.loki_bucket_name}",
     ]
   }
 

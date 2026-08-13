@@ -246,6 +246,31 @@ def test_plan_role_can_refresh_worker_lifecycle_resources() -> None:
     assert '"ReadOnlyStockAIObservabilityTags"' in plan_discovery
 
 
+def test_plan_role_can_refresh_edge_resources() -> None:
+    main = _read("main.tf")
+    lifecycle = _block(
+        main,
+        'data "aws_iam_policy_document" "github_apply_lifecycle" {',
+        'resource "aws_iam_policy" "github_apply_lifecycle" {',
+    )
+    discovery = _block(
+        lifecycle,
+        'sid    = "ReadOnlyDiscoveryAndCommandStatus"',
+        "  statement {",
+    )
+    scoped_reads = _block(
+        lifecycle,
+        'sid    = "ReadOnlyStockAIObservabilityTags"',
+        "  statement {",
+    )
+
+    assert '"elasticloadbalancing:DescribeLoadBalancers"' in discovery
+    assert '"elasticloadbalancing:DescribeTargetGroups"' in discovery
+    assert 'resources = ["*"]' in discovery
+    assert '"s3:GetLifecycleConfiguration"' in scoped_reads
+    assert "arn:aws:s3:::${var.loki_bucket_name}" in scoped_reads
+
+
 def test_launch_template_versions_mutate_only_owner_tagged_templates() -> None:
     main = _read("main.tf")
     create_only = _block(
