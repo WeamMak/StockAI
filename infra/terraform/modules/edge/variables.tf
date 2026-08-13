@@ -12,16 +12,6 @@ variable "alb_subnet_ids" {
   }
 }
 
-variable "budget_notification_email" {
-  description = "Operator email that receives the monthly cost target and review-ceiling notices"
-  type        = string
-
-  validation {
-    condition     = can(regex("^[^@[:space:]]+@[^@[:space:]]+\\.[^@[:space:]]+$", var.budget_notification_email))
-    error_message = "Budget notification email must be a valid email address."
-  }
-}
-
 variable "cluster_name" {
   description = "Owner-prefixed name of the self-managed Kubernetes cluster"
   type        = string

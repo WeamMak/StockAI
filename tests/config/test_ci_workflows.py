@@ -95,6 +95,12 @@ def test_terraform_plans_are_path_filtered_and_use_read_only_oidc() -> None:
     assert "AWS_TERRAFORM_PLAN_ROLE_ARN" in source
     assert "terraform plan -refresh=false -no-color -out=tfplan" in source
     assert "terraform apply" not in source
+    assert "scripts.infra.provision" in source
+    assert "ci.auto.tfvars.json" in source
+    assert "TERRAFORM_PLATFORM_TFVARS_JSON" not in source
+    assert "TERRAFORM_EDGE_TFVARS_JSON" not in source
+    assert "TERRAFORM_DEV_TFVARS_JSON" not in source
+    assert "TERRAFORM_PROD_TFVARS_JSON" not in source
 
 
 def test_terraform_apply_is_manual_protected_and_consumes_a_saved_plan() -> None:

@@ -48,6 +48,11 @@ output "prod_worker_role_name" {
   value       = module.node_iam.prod_worker_role_name
 }
 
+output "vpc_id" {
+  description = "VPC ID consumed by the shared edge root"
+  value       = module.network.vpc_id
+}
+
 output "worker_security_group_id" {
   description = "Security group ID used by both isolated worker groups"
   value       = module.network.worker_security_group_id

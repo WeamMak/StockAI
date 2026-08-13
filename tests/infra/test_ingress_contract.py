@@ -35,7 +35,6 @@ def edge_plan(tmp_path_factory: pytest.TempPathFactory) -> TerraformPlan:
         plan_dir / "edge.tfplan",
         {
             "alb_subnet_ids": '["subnet-11111111","subnet-22222222"]',
-            "budget_notification_email": "operator@example.com",
             "domain_name": "example.com",
             "loki_bucket_name": "weam-stockai-t17-operational-logs",
             "route53_zone_id": "Z0123456789ABCDEFGHIJ",
@@ -191,20 +190,12 @@ def test_loki_bucket_is_encrypted_private_versioned_and_retained_by_prefix(
     assert rules["prod-retention"]["expiration"][0]["days"] == 90
 
 
-def test_budget_notifications_mark_target_and_review_ceiling(
+def test_email_backed_aws_budgets_are_not_provisioned(
     edge_plan: TerraformPlan,
 ) -> None:
-    budgets = list(_values(edge_plan, "aws_budgets_budget"))
-    assert {(budget["name"], budget["limit_amount"]) for budget in budgets} == {
-        ("weam-stockai-monthly-target", "70"),
-        ("weam-stockai-monthly-review-ceiling", "90"),
-    }
-    assert all(budget["limit_unit"] == "USD" for budget in budgets)
-    assert all(
-        budget["notification"][0]["subscriber_email_addresses"]
-        == ["operator@example.com"]
-        for budget in budgets
-    )
+    assert not resources(edge_plan, "aws_budgets_budget")
+    source = (EDGE_ROOT / "variables.tf").read_text(encoding="utf-8")
+    assert "budget_notification_email" not in source
 
 
 def test_edge_outputs_and_excluded_services_match_t17(

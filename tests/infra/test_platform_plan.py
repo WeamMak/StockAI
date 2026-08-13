@@ -330,6 +330,7 @@ def test_platform_exports_the_approved_t16_interface(
         "prod_worker_asg_name",
         "prod_worker_az",
         "prod_worker_role_name",
+        "vpc_id",
         "worker_security_group_id",
     }
 

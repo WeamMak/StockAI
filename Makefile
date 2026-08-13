@@ -9,7 +9,7 @@ export UV_CACHE_DIR
 .PHONY: help sync lock-check format format-check lint test-unit test-integration \
 	test-e2e build odoo-image odoo-contract odoo-seed odoo-verify-seed \
 	compose-validate terraform-validate kubernetes-validate compose-up \
-	compose-down check
+	compose-down infra-provision check
 
 help:
 	@echo "Available targets:"
@@ -31,6 +31,7 @@ help:
 	@echo "  kubernetes-validate Render and schema-check both Kubernetes overlays"
 	@echo "  compose-up    Build and start the local test-authenticated stack"
 	@echo "  compose-down  Stop and remove the local Compose stack"
+	@echo "  infra-provision Run guided, approval-gated AWS provisioning"
 	@echo "  check         Run the complete Python verification suite"
 
 sync:
@@ -129,5 +130,8 @@ compose-up:
 
 compose-down:
 	docker compose -f compose.yaml -f compose.test.yaml down --volumes --remove-orphans
+
+infra-provision:
+	$(UV) run python -m scripts.infra.provision provision
 
 check: lock-check format-check lint test-unit

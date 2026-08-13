@@ -33,6 +33,11 @@ the accepted T18B deferred live failure drill. T19B is merged through PR #27 at
 PR #29 at `1e1b98d`. T21 implementation and local verification are complete;
 its live pull-request workflow checks remain pending.
 
+**Proposed plan amendment:** T21A below is planning-only and is not authorized
+for implementation until the matching deployment-interface changes in
+`docs/spec.md` and this plan amendment receive user and course-staff approval.
+T21 remains the active implementation task until that gate is satisfied.
+
 ## 1. Approval status and purpose
 
 User and course-staff approval of the revised `docs/spec.md` dated 2026-08-02
@@ -2092,6 +2097,148 @@ acceptance. No Docker Scout, AWS plan/apply, publication, or deployment ran.
 **Complete when:** Pull requests cannot pass without complete, clearly reported
 offline validation and release manifests reject changed artifacts.
 
+#### T21A — Add guided provisioning for the approved AWS deployment
+
+**Task status:** Approved by the user and course staff; implementation active.
+
+**Files**
+
+- Create `deploy/config/schema.json`, `deploy/config/deployment.json`,
+  `scripts/infra/__init__.py`, `scripts/infra/discovery.py`,
+  `scripts/infra/provision.py`, `tests/unit/infra/test_discovery.py`,
+  `tests/unit/infra/test_provision.py`, and
+  `docs/runbooks/infrastructure-provisioning.md`.
+- Modify `.github/workflows/terraform-plan.yml`,
+  `.github/workflows/terraform-apply.yml`, `Makefile`, `README.md`,
+  `scripts/config/sync_terraform_outputs.py`, the five Terraform roots, and
+  their existing infrastructure contract tests.
+- Modify the T17 edge module and its tests only as required to remove the
+  operator-email input and the two email-backed AWS Budget resources after a
+  separately reviewed destructive plan confirms that no other edge resource
+  changes.
+
+**Interfaces**
+
+- Consumes: a short-lived authenticated AWS CLI session, an authenticated
+  GitHub CLI session with repository-administration permission, a user-owned
+  lowercase Route 53 `domain_name`, its public `route53_zone_id`, the approved
+  fixed `us-east-1` deployment region, and explicit confirmation of every
+  saved Terraform plan. Docker Hub credentials remain external repository
+  secrets and are never accepted or printed by the provisioning command.
+- Produces: a reviewed non-secret `deploy/config/deployment.json`; ignored
+  generated root input files; deterministic backend names/keys; automatic
+  GitHub `dev`/`prod` environment creation; and these five automatically
+  managed repository variables:
+  `AWS_TERRAFORM_PLAN_ROLE_ARN`, `AWS_TERRAFORM_APPLY_ROLE_ARN`,
+  `TERRAFORM_STATE_BUCKET`, `TERRAFORM_STATE_KEY_PREFIX`, and
+  `TERRAFORM_LOCK_TABLE`.
+- Removes from the workflow interface only after replacement tests pass:
+  `TERRAFORM_PLATFORM_TFVARS_JSON`, `TERRAFORM_EDGE_TFVARS_JSON`,
+  `TERRAFORM_DEV_TFVARS_JSON`, and `TERRAFORM_PROD_TFVARS_JSON`.
+- Preserves: the existing self-managed kubeadm architecture, five separate
+  Terraform roots/states, `us-east-1`, exact Bedrock model, explicit plan
+  review, GitHub OIDC, Argo CD workload reconciliation, and every current
+  StockAI resource/state identity. Fresh clones receive deterministic names;
+  this task must not rename or recreate the existing deployment.
+
+**Work and tests**
+
+- [x] **Step 1: Freeze the two-input deployment contract with failing tests.**
+  Define `deploy/config/schema.json` so the only typed operator values are
+  `domain_name` and `route53_zone_id`. Test lowercase public-domain and Route
+  53-zone validation, rejection of extra keys, atomic writes, secret-like
+  input rejection, and a generated confirmed `administrator_cidr` field that
+  cannot silently change on a rerun. Record the approved `us-east-1` region
+  and existing-deployment compatibility identity as generated metadata rather
+  than additional prompts.
+- [x] **Step 2: Add bounded discovery with confirmation and no mutation.**
+  Mock and test exact JSON parsing for `aws sts get-caller-identity`, immutable
+  repository owner/name/IDs through `gh api`, the caller's public IPv4 `/32`,
+  the controlled Canonical Ubuntu AMI source used by the current cluster, and
+  two distinct available `us-east-1` Availability Zones. The command must show
+  the detected CIDR and require confirmation or an explicit override; fail
+  before Terraform when credentials, tools, quota, Route 53 authority, the
+  approved AMI, two usable AZs, or exact Bedrock access cannot be verified.
+- [x] **Step 3: Generate stable names and root inputs without four GitHub JSON
+  blobs.** Test deterministic AWS-length-safe deployment, state-bucket,
+  lock-table, state-key, cluster, Loki-bucket, and IAM names from immutable
+  account/repository identity. Generate ignored `*.auto.tfvars.json` files
+  from the deployment descriptor and discovery results. Read platform outputs
+  for edge inputs and platform/edge outputs for dev/prod inputs through exact
+  typed output adapters; never ask the operator to copy account IDs, AMIs,
+  AZs, subnet/VPC/security-group IDs, ASG/role names, bucket ARNs, or volume
+  coordinates. Existing state must pin the current names and cause a hard
+  failure if generated identity would replace them.
+- [x] **Step 4: Implement one resumable guided Terraform command.** Add
+  `make infra-provision`, backed by `scripts/infra/provision.py`, to run
+  preflight and then `bootstrap`, `platform`, `edge`, `environments/dev`, and
+  `environments/prod` in dependency order. For each root, create a saved plan,
+  display its summary, require an explicit typed approval, apply only that
+  exact saved plan, record a non-secret completion checkpoint, and safely
+  resume after interruption. Bootstrap remains local because an untrusted
+  repository cannot grant itself initial AWS authority. A push or merge must
+  never invoke this command or mutate Terraform infrastructure.
+- [x] **Step 5: Configure GitHub automatically after bootstrap.** Mock `gh api`
+  and `gh variable set` calls, then create/update `dev` and `prod` environments
+  and the five generated repository variables from verified Terraform
+  outputs. Never accept Docker Hub credentials, never write repository
+  secrets, and never print token or Terraform-state content. Update the plan
+  and apply workflows to generate root inputs from the committed descriptor,
+  AWS caller identity, controlled discovery, and reviewed remote-state
+  outputs; delete their references to the four `TERRAFORM_*_TFVARS_JSON`
+  variables only in the same tested change.
+- [x] **Step 6: Synchronize deployment outputs into Git desired state.** Feed
+  the exact non-secret environment outputs into
+  `sync_terraform_outputs.py`, including six EBS volume IDs/AZs, Cognito
+  coordinates, Loki bucket coordinates, hostnames, and the exact Odoo secret
+  ARN. Test that only approved Kustomize fields change, generated output is
+  deterministic, no secret value enters Git, and a second run is a no-op.
+- [x] **Step 7: Remove email-backed budgets behind explicit review.** The code,
+  offline contract, and current-account saved edge plan completed. The approved
+  plan contained exactly `0 add, 0 change, 2 destroy`; only the two Budget
+  resources were destroyed. Its SHA-256 was
+  `7e546cf0d47ef7961b0d0be6dad472ba62faa81bd3eb664e25688268e268d7b7`
+  and a post-apply refresh plan reported `No changes`. First add
+  Terraform plan tests proving that `budget_notification_email` and the two
+  `aws_budgets_budget.monthly` resources are absent while existing cost,
+  shutdown, quota, and pricing-review documentation remains. For the current
+  deployment, require a saved plan showing only those two budget deletions
+  before approval; any ALB, DNS, certificate, S3, ASG, IAM, DynamoDB, Cognito,
+  Secrets Manager, EBS, or state change is a stop condition.
+- [x] **Step 8: Document and exercise the fresh-clone and existing-deployment
+  paths.** Test dry-run, rejected approval, interrupted/resumed run, unchanged
+  rerun, malformed AWS/GitHub output, command timeout, and redacted failure.
+  Document the exact normal experience: clone, authenticate AWS/GitHub, enter
+  domain and hosted-zone ID, confirm detected CIDR, review saved plans, add
+  only `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN`, and let later T22/T24 GitOps
+  workflows publish/promote workloads.
+
+**Verification:** Run focused discovery/orchestration unit tests with fake AWS,
+GitHub, public-IP, and Terraform processes; all existing Terraform plan tests;
+workflow contract tests plus actionlint/ShellCheck; Terraform formatting and
+provider-schema validation for all five roots; Kubernetes render/schema tests;
+`make check`; and `git diff --check`. On the existing account, run a no-change
+guided plan through every root and prove that the generated GitHub variables
+match bootstrap outputs, the four JSON variables are unused, a second output
+synchronization is empty, and no resource rename/replacement appears. Do not
+claim a second fresh-account deployment unless one is actually performed.
+
+**Dependencies:** T21 plus approved amendments to spec sections 16.1–16.3,
+17.8, 18.3, 23, and the cost/budget decisions affected by removing email-backed
+AWS Budgets.
+
+**Requirements:** CR-07, CR-08, CR-10, CR-11, CR-13, CR-15, CR-16; spec
+sections 16–18, 20, 22.5, and 23 after amendment.
+
+**Complete when:** A fresh-clone operator supplies only the owned Route 53
+domain and public hosted-zone ID, confirms a detected administration CIDR,
+reviews the saved plans, and adds the two Docker Hub secrets; one resumable
+command discovers/generates all other non-secret configuration, applies the
+five roots in order without an unreviewed plan, configures GitHub automatically,
+and synchronizes Kubernetes desired state. The existing StockAI deployment
+plans with no resource identity replacements, and no workflow references the
+four removed TFVARS JSON variables.
+
 #### T22 — Implement dev build, GitOps update, and Argo CD reconciliation
 
 **Files**
@@ -2116,7 +2263,7 @@ offline validation and release manifests reject changed artifacts.
 **Verification:** Run a no-change path, one-image path, four-image path,
 tampered digest path, Argo failure path, and successful dev reconciliation.
 
-**Dependencies:** T21.
+**Dependencies:** T21A.
 
 **Requirements:** CR-08, CR-11, CR-15; spec section 18.3.
 
@@ -2134,8 +2281,11 @@ Actions, performs deployment.
 
 **Work and tests**
 
-- [ ] **Step 1:** Apply approved Terraform and bootstrap the cluster through reproducible CLI
-   automation.
+- [ ] **Step 1:** Use T21A's guided provisioning command and generated
+   deployment configuration to apply only approved saved plans, bootstrap the
+   cluster, synchronize non-secret Terraform outputs, and verify Argo CD
+   readiness without manually entering account ID, AMI, AZs, resource/state
+   names, cross-root outputs, or Kubernetes volume coordinates.
 - [ ] **Step 2:** Reconcile the complete dev stack through Argo CD.
 - [ ] **Step 3:** Seed fictional dev Odoo and bootstrap fictional Cognito users.
 - [ ] **Step 4:** Exercise real Cognito login, real Bedrock GPT-OSS, real MCP transport, real
@@ -2772,7 +2922,7 @@ full presentation and live interaction within 15 minutes.
 | G1 — Local skeleton | Unit/integration reports and manual browser check | Local API → LangGraph → real MCP transport → result works |
 | G2 — Odoo boundary | Executable Odoo contract, repeatable seed, live MCP read | No unresolved Odoo contract assumption |
 | G3 — Container | Image builds, Compose E2E, image contract checks | Local system runs from pinned containers |
-| G4 — Platform | Terraform/cluster/Kustomize/CI validation plus bounded clean/fail-open node-replacement drills | Reproducible AWS, isolated worker ASGs, and full dev/prod desired state |
+| G4 — Platform | Guided T21A provisioning evidence, Terraform/cluster/Kustomize/CI validation, and bounded clean/fail-open node-replacement drills | Reproducible AWS, automatically synchronized configuration, isolated worker ASGs, and full dev/prod desired state |
 | G5 — Dev skeleton | Real Bedrock/Odoo/MCP/DynamoDB/Cognito smoke, retained-volume replacement, and observability evidence | Full walking skeleton healthy and replacement-safe in dev |
 | G6 — Prod skeleton | Same-digest proof, Argo health, prod smoke | Promotion workflow proven |
 | G7 — Functional MVP | All Phase 5 tasks, including the three small preference tasks T27A–T27C, and safety tests | Preference-aware, approval-gated fictional PO workflow works end to end |
@@ -2791,16 +2941,16 @@ No stretch work may begin before G9.
 | CR-04 HTTP API/UI | T03, T05, T06, T14, T25–T27, T27A–T27C, T28–T31 | API/UI tests, live dashboard, Odoo preference UI |
 | CR-05 Reliability contracts | T02–T05, T12, T18B, T27B–T27C, T28–T33 | Errors, preference validation, retries, fallback, lifecycle bounds, reconciliation, shutdown tests |
 | CR-06 Real MCP interaction | T04, T07, T11A–T11B, T25–T27, T27A–T27C, T28–T31 | Streamable HTTP tests and demo traces |
-| CR-07 Self-managed EC2 Kubernetes | T16, T18A–T18C | Terraform state, ASG/node inventory, finite join, controlled replacement, no EKS |
-| CR-08 Complete dev/prod | T17, T19A–T24 | Separate full-stack overlays, namespaces, Argo apps, smoke |
+| CR-07 Self-managed EC2 Kubernetes | T16, T18A–T18C, T21A | Terraform state, guided provisioning, ASG/node inventory, finite join, controlled replacement, no EKS |
+| CR-08 Complete dev/prod | T17, T19A–T24 | Generated separate configuration, full-stack overlays, namespaces, Argo apps, smoke |
 | CR-09 Workload quality | T18A–T20B, T32, T33 | Probes, resources, HPA, retained CSI volumes, secrets, graceful shutdown/drain evidence |
-| CR-10 Terraform | T15–T18B | Validated/applied ASG, lifecycle, storage, edge, service state and reproducible runbooks |
-| CR-11 CI/CD/GitOps | T21–T24, T27A | Four-image PR/dev/main flows, Argo reconciliation, digest identity |
+| CR-10 Terraform | T15–T18B, T21A | Validated/applied ASG, lifecycle, storage, edge, service state, guided orchestration, and reproducible runbooks |
+| CR-11 CI/CD/GitOps | T21–T24, T27A | Generated GitHub configuration, four-image PR/dev/main flows, Argo reconciliation, digest identity |
 | CR-12 Observability | T03–T05, T18B, T20A–T20B, T25–T27, T27A–T27C, T28–T34 | Application/ASG/cleanup metrics, logs, S3 objects, dashboards, fired alerts |
 | CR-13 Automated testing | Every behavior task; T34 audit | Unit/integration/UI/smoke/JUnit/coverage evidence |
 | CR-14 Presentation | T06, T23, T30, T34, T35 | Timed live demo, dashboard, pipeline, reflection |
 | CR-15 Security | T02–T04, T11A–T11B, T12–T24, T25–T27, T27A–T27C, T28–T33 | IAM/RBAC/CSRF/idempotency/redaction/network/preference/approval tests |
-| CR-16 Decision/AWS justification | T15–T18B, T23, T33–T35 | Plans, lifecycle/cost evidence, implementation status, explanation |
+| CR-16 Decision/AWS justification | T15–T18B, T21A, T23, T33–T35 | Plans, guided deployment evidence, lifecycle/cost evidence, implementation status, explanation |
 
 ## 11. Test coverage map
 
