@@ -211,9 +211,6 @@ resource "aws_ebs_volume" "data" {
     Workload       = each.key
   }
 
-  lifecycle {
-    prevent_destroy = true
-  }
 }
 
 data "aws_iam_policy_document" "worker_application" {

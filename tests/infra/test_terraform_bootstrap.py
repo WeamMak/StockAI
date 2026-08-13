@@ -77,7 +77,7 @@ def test_state_bootstrap_is_not_application_log_storage() -> None:
     main = _read("main.tf")
 
     assert len(re.findall(r'resource "aws_s3_bucket"', main)) == 1
-    assert "loki" not in main.lower()
+    assert 'resource "aws_s3_bucket" "loki"' not in main
     assert "application_log" not in main.lower()
 
 
@@ -117,7 +117,7 @@ def test_github_oidc_trust_uses_exact_audience_and_immutable_subjects() -> None:
     )
 
 
-def test_oidc_roles_have_only_bootstrap_state_permissions() -> None:
+def test_oidc_roles_preserve_scoped_state_permissions() -> None:
     main = _read("main.tf")
     plan_access = _block(
         main,
@@ -148,6 +148,48 @@ def test_oidc_roles_have_only_bootstrap_state_permissions() -> None:
     assert "PowerUserAccess" not in main
 
 
+def test_apply_lifecycle_is_scoped_and_plan_role_stays_read_only() -> None:
+    main = _read("main.tf")
+    plan_access = _block(
+        main,
+        'data "aws_iam_policy_document" "github_plan_state_access" {',
+        'data "aws_iam_policy_document" "github_apply_state_access" {',
+    )
+    lifecycle = _block(
+        main,
+        'data "aws_iam_policy_document" "github_apply_lifecycle" {',
+        'resource "aws_iam_policy" "github_apply_lifecycle" {',
+    )
+
+    assert "Create" not in plan_access
+    assert "Update" not in plan_access
+    assert "Delete" not in plan_access.replace("dynamodb:DeleteItem", "")
+    assert "iam:PassRole" in lifecycle
+    assert "${var.cluster_name}-control-plane" in lifecycle
+    assert "ssm:SendCommand" in lifecycle
+    assert "AWS-RunShellScript" in lifecycle
+    assert "ec2:ResourceTag/Role" in lifecycle
+    assert 'values   = ["control-plane"]' in lifecycle
+    assert "aws:ResourceTag/Owner" in lifecycle
+    assert "aws:RequestTag/Owner" in lifecycle
+    assert "AdministratorAccess" not in lifecycle
+    assert "PowerUserAccess" not in lifecycle
+    assert "github_apply_lifecycle_statement_groups" in main
+    assert "for_each = local.github_apply_lifecycle_statement_groups" in main
+    assert 'resource "aws_iam_policy" "github_plan_discovery"' in main
+    assert 'statement.Sid == "ReadOnlyDiscoveryAndCommandStatus"' in main
+
+    bootstrap_resources = (
+        "aws_s3_bucket.terraform_state.arn",
+        "aws_dynamodb_table.terraform_lock.arn",
+        "aws_iam_openid_connect_provider.github_actions.arn",
+        "aws_iam_role.github_plan.arn",
+        "aws_iam_role.github_apply.arn",
+    )
+    for resource in bootstrap_resources:
+        assert resource not in lifecycle
+
+
 def test_account_repository_cidr_and_state_names_are_parameterized() -> None:
     variables = _read("variables.tf")
     outputs = _read("outputs.tf")
@@ -157,8 +199,12 @@ def test_account_repository_cidr_and_state_names_are_parameterized() -> None:
         "administrator_cidr",
         "aws_account_id",
         "aws_region",
+        "cluster_name",
         "github_apply_environments",
         "github_repository_subject",
+        "loki_bucket_name",
+        "owner_name",
+        "route53_zone_id",
         "state_bucket_name",
         "state_key_prefix",
         "state_lock_table_name",

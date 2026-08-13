@@ -77,6 +77,16 @@ five non-secret backend/role repository variables. The four large
 `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` repository secrets yourself. Follow
 the complete [guided infrastructure runbook](docs/runbooks/infrastructure-provisioning.md).
 
+After a reviewed local bootstrap plan installs the T21B lifecycle policies,
+normal infrastructure creation and teardown use the manual-only **Protected
+Terraform provision** and **Protected Terraform destroy** workflows. Configure
+the separately protected `infrastructure-provision` and
+`infrastructure-destroy` environments, inspect every saved-plan summary and
+checksum, and approve only exact targets. These workflows use OIDC and SSM:
+they require no AWS access-key or SSH-key secret, never target bootstrap, never
+run `kubectl` on a GitHub runner, and do not deploy application workloads.
+Argo CD remains the application deployment authority.
+
 ### Manage the existing StockAI AWS deployment
 
 Do not run the bootstrap against the existing StockAI account using a fresh
@@ -235,10 +245,10 @@ non-secret repository variables from verified Terraform outputs:
 
 Terraform plan jobs generate their root inputs from the reviewed deployment
 descriptor; the four `TERRAFORM_*_TFVARS_JSON` variables are obsolete. Manual
-saved-plan applies remain the explicit mutation decision. The T15 roles begin
-with state-only permissions by design; add separately reviewed resource-scoped
-workload policies through Terraform before using an apply workflow. Never
-replace those policies with broad administrator access.
+saved-plan applies remain the explicit mutation decision. T21B splits the apply
+role policy by lifecycle responsibility, requires deterministic StockAI
+names/tags, restricts `iam:PassRole` and SSM, and explicitly protects the
+bootstrap foundation. Never replace it with broad administrator access.
 
 The single verification command for the local backend walking skeleton is:
 

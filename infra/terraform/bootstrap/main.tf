@@ -277,3 +277,405 @@ resource "aws_iam_role_policy_attachment" "github_apply_state_access" {
   role       = aws_iam_role.github_apply.name
   policy_arn = aws_iam_policy.github_apply_state_access.arn
 }
+
+data "aws_iam_policy_document" "github_apply_lifecycle" {
+  statement {
+    sid    = "CreateOnlyTaggedStockAIResources"
+    effect = "Allow"
+    actions = [
+      "acm:RequestCertificate",
+      "autoscaling:CreateAutoScalingGroup",
+      "cloudwatch:PutMetricAlarm",
+      "cognito-idp:CreateUserPool",
+      "dlm:CreateLifecyclePolicy",
+      "dynamodb:CreateTable",
+      "ec2:CreateInternetGateway",
+      "ec2:CreateLaunchTemplate",
+      "ec2:CreateLaunchTemplateVersion",
+      "ec2:CreateRouteTable",
+      "ec2:CreateSecurityGroup",
+      "ec2:CreateSubnet",
+      "ec2:CreateTags",
+      "ec2:CreateVolume",
+      "ec2:CreateVpc",
+      "ec2:RunInstances",
+      "elasticloadbalancing:CreateLoadBalancer",
+      "elasticloadbalancing:CreateTargetGroup",
+      "events:PutRule",
+      "iam:CreateInstanceProfile",
+      "iam:CreatePolicy",
+      "iam:CreateRole",
+      "lambda:CreateFunction",
+      "logs:CreateLogGroup",
+      "secretsmanager:CreateSecret",
+      "ssm:PutParameter",
+    ]
+    resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestTag/Owner"
+      values   = [var.owner_name]
+    }
+  }
+
+  statement {
+    sid    = "MutateOnlyOwnedStockAIResources"
+    effect = "Allow"
+    actions = [
+      "acm:AddTagsToCertificate",
+      "acm:DeleteCertificate",
+      "acm:RemoveTagsFromCertificate",
+      "autoscaling:AttachLoadBalancerTargetGroups",
+      "autoscaling:CompleteLifecycleAction",
+      "autoscaling:DeleteAutoScalingGroup",
+      "autoscaling:DeleteLifecycleHook",
+      "autoscaling:DetachLoadBalancerTargetGroups",
+      "autoscaling:PutLifecycleHook",
+      "autoscaling:SetDesiredCapacity",
+      "autoscaling:StartInstanceRefresh",
+      "autoscaling:UpdateAutoScalingGroup",
+      "autoscaling:CreateOrUpdateTags",
+      "autoscaling:DeleteTags",
+      "cloudwatch:DeleteAlarms",
+      "cloudwatch:PutMetricAlarm",
+      "dlm:DeleteLifecyclePolicy",
+      "dlm:UpdateLifecyclePolicy",
+      "ec2:AttachInternetGateway",
+      "ec2:AttachVolume",
+      "ec2:AssociateRouteTable",
+      "ec2:AuthorizeSecurityGroupEgress",
+      "ec2:AuthorizeSecurityGroupIngress",
+      "ec2:CreateRoute",
+      "ec2:DeleteInternetGateway",
+      "ec2:DeleteLaunchTemplate",
+      "ec2:DeleteLaunchTemplateVersions",
+      "ec2:DeleteRoute",
+      "ec2:DeleteRouteTable",
+      "ec2:DeleteSecurityGroup",
+      "ec2:DeleteSubnet",
+      "ec2:DeleteTags",
+      "ec2:DeleteVolume",
+      "ec2:DeleteVpc",
+      "ec2:DetachInternetGateway",
+      "ec2:DetachVolume",
+      "ec2:DisassociateRouteTable",
+      "ec2:ModifyLaunchTemplate",
+      "ec2:ModifyInstanceAttribute",
+      "ec2:ModifySubnetAttribute",
+      "ec2:ModifyVolume",
+      "ec2:ModifyVpcAttribute",
+      "ec2:RevokeSecurityGroupEgress",
+      "ec2:RevokeSecurityGroupIngress",
+      "ec2:TerminateInstances",
+      "events:DeleteRule",
+      "events:PutTargets",
+      "events:RemoveTargets",
+      "lambda:AddPermission",
+      "lambda:DeleteFunction",
+      "lambda:RemovePermission",
+      "lambda:UpdateFunctionCode",
+      "lambda:UpdateFunctionConfiguration",
+      "logs:DeleteLogGroup",
+      "logs:PutRetentionPolicy",
+      "secretsmanager:DeleteSecret",
+      "secretsmanager:RestoreSecret",
+      "secretsmanager:TagResource",
+      "secretsmanager:UntagResource",
+      "secretsmanager:UpdateSecret",
+    ]
+    resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:ResourceTag/Owner"
+      values   = [var.owner_name]
+    }
+  }
+
+  statement {
+    sid    = "ManageNamedStockAIIam"
+    effect = "Allow"
+    actions = [
+      "iam:AddRoleToInstanceProfile",
+      "iam:AttachRolePolicy",
+      "iam:CreatePolicyVersion",
+      "iam:DeleteInstanceProfile",
+      "iam:DeletePolicy",
+      "iam:DeletePolicyVersion",
+      "iam:DeleteRole",
+      "iam:DeleteRolePolicy",
+      "iam:DetachRolePolicy",
+      "iam:PutRolePolicy",
+      "iam:RemoveRoleFromInstanceProfile",
+      "iam:TagInstanceProfile",
+      "iam:TagPolicy",
+      "iam:TagRole",
+      "iam:UntagInstanceProfile",
+      "iam:UntagPolicy",
+      "iam:UntagRole",
+      "iam:UpdateAssumeRolePolicy",
+    ]
+    resources = [
+      "arn:aws:iam::${var.aws_account_id}:instance-profile/${var.cluster_name}-*",
+      "arn:aws:iam::${var.aws_account_id}:policy/${var.cluster_name}-*",
+      "arn:aws:iam::${var.aws_account_id}:role/${var.cluster_name}-*",
+    ]
+  }
+
+  statement {
+    sid     = "PassOnlyApprovedStockAIRoles"
+    effect  = "Allow"
+    actions = ["iam:PassRole"]
+    resources = [
+      "arn:aws:iam::${var.aws_account_id}:role/${var.cluster_name}-control-plane",
+      "arn:aws:iam::${var.aws_account_id}:role/${var.cluster_name}-dev-worker",
+      "arn:aws:iam::${var.aws_account_id}:role/${var.cluster_name}-prod-dlm",
+      "arn:aws:iam::${var.aws_account_id}:role/${var.cluster_name}-prod-worker",
+      "arn:aws:iam::${var.aws_account_id}:role/${var.cluster_name}-worker-lifecycle",
+    ]
+  }
+
+  statement {
+    sid    = "ManageExactApplicationData"
+    effect = "Allow"
+    actions = [
+      "dynamodb:DeleteTable",
+      "dynamodb:TagResource",
+      "dynamodb:UntagResource",
+      "dynamodb:UpdateContinuousBackups",
+      "dynamodb:UpdateTable",
+      "dynamodb:UpdateTimeToLive",
+      "ssm:AddTagsToResource",
+      "ssm:DeleteParameter",
+      "ssm:RemoveTagsFromResource",
+    ]
+    resources = [
+      "arn:aws:dynamodb:${var.aws_region}:${var.aws_account_id}:table/${var.cluster_name}-dev-application",
+      "arn:aws:dynamodb:${var.aws_region}:${var.aws_account_id}:table/${var.cluster_name}-dev-checkpoints",
+      "arn:aws:dynamodb:${var.aws_region}:${var.aws_account_id}:table/${var.cluster_name}-prod-application",
+      "arn:aws:dynamodb:${var.aws_region}:${var.aws_account_id}:table/${var.cluster_name}-prod-checkpoints",
+      "arn:aws:ssm:${var.aws_region}:${var.aws_account_id}:parameter/stockai/${var.cluster_name}/kubeadm/join-command",
+    ]
+  }
+
+  statement {
+    sid    = "ManageExactLokiBucket"
+    effect = "Allow"
+    actions = [
+      "s3:CreateBucket",
+      "s3:DeleteBucket",
+      "s3:DeleteBucketPolicy",
+      "s3:DeleteBucketWebsite",
+      "s3:PutBucketLifecycleConfiguration",
+      "s3:PutBucketOwnershipControls",
+      "s3:PutBucketPolicy",
+      "s3:PutBucketPublicAccessBlock",
+      "s3:PutBucketTagging",
+      "s3:PutBucketVersioning",
+      "s3:PutEncryptionConfiguration",
+    ]
+    resources = ["arn:aws:s3:::${var.loki_bucket_name}"]
+  }
+
+  statement {
+    sid    = "ManageStockAINetworkEdgeAndIdentity"
+    effect = "Allow"
+    actions = [
+      "cognito-idp:CreateUserPoolClient",
+      "cognito-idp:CreateUserPoolDomain",
+      "cognito-idp:CreateGroup",
+      "cognito-idp:DeleteGroup",
+      "cognito-idp:DeleteUserPool",
+      "cognito-idp:DeleteUserPoolClient",
+      "cognito-idp:DeleteUserPoolDomain",
+      "cognito-idp:SetUserPoolMfaConfig",
+      "cognito-idp:UpdateGroup",
+      "cognito-idp:UpdateUserPool",
+      "cognito-idp:UpdateUserPoolClient",
+      "elasticloadbalancing:AddTags",
+      "elasticloadbalancing:CreateListener",
+      "elasticloadbalancing:CreateRule",
+      "elasticloadbalancing:DeleteListener",
+      "elasticloadbalancing:DeleteLoadBalancer",
+      "elasticloadbalancing:DeleteRule",
+      "elasticloadbalancing:DeleteTargetGroup",
+      "elasticloadbalancing:ModifyListener",
+      "elasticloadbalancing:ModifyLoadBalancerAttributes",
+      "elasticloadbalancing:ModifyRule",
+      "elasticloadbalancing:ModifyTargetGroup",
+      "elasticloadbalancing:ModifyTargetGroupAttributes",
+      "elasticloadbalancing:RemoveTags",
+    ]
+    resources = [
+      "arn:aws:cognito-idp:${var.aws_region}:${var.aws_account_id}:userpool/*",
+      "arn:aws:elasticloadbalancing:${var.aws_region}:${var.aws_account_id}:listener-rule/app/${var.cluster_name}-*/*/*",
+      "arn:aws:elasticloadbalancing:${var.aws_region}:${var.aws_account_id}:listener/app/${var.cluster_name}-*/*/*",
+      "arn:aws:elasticloadbalancing:${var.aws_region}:${var.aws_account_id}:loadbalancer/app/${var.cluster_name}-*/*",
+      "arn:aws:elasticloadbalancing:${var.aws_region}:${var.aws_account_id}:targetgroup/${var.cluster_name}-*/*",
+    ]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:ResourceTag/Owner"
+      values   = [var.owner_name]
+    }
+  }
+
+  statement {
+    sid       = "ManageOnlyApprovedHostedZone"
+    effect    = "Allow"
+    actions   = ["route53:ChangeResourceRecordSets"]
+    resources = ["arn:aws:route53:::hostedzone/${var.route53_zone_id}"]
+  }
+
+  statement {
+    sid       = "RunPlatformOnlyOnTaggedControlPlane"
+    effect    = "Allow"
+    actions   = ["ssm:SendCommand"]
+    resources = ["arn:aws:ec2:${var.aws_region}:${var.aws_account_id}:instance/*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "ec2:ResourceTag/Role"
+      values   = ["control-plane"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "ec2:ResourceTag/Owner"
+      values   = [var.owner_name]
+    }
+  }
+
+  statement {
+    sid       = "UseOnlyRunShellScript"
+    effect    = "Allow"
+    actions   = ["ssm:SendCommand"]
+    resources = ["arn:aws:ssm:${var.aws_region}::document/AWS-RunShellScript"]
+  }
+
+  statement {
+    sid    = "ReadOnlyDiscoveryAndCommandStatus"
+    effect = "Allow"
+    actions = [
+      "acm:DescribeCertificate",
+      "acm:ListTagsForCertificate",
+      "autoscaling:Describe*",
+      "cloudwatch:DescribeAlarms",
+      "cognito-idp:Describe*",
+      "cognito-idp:List*",
+      "dlm:GetLifecyclePolicy",
+      "dlm:ListTagsForResource",
+      "dynamodb:Describe*",
+      "dynamodb:ListTagsOfResource",
+      "ec2:Describe*",
+      "events:DescribeRule",
+      "events:ListTagsForResource",
+      "iam:Get*",
+      "iam:List*",
+      "lambda:Get*",
+      "lambda:ListTags",
+      "logs:DescribeLogGroups",
+      "route53:Get*",
+      "route53:List*",
+      "s3:GetBucket*",
+      "s3:GetEncryptionConfiguration",
+      "s3:ListAllMyBuckets",
+      "secretsmanager:DescribeSecret",
+      "secretsmanager:ListSecretVersionIds",
+      "ssm:DescribeParameters",
+      "ssm:GetCommandInvocation",
+      "ssm:GetParameter",
+      "ssm:ListTagsForResource",
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "DenyBootstrapFoundationMutation"
+    effect = "Deny"
+    actions = [
+      "dynamodb:DeleteTable",
+      "dynamodb:UpdateTable",
+      "iam:DeleteOpenIDConnectProvider",
+      "iam:DeleteRole",
+      "iam:DeleteRolePolicy",
+      "iam:DetachRolePolicy",
+      "iam:UpdateAssumeRolePolicy",
+      "s3:DeleteBucket",
+      "s3:DeleteBucketPolicy",
+      "s3:PutBucketPolicy",
+      "s3:PutBucketVersioning",
+    ]
+    resources = [
+      "arn:aws:dynamodb:${var.aws_region}:${var.aws_account_id}:table/${var.state_lock_table_name}",
+      "arn:aws:iam::${var.aws_account_id}:oidc-provider/token.actions.githubusercontent.com",
+      "arn:aws:iam::${var.aws_account_id}:role/${var.project_name}-github-terraform-apply",
+      "arn:aws:iam::${var.aws_account_id}:role/${var.project_name}-github-terraform-plan",
+      "arn:aws:s3:::${var.state_bucket_name}",
+    ]
+  }
+}
+
+locals {
+  github_apply_lifecycle_document = jsondecode(data.aws_iam_policy_document.github_apply_lifecycle.json)
+  github_apply_lifecycle_statement_groups = {
+    core = [
+      "CreateOnlyTaggedStockAIResources",
+      "ManageNamedStockAIIam",
+      "MutateOnlyOwnedStockAIResources",
+      "PassOnlyApprovedStockAIRoles",
+    ]
+    services = [
+      "ManageExactApplicationData",
+      "ManageExactLokiBucket",
+      "ManageOnlyApprovedHostedZone",
+      "ManageStockAINetworkEdgeAndIdentity",
+    ]
+    operations = [
+      "DenyBootstrapFoundationMutation",
+      "ReadOnlyDiscoveryAndCommandStatus",
+      "RunPlatformOnlyOnTaggedControlPlane",
+      "UseOnlyRunShellScript",
+    ]
+  }
+}
+
+resource "aws_iam_policy" "github_apply_lifecycle" {
+  for_each = local.github_apply_lifecycle_statement_groups
+
+  name        = "${var.project_name}-github-terraform-lifecycle-${each.key}"
+  description = "Protected ${each.key} lifecycle access for StockAI resources"
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      for statement in local.github_apply_lifecycle_document.Statement : statement
+      if contains(each.value, statement.Sid)
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "github_apply_lifecycle" {
+  for_each = aws_iam_policy.github_apply_lifecycle
+
+  role       = aws_iam_role.github_apply.name
+  policy_arn = each.value.arn
+}
+
+resource "aws_iam_policy" "github_plan_discovery" {
+  name        = "${var.project_name}-github-terraform-plan-discovery"
+  description = "Read-only AWS discovery required for StockAI Terraform plans"
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      for statement in local.github_apply_lifecycle_document.Statement : statement
+      if statement.Sid == "ReadOnlyDiscoveryAndCommandStatus"
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "github_plan_discovery" {
+  role       = aws_iam_role.github_plan.name
+  policy_arn = aws_iam_policy.github_plan_discovery.arn
+}

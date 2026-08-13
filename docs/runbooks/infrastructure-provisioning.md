@@ -8,6 +8,14 @@ four JSON GitHub variables. It remains deliberately approval-gated: every root
 creates and displays a saved plan, and only the exact saved plan can be applied
 after its root-specific phrase is typed.
 
+After bootstrap exists, two manual-only GitHub workflows provide the normal
+protected lifecycle path. **Protected Terraform provision** applies
+`platform`, `edge`, `dev`, and `prod` in order and then verifies the shared
+Kubernetes platform through SSM. **Protected Terraform destroy** quiesces the
+environment workloads through SSM and destroys `prod`, `dev`, `edge`, and
+`platform` in order. Neither workflow targets `bootstrap`; state, locking,
+OIDC, bootstrap roles, and the local recovery path remain intact.
+
 ## Prerequisites
 
 - Terraform 1.15.x, Python 3.12, `uv`, AWS CLI, and GitHub CLI.
@@ -72,6 +80,42 @@ It deletes the obsolete four `TERRAFORM_*_TFVARS_JSON` variables when present.
 After all roots apply, it synchronizes reviewed EBS, Cognito, DynamoDB, Loki,
 hostname, and exact Secrets Manager ARN coordinates into the dev/prod
 Kustomize overlays. No secret value is written to Git.
+
+## Protected lifecycle setup and use
+
+Before dispatching either lifecycle workflow:
+
+1. From the intended existing bootstrap state, create and review a local saved
+   bootstrap plan containing only the apply-role trust update and three split
+   lifecycle policies. Applying it requires separate explicit approval; the
+   GitHub workflows cannot apply or destroy bootstrap.
+2. Create independently protected GitHub environments named
+   `infrastructure-provision` and `infrastructure-destroy`. Add required
+   reviewers, prevent self-review where supported, and restrict deployment
+   branches/tags according to repository policy.
+3. Confirm the five non-secret repository variables above. Do not configure
+   static AWS access keys or an SSH private key.
+
+To provision, manually dispatch **Protected Terraform provision** with the
+exact deployment name, account ID, and confirmation
+`provision <deployment> in <account>`. Each plan job publishes the readable
+plan and SHA-256 checksum and retains the binary saved plan. Inspect them before
+approving the following protected apply job. A failed or rejected root stops
+all dependants. The final SSM step waits for cloud-init, kubeadm, the expected
+Ready nodes, and the pinned shared controllers. It does not reinstall Calico,
+create dev/prod Argo CD Applications, or deploy StockAI workloads.
+
+To tear down, manually dispatch **Protected Terraform destroy** only after a
+separate destructive decision, using `destroy <deployment> in <account>`. The
+protected SSM step removes the environment Argo CD Applications/namespaces
+when present and waits for volume detachment. Review and approve fresh destroy
+plans in exact `prod`, `dev`, `edge`, `platform` order. A bootstrap, state,
+lock, OIDC, or GitHub-role target is an immediate stop condition.
+
+On a partial failure, inspect the last successful root and sanitized SSM
+evidence, then rerun the manual workflow to create fresh saved plans. Never
+reuse or edit an old plan artifact. Use `make infra-provision` when GitHub OIDC
+or the protected workflow itself requires recovery.
 
 ## Existing deployment and Budget removal
 

@@ -1,0 +1,429 @@
+name: Protected Terraform provision
+
+on:
+  workflow_dispatch:
+    inputs:
+      deployment:
+        description: Exact cluster name from deploy/config/deployment.json
+        required: true
+        type: string
+      aws_account_id:
+        description: Exact twelve-digit target AWS account
+        required: true
+        type: string
+      confirmation:
+        description: Type provision DEPLOYMENT in ACCOUNT
+        required: true
+        type: string
+
+concurrency:
+  group: terraform-provision-${{ inputs.deployment }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+  TERRAFORM_VERSION: "1.15.8"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Require the exact deployment confirmation
+        env:
+          ACCOUNT: ${{ inputs.aws_account_id }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+          DEPLOYMENT: ${{ inputs.deployment }}
+        run: |
+          expected="provision ${DEPLOYMENT} in ${ACCOUNT}"
+          test "$CONFIRMATION" = "$expected" || { echo 'Exact provisioning confirmation is required.' >&2; exit 2; }
+          test "$(jq -r .generated.cluster_name deploy/config/deployment.json)" = "$DEPLOYMENT"
+          test "$(jq -r .generated.aws_account_id deploy/config/deployment.json)" = "$ACCOUNT"
+
+  plan-platform:
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
+        with:
+          version: "0.11.27"
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.15.8"
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: us-east-1
+          role-to-assume: ${{ vars.AWS_TERRAFORM_PLAN_ROLE_ARN }}
+          role-session-name: stockai-provision-plan-platform
+      - name: Plan platform
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp deploy/config/deployment.json /tmp/deployment.json
+          uv run --frozen python -m scripts.infra.provision --descriptor /tmp/deployment.json verify-runner
+          uv run --frozen python -m scripts.infra.provision --descriptor /tmp/deployment.json render-input --root platform --output infra/terraform/platform/ci.auto.tfvars.json
+          terraform -chdir=infra/terraform/platform init -input=false -backend-config="bucket=${{ vars.TERRAFORM_STATE_BUCKET }}" -backend-config="key=${{ vars.TERRAFORM_STATE_KEY_PREFIX }}/platform/terraform.tfstate" -backend-config="region=us-east-1" -backend-config="dynamodb_table=${{ vars.TERRAFORM_LOCK_TABLE }}" -backend-config="encrypt=true"
+          cd infra/terraform/platform
+          terraform plan -out=tfplan -refresh=false -no-color
+          terraform show -no-color tfplan > plan.txt
+          sha256sum tfplan > tfplan.sha256
+          { echo '## Saved platform plan'; cat tfplan.sha256; sed -n '1,500p' plan.txt; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: provision-plan-platform
+          path: |
+            infra/terraform/platform/tfplan
+            infra/terraform/platform/tfplan.sha256
+            infra/terraform/platform/plan.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  apply-platform:
+    needs: plan-platform
+    runs-on: ubuntu-latest
+    environment: infrastructure-provision
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
+        with:
+          version: "0.11.27"
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.15.8"
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: us-east-1
+          role-to-assume: ${{ vars.AWS_TERRAFORM_APPLY_ROLE_ARN }}
+          role-session-name: stockai-provision-apply-platform
+      - uses: actions/download-artifact@v7
+        with:
+          name: provision-plan-platform
+          path: reviewed-plan
+      - name: Apply exact platform plan and capture outputs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp deploy/config/deployment.json /tmp/deployment.json
+          uv run --frozen python -m scripts.infra.provision --descriptor /tmp/deployment.json verify-runner
+          terraform -chdir=infra/terraform/platform init -input=false -backend-config="bucket=${{ vars.TERRAFORM_STATE_BUCKET }}" -backend-config="key=${{ vars.TERRAFORM_STATE_KEY_PREFIX }}/platform/terraform.tfstate" -backend-config="region=us-east-1" -backend-config="dynamodb_table=${{ vars.TERRAFORM_LOCK_TABLE }}" -backend-config="encrypt=true"
+          cp reviewed-plan/tfplan reviewed-plan/tfplan.sha256 infra/terraform/platform/
+          cd infra/terraform/platform
+          sha256sum --check tfplan.sha256
+          terraform apply -no-color tfplan
+          cd "$GITHUB_WORKSPACE"
+          uv run --frozen python -m scripts.infra.provision --descriptor /tmp/deployment.json capture-output --root platform
+      - uses: actions/upload-artifact@v6
+        with:
+          name: provision-descriptor-platform
+          path: /tmp/deployment.json
+          if-no-files-found: error
+          retention-days: 14
+
+  plan-edge:
+    needs: apply-platform
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v7
+        with:
+          name: provision-descriptor-platform
+          path: lifecycle
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
+        with:
+          version: "0.11.27"
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.15.8"
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: us-east-1
+          role-to-assume: ${{ vars.AWS_TERRAFORM_PLAN_ROLE_ARN }}
+          role-session-name: stockai-provision-plan-edge
+      - name: Plan edge
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          uv run --frozen python -m scripts.infra.provision --descriptor lifecycle/deployment.json verify-runner
+          uv run --frozen python -m scripts.infra.provision --descriptor lifecycle/deployment.json render-input --root edge --output infra/terraform/edge/ci.auto.tfvars.json
+          terraform -chdir=infra/terraform/edge init -input=false -backend-config="bucket=${{ vars.TERRAFORM_STATE_BUCKET }}" -backend-config="key=${{ vars.TERRAFORM_STATE_KEY_PREFIX }}/edge/terraform.tfstate" -backend-config="region=us-east-1" -backend-config="dynamodb_table=${{ vars.TERRAFORM_LOCK_TABLE }}" -backend-config="encrypt=true"
+          cd infra/terraform/edge
+          terraform plan -out=tfplan -refresh=false -no-color
+          terraform show -no-color tfplan > plan.txt
+          sha256sum tfplan > tfplan.sha256
+          { echo '## Saved edge plan'; cat tfplan.sha256; sed -n '1,500p' plan.txt; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: provision-plan-edge
+          path: |
+            infra/terraform/edge/tfplan
+            infra/terraform/edge/tfplan.sha256
+            infra/terraform/edge/plan.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  apply-edge:
+    needs: plan-edge
+    runs-on: ubuntu-latest
+    environment: infrastructure-provision
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v7
+        with:
+          name: provision-descriptor-platform
+          path: lifecycle
+      - uses: actions/download-artifact@v7
+        with:
+          name: provision-plan-edge
+          path: reviewed-plan
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
+        with:
+          version: "0.11.27"
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.15.8"
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: us-east-1
+          role-to-assume: ${{ vars.AWS_TERRAFORM_APPLY_ROLE_ARN }}
+          role-session-name: stockai-provision-apply-edge
+      - name: Apply exact edge plan and capture outputs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          uv run --frozen python -m scripts.infra.provision --descriptor lifecycle/deployment.json verify-runner
+          terraform -chdir=infra/terraform/edge init -input=false -backend-config="bucket=${{ vars.TERRAFORM_STATE_BUCKET }}" -backend-config="key=${{ vars.TERRAFORM_STATE_KEY_PREFIX }}/edge/terraform.tfstate" -backend-config="region=us-east-1" -backend-config="dynamodb_table=${{ vars.TERRAFORM_LOCK_TABLE }}" -backend-config="encrypt=true"
+          cp reviewed-plan/tfplan reviewed-plan/tfplan.sha256 infra/terraform/edge/
+          cd infra/terraform/edge
+          sha256sum --check tfplan.sha256
+          terraform apply -no-color tfplan
+          cd "$GITHUB_WORKSPACE"
+          uv run --frozen python -m scripts.infra.provision --descriptor lifecycle/deployment.json capture-output --root edge
+      - uses: actions/upload-artifact@v6
+        with:
+          name: provision-descriptor-edge
+          path: lifecycle/deployment.json
+          if-no-files-found: error
+          retention-days: 14
+
+  plan-dev:
+    needs: apply-edge
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v7
+        with:
+          name: provision-descriptor-edge
+          path: lifecycle
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
+        with:
+          version: "0.11.27"
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.15.8"
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: us-east-1
+          role-to-assume: ${{ vars.AWS_TERRAFORM_PLAN_ROLE_ARN }}
+          role-session-name: stockai-provision-plan-dev
+      - name: Plan dev
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          uv run --frozen python -m scripts.infra.provision --descriptor lifecycle/deployment.json verify-runner
+          uv run --frozen python -m scripts.infra.provision --descriptor lifecycle/deployment.json render-input --root dev --output infra/terraform/environments/dev/ci.auto.tfvars.json
+          terraform -chdir=infra/terraform/environments/dev init -input=false -backend-config="bucket=${{ vars.TERRAFORM_STATE_BUCKET }}" -backend-config="key=${{ vars.TERRAFORM_STATE_KEY_PREFIX }}/environments/dev/terraform.tfstate" -backend-config="region=us-east-1" -backend-config="dynamodb_table=${{ vars.TERRAFORM_LOCK_TABLE }}" -backend-config="encrypt=true"
+          cd infra/terraform/environments/dev
+          terraform plan -out=tfplan -refresh=false -no-color
+          terraform show -no-color tfplan > plan.txt
+          sha256sum tfplan > tfplan.sha256
+          { echo '## Saved dev plan'; cat tfplan.sha256; sed -n '1,500p' plan.txt; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: provision-plan-dev
+          path: |
+            infra/terraform/environments/dev/tfplan
+            infra/terraform/environments/dev/tfplan.sha256
+            infra/terraform/environments/dev/plan.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  apply-dev:
+    needs: plan-dev
+    runs-on: ubuntu-latest
+    environment: infrastructure-provision
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v7
+        with:
+          name: provision-descriptor-edge
+          path: lifecycle
+      - uses: actions/download-artifact@v7
+        with:
+          name: provision-plan-dev
+          path: reviewed-plan
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
+        with:
+          version: "0.11.27"
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.15.8"
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: us-east-1
+          role-to-assume: ${{ vars.AWS_TERRAFORM_APPLY_ROLE_ARN }}
+          role-session-name: stockai-provision-apply-dev
+      - name: Apply exact dev plan and capture outputs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          uv run --frozen python -m scripts.infra.provision --descriptor lifecycle/deployment.json verify-runner
+          terraform -chdir=infra/terraform/environments/dev init -input=false -backend-config="bucket=${{ vars.TERRAFORM_STATE_BUCKET }}" -backend-config="key=${{ vars.TERRAFORM_STATE_KEY_PREFIX }}/environments/dev/terraform.tfstate" -backend-config="region=us-east-1" -backend-config="dynamodb_table=${{ vars.TERRAFORM_LOCK_TABLE }}" -backend-config="encrypt=true"
+          cp reviewed-plan/tfplan reviewed-plan/tfplan.sha256 infra/terraform/environments/dev/
+          cd infra/terraform/environments/dev
+          sha256sum --check tfplan.sha256
+          terraform apply -no-color tfplan
+          cd "$GITHUB_WORKSPACE"
+          uv run --frozen python -m scripts.infra.provision --descriptor lifecycle/deployment.json capture-output --root dev
+      - uses: actions/upload-artifact@v6
+        with:
+          name: provision-descriptor-dev
+          path: lifecycle/deployment.json
+          if-no-files-found: error
+          retention-days: 14
+
+  plan-prod:
+    needs: apply-dev
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v7
+        with:
+          name: provision-descriptor-dev
+          path: lifecycle
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
+        with:
+          version: "0.11.27"
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.15.8"
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: us-east-1
+          role-to-assume: ${{ vars.AWS_TERRAFORM_PLAN_ROLE_ARN }}
+          role-session-name: stockai-provision-plan-prod
+      - name: Plan prod
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          uv run --frozen python -m scripts.infra.provision --descriptor lifecycle/deployment.json verify-runner
+          uv run --frozen python -m scripts.infra.provision --descriptor lifecycle/deployment.json render-input --root prod --output infra/terraform/environments/prod/ci.auto.tfvars.json
+          terraform -chdir=infra/terraform/environments/prod init -input=false -backend-config="bucket=${{ vars.TERRAFORM_STATE_BUCKET }}" -backend-config="key=${{ vars.TERRAFORM_STATE_KEY_PREFIX }}/environments/prod/terraform.tfstate" -backend-config="region=us-east-1" -backend-config="dynamodb_table=${{ vars.TERRAFORM_LOCK_TABLE }}" -backend-config="encrypt=true"
+          cd infra/terraform/environments/prod
+          terraform plan -out=tfplan -refresh=false -no-color
+          terraform show -no-color tfplan > plan.txt
+          sha256sum tfplan > tfplan.sha256
+          { echo '## Saved prod plan'; cat tfplan.sha256; sed -n '1,500p' plan.txt; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: provision-plan-prod
+          path: |
+            infra/terraform/environments/prod/tfplan
+            infra/terraform/environments/prod/tfplan.sha256
+            infra/terraform/environments/prod/plan.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  apply-prod:
+    needs: plan-prod
+    runs-on: ubuntu-latest
+    environment: infrastructure-provision
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v7
+        with:
+          name: provision-descriptor-dev
+          path: lifecycle
+      - uses: actions/download-artifact@v7
+        with:
+          name: provision-plan-prod
+          path: reviewed-plan
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
+        with:
+          version: "0.11.27"
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.15.8"
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: us-east-1
+          role-to-assume: ${{ vars.AWS_TERRAFORM_APPLY_ROLE_ARN }}
+          role-session-name: stockai-provision-apply-prod
+      - name: Apply exact prod plan, capture outputs, and synchronize desired state
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          uv run --frozen python -m scripts.infra.provision --descriptor lifecycle/deployment.json verify-runner
+          terraform -chdir=infra/terraform/environments/prod init -input=false -backend-config="bucket=${{ vars.TERRAFORM_STATE_BUCKET }}" -backend-config="key=${{ vars.TERRAFORM_STATE_KEY_PREFIX }}/environments/prod/terraform.tfstate" -backend-config="region=us-east-1" -backend-config="dynamodb_table=${{ vars.TERRAFORM_LOCK_TABLE }}" -backend-config="encrypt=true"
+          cp reviewed-plan/tfplan reviewed-plan/tfplan.sha256 infra/terraform/environments/prod/
+          cd infra/terraform/environments/prod
+          sha256sum --check tfplan.sha256
+          terraform apply -no-color tfplan
+          cd "$GITHUB_WORKSPACE"
+          uv run --frozen python -m scripts.infra.provision --descriptor lifecycle/deployment.json capture-output --root prod
+          uv run --frozen python -m scripts.infra.provision --descriptor lifecycle/deployment.json sync-outputs
+      - uses: actions/upload-artifact@v6
+        with:
+          name: provision-descriptor-prod
+          path: lifecycle/deployment.json
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@v6
+        with:
+          name: provisioned-non-secret-state
+          path: |
+            deploy/kubernetes/overlays/dev
+            deploy/kubernetes/overlays/prod
+          if-no-files-found: error
+          retention-days: 14
+
+  cluster-platform:
+    needs: apply-prod
+    runs-on: ubuntu-latest
+    environment: infrastructure-provision
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v7
+        with:
+          name: provision-descriptor-prod
+          path: lifecycle
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
+        with:
+          version: "0.11.27"
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: us-east-1
+          role-to-assume: ${{ vars.AWS_TERRAFORM_APPLY_ROLE_ARN }}
+          role-session-name: stockai-provision-cluster-platform
+      - name: Install and verify the shared Kubernetes platform through SSM
+        run: |
+          descriptor=lifecycle/deployment.json
+          uv run --frozen python -m scripts.infra.cluster_platform \
+            --instance-id "$(jq -r .outputs.platform.control_plane_instance_id "$descriptor")" \
+            --cluster-name "$(jq -r .generated.cluster_name "$descriptor")" \
+            install \
+            --repository "${{ github.repository }}" \
+            --revision "${{ github.sha }}" | tee -a "$GITHUB_STEP_SUMMARY"
