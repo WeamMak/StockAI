@@ -66,7 +66,11 @@ def test_secret_scan_baselines_only_reviewed_fingerprints() -> None:
         if line and not line.startswith("#")
     }
 
-    assert len(fingerprints) == 7
+    assert len(fingerprints) == 8
+    assert (
+        "c123a64e8f27f948855f315c5806637e7cdcae04:"
+        "tests/unit/infra/test_cluster_platform.py:generic-api-key:56"
+    ) in fingerprints
     assert all(fingerprint.count(":") >= 3 for fingerprint in fingerprints)
 
 
