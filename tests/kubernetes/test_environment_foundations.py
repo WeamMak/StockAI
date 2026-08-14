@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -34,6 +35,10 @@ SERVICE_ACCOUNTS = {
     "stockai-postgresql",
     "stockai-procurement-mcp",
 }
+SECRET_ARN_PATTERN = re.compile(
+    r"^arn:aws:secretsmanager:us-east-1:\d{12}:secret:"
+    r"weam-stockai/(?P<environment>dev|prod)/(?P<name>[a-z-]+)-[A-Za-z0-9]{6}$"
+)
 
 
 def _render(
@@ -241,14 +246,16 @@ def test_namespace_configuration_and_secret_contracts_are_environment_scoped(
             "deletionPolicy": "Retain",
             "name": secret_name,
         }
-        assert external_secret["spec"]["data"] == [
-            {
-                "remoteRef": {
-                    "key": f"weam-stockai/{environment}/{secret_name}",
-                },
-                "secretKey": "value",
-            }
-        ]
+        secret_data = external_secret["spec"]["data"]
+        assert len(secret_data) == 1
+        assert secret_data[0]["secretKey"] == "value"
+        remote_key = secret_data[0]["remoteRef"]["key"]
+        logical_key = f"weam-stockai/{environment}/{secret_name}"
+        if remote_key != logical_key:
+            match = SECRET_ARN_PATTERN.fullmatch(remote_key)
+            assert match is not None
+            assert match.group("environment") == environment
+            assert match.group("name") == secret_name
 
     assert not _resources_of_kind(resources, "Secret")
     rendered_text = yaml.safe_dump_all(resources)
