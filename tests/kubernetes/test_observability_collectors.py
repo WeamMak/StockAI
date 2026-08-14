@@ -153,6 +153,7 @@ def test_loki_is_s3_prefixed_and_locally_bounded(environment: str) -> None:
     assert env["LOKI_RETENTION_PERIOD"] == ("336h" if environment == "dev" else "2160h")
     assert "object_prefix: ${LOKI_S3_PREFIX}" in config["loki.yaml"]
     assert "bucketnames: ${LOKI_S3_BUCKET}" in config["loki.yaml"]
+    assert "delete_request_store: s3" in config["loki.yaml"]
     assert "retention_period: ${LOKI_RETENTION_PERIOD}" in config["loki.yaml"]
     scratch = next(
         volume for volume in pod_spec["volumes"] if volume["name"] == "loki-data"
@@ -219,6 +220,20 @@ def test_external_secrets_is_namespace_and_controller_class_scoped(
         "retryInterval": "5s",
     }
 
+    role = _named(resources, "Role", "stockai-external-secrets")
+    generator_rules = [
+        rule
+        for rule in role["rules"]
+        if rule["apiGroups"] == ["generators.external-secrets.io"]
+    ]
+    assert generator_rules == [
+        {
+            "apiGroups": ["generators.external-secrets.io"],
+            "resources": ["generatorstates"],
+            "verbs": ["get", "list", "watch"],
+        }
+    ]
+
 
 @pytest.mark.parametrize("environment", ENVIRONMENTS)
 def test_fluent_bit_is_namespace_filtered_without_weakening_application_pss(
@@ -234,6 +249,14 @@ def test_fluent_bit_is_namespace_filtered_without_weakening_application_pss(
     assert config["metadata"]["namespace"] == f"stockai-logs-{environment}"
     assert (
         log_namespace["metadata"]["labels"]["pod-security.kubernetes.io/enforce"]
+        == "privileged"
+    )
+    assert (
+        log_namespace["metadata"]["labels"]["pod-security.kubernetes.io/audit"]
+        == "baseline"
+    )
+    assert (
+        log_namespace["metadata"]["labels"]["pod-security.kubernetes.io/warn"]
         == "baseline"
     )
     app_namespace = _named(resources, "Namespace", environment)

@@ -5,9 +5,9 @@
 - Specification: approved by the user and course staff.
 - Implementation plan: approved by the user and course staff.
 - Implementation authorization: explicitly provided by the user on 2026-08-02.
-- Active task: T22 immutable dev delivery and local production preparation is
-  implemented locally; its first live dev publication and one-time declarative
-  Argo CD Application bootstrap remain pending.
+- Active task: T22 immutable dev delivery is complete. Live dev acceptance
+  confirmed all required secrets and workloads ready, the temporary bootstrap
+  permission detached, and Argo CD `Synced` and `Healthy`.
 
 ## Task status
 
@@ -42,7 +42,55 @@
 | T21 | Complete; merged to `main` through PR #30 at `5be9da7` | A versioned JSON schema and two bounded Python CLIs create and verify deterministic, tamper-evident release metadata for the source commit/tree, exact frontend/API/MCP/StockAI-Odoo digest maps, per-image provenance, Docker Scout result, dev validation evidence, and creation time. The pull-request workflows passed after setup-uv pinning, fictional Compose configuration, exact Gitleaks baselining, informational Docker Scout behavior, formatting, uv invocation, and ShellCheck corrections. | No AWS apply, image publication, or workload deployment was performed. The workflow retains state-only OIDC roles and never grants administrator access. T21A automates the non-secret GitHub configuration and root inputs; reviewed resource-scoped apply-role permissions remain required before GitHub-hosted workload applies. |
 | T21A | Implementation and approved Budget removal complete; final branch verification pending | Guided discovery/input-generation, output synchronization, GitHub configuration, saved-plan orchestration, workflow replacement of four JSON variables, and email-backed AWS Budget removal are implemented locally. Strict typing over 144 files, 29 focused tests, all 63 Terraform contracts, all 54 Kubernetes tests, Terraform formatting, actionlint, and diff checks pass. Against account `228281126655`, the user-approved saved edge plan with SHA-256 `7e546cf0d47ef7961b0d0be6dad472ba62faa81bd3eb664e25688268e268d7b7` applied exactly `0 added, 0 changed, 2 destroyed`; both were the email-backed Budget resources. A post-apply refresh plan reported `No changes`. | GitHub CLI is not installed in this workspace, so current-repository variable/environment synchronization was not exercised live. Existing state-only OIDC roles still need reviewed resource-scoped workload permissions before GitHub-hosted workload applies. |
 | T21B | Implemented; approved broad-IAM amendment verified offline; live lifecycle verification pending | Test-first implementation retains manual-only protected provision/destroy workflows, sequential saved plans and checksums, non-interactive runner/output operations, and bounded redacting SSM installation/quiescence. The approved amendment replaces the accumulated per-service lifecycle/discovery policies with AWS-managed `ReadOnlyAccess` on the plan role and protected `AdministratorAccess` on the apply role. Scoped state/locking policies remain, and a dedicated explicit-deny policy protects direct mutation of the state bucket and objects, lock table, GitHub OIDC provider, bootstrap roles, and bootstrap policies. Focused T21B checks passed (25), all Terraform roots validated, all infrastructure contracts passed (67), and `make check` passed 296 Python and 17 React tests plus formatting, lint, typing, architecture, and actionlint. | No live plan or apply was run for this amendment. Docker-dependent integration/e2e checks and kubectl-dependent Kubernetes checks could not run in this WSL environment because Docker and kubectl are unavailable; CI supplies those dependencies. Generate and review a fresh local bootstrap saved plan, apply it only after separate explicit approval, then start a completely new protected provision run. The account-wide apply-role blast radius is accepted only for this single-project course account and must be replaced with least privilege before production reuse. The separately approved destruction drill remains pending and environment data volumes remain intentional destructive targets. |
-| T22 | Implemented; live Argo reconciliation repair pending merge and provision rerun | Red-green contracts cover deterministic per-image/application build identities, no-change/one-image/four-image assembly, verified prior-digest carry-forward, immutable digest/provenance metadata, Scout findings/tool errors as report-only evidence, exact dev overlay updates, bot-loop guards, declarative dev Argo tracking, dirty/protected-branch promotion rejection, exact feature-content matching, missing/mutable/tampered candidate rejection, idempotent four-digest promotion, and validation failure without partial target changes. The guarded `dev` workflow builds and publishes only identity-changed StockAI images, commits only the dev release record and four approved digest fields, and leaves workload reconciliation entirely to Argo CD without Actions `kubectl`, Argo API calls, or Argo credentials. The `stockai-dev` Application tracks the `dev` overlay with automated prune and self-heal. `make promote-dev` only fetches/reads `origin/dev` and prepares unstaged local prod files; it contains no commit, push, merge, AWS, Terraform, kubectl, or Kubernetes-client operation. The corrected live `dev` workflow published the four required images and committed immutable desired-state digests; its pull request checks passed and the change was merged to `main`. The protected provision workflow installed `stockai-dev`, and Argo observed the bot-authored desired-state revision. The first reconciliation then exposed that the generated protected installer applied ingress, EBS CSI, metrics, and Argo CD individually but omitted the already pinned External Secrets CRDs. A red-green repair now applies `deploy/kubernetes/cluster/external-secrets`, waits up to five minutes for the two required `v1` CRDs to become Established, and only then applies Argo CD. The focused installer test failed before the repair and passed afterward; 28 infrastructure/workflow tests and all 8 shared-cluster render tests pass. Ruff format/check and `git diff --check` also pass. | Merge this repair to `main`, then rerun the protected provision workflow once so the existing cluster receives the CRDs. Argo currently remains OutOfSync/Health Missing at desired-state commit `23420bebb20063ebc5fae4d16e2f0f054b0ec123` because the API server cannot discover `external-secrets.io/v1`. After the rerun, confirm `stockai-dev` becomes Synced/Healthy; any later error must be evaluated separately. T23 has not started, so no dev-validation evidence has been recorded and a successful real `make promote-dev` remains intentionally unavailable. |
+| T22 | Complete; live dev reconciliation accepted | The changed-image workflow, immutable digest desired state, declarative Argo tracking, report-only Scout behavior, and local-only `make promote-dev` behavior remain unchanged. After the protected provision rerun installed the External Secrets CRDs, live evidence exposed three independent initial-reconciliation problems: External Secrets pods timed out reaching the Kubernetes API, Loki rejected retention without a delete-request store, and three never-mounted dev PVs retained immutable placeholder handles. Red-green repair contracts now require control-plane TCP 6443 ingress from exactly the fixed Calico pod CIDR `192.168.0.0/16`, Loki `delete_request_store: s3`, and a bounded operator runbook that preserves `Retain`, names only the three dev storage sets, and forbids destructive AWS, namespace, force, and production operations. On 2026-08-14, the full platform plan suite passed 14 tests; observability plus runbook suites passed 19 tests; `make terraform-validate` passed all 68 infrastructure tests after moving temporary provider copies off the 7.7 GiB `/tmp`; and `make kubernetes-validate` passed 55 tests plus strict Kubeconform validation of both 85-resource overlays with 0 invalid resources and 0 errors. The first Kubernetes validation attempt had 47 passes and 8 network errors because sandbox DNS blocked the pinned Calico URL; the network-enabled rerun passed. Live acceptance subsequently confirmed all six ExternalSecrets ready, every application Deployment available, the finite Odoo bootstrap completed, MCP ready, Fluent Bit `1/1 Running`, the temporary Odoo-key IAM policy detached, and Argo CD `Synced` and `Healthy`. | T23 and T24 have not started. |
+
+### T22 live reconciliation note — 2026-08-14
+
+The recreated dev cluster proved that the External Secrets network repair is
+effective: the namespace controller reached the Kubernetes API and remained
+`1/1 Running` without the earlier `10.96.0.1:443` timeout. Its next live error
+was a namespace RBAC denial while listing
+`generators.external-secrets.io/generatorstates`. The minimal declarative
+repair grants only `get`, `list`, and `watch` on that resource; it does not add
+generator CRUD or cluster-scoped access. Both red-green environment cases, all
+16 observability collector tests, Ruff format/check, and all 55 Kubernetes
+tests passed. Strict Kubeconform validation again reported 78 valid, 0 invalid,
+0 errors, and 7 intentionally skipped External Secrets resources for each
+85-resource overlay. Live readiness remains pending the dev Argo application
+reconciling this commit.
+
+The next live bootstrap attempt proved the temporary exact-secret IAM policy
+and Argo Job recreation path, then failed before database or AWS access because
+Python found no writable temporary directory. The Job retained a read-only root
+filesystem but, unlike the Odoo Deployment, mounted no `/tmp`. A red-green
+render contract now requires the Job to mount a bounded 64 MiB `emptyDir` at
+`/tmp`. Both focused environment cases and all 13 application-overlay tests
+passed. The complete 55-test Kubernetes suite passed, and strict Kubeconform
+validation reported 78 valid, 0 invalid, 0 errors, and 7 intentionally skipped
+External Secrets resources for each 85-resource overlay. Live acceptance still
+requires the corrected Job to complete, the Odoo API key to synchronize, MCP
+to become ready, and the temporary IAM policy to be detached.
+
+Live acceptance then confirmed the corrected bootstrap Job completed in 10
+seconds, all six ExternalSecrets synchronized, MCP rolled out `1/1 Running`,
+and Terraform removed exactly the temporary IAM attachment and policy with `0`
+additions, `0` changes, and `2` destructions. Argo remained `Progressing`
+because Pod Security Admission rejected Fluent Bit's required read-only
+`/var/log` host mount: the dedicated log namespace enforced `baseline`, which
+forbids every `hostPath`. The minimal repair changes only the dedicated
+`stockai-logs-*` namespace to `enforce=privileged`; its audit and warning levels
+remain `baseline`, the application namespace remains `restricted`, and the
+collector retains its non-root, read-only, capability-dropped security context.
+The red-green environment cases, all 16 collector tests, and the complete 55
+Kubernetes tests passed. Strict Kubeconform validation again reported 78 valid,
+0 invalid, 0 errors, and 7 intentionally skipped External Secrets resources per
+85-resource overlay. Live acceptance still requires Fluent Bit to become Ready
+and Argo to report `Synced` and `Healthy`.
+
+Final live acceptance passed after Argo reconciled that repair: the dev Fluent
+Bit pod reached `1/1 Running` with zero restarts, and the `stockai-dev`
+Application reported `Synced` and `Healthy`. This completes T22. T23 and T24
+have not started.
 
 ## Evidence policy
 

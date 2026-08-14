@@ -65,6 +65,9 @@ rules:
       - secretstores/status
       - secretstores/finalizers
     verbs: [get, update, patch]
+  - apiGroups: [generators.external-secrets.io]
+    resources: [generatorstates]
+    verbs: [get, list, watch]
   - apiGroups: [""]
     resources: [secrets]
     verbs: [get, list, watch, create, update, patch, delete]
