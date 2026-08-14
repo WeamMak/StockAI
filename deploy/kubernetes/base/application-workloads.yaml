@@ -588,6 +588,13 @@ spec:
             runAsNonRoot: true
             runAsUser: 100
             runAsGroup: 101
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
 ---
 apiVersion: batch/v1
 kind: CronJob

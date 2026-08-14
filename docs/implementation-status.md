@@ -5,9 +5,9 @@
 - Specification: approved by the user and course staff.
 - Implementation plan: approved by the user and course staff.
 - Implementation authorization: explicitly provided by the user on 2026-08-02.
-- Active task: T22 immutable dev delivery is implemented. A narrow live
-  reconciliation repair is verified locally; its reviewed Terraform apply and
-  one-time dev storage recovery remain pending.
+- Active task: T22 immutable dev delivery is implemented and live dev
+  reconciliation is in progress. The EBS and External Secrets repairs are
+  applied; the corrected finite Odoo bootstrap Job still needs live completion.
 
 ## Task status
 
@@ -58,6 +58,18 @@ tests passed. Strict Kubeconform validation again reported 78 valid, 0 invalid,
 0 errors, and 7 intentionally skipped External Secrets resources for each
 85-resource overlay. Live readiness remains pending the dev Argo application
 reconciling this commit.
+
+The next live bootstrap attempt proved the temporary exact-secret IAM policy
+and Argo Job recreation path, then failed before database or AWS access because
+Python found no writable temporary directory. The Job retained a read-only root
+filesystem but, unlike the Odoo Deployment, mounted no `/tmp`. A red-green
+render contract now requires the Job to mount a bounded 64 MiB `emptyDir` at
+`/tmp`. Both focused environment cases and all 13 application-overlay tests
+passed. The complete 55-test Kubernetes suite passed, and strict Kubeconform
+validation reported 78 valid, 0 invalid, 0 errors, and 7 intentionally skipped
+External Secrets resources for each 85-resource overlay. Live acceptance still
+requires the corrected Job to complete, the Odoo API key to synchronize, MCP
+to become ready, and the temporary IAM policy to be detached.
 
 ## Evidence policy
 
