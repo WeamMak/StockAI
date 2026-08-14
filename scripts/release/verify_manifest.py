@@ -15,6 +15,7 @@ from typing import Any
 IMAGE_NAMES = ("api", "frontend", "mcp", "odoo")
 MANIFEST_KEYS = {
     "schemaVersion",
+    "releaseId",
     "source",
     "images",
     "provenance",
@@ -25,9 +26,21 @@ MANIFEST_KEYS = {
     "createdAt",
     "integrity",
 }
+RELEASE_CORE_KEYS = (
+    "schemaVersion",
+    "source",
+    "images",
+    "provenance",
+    "applicationIdentity",
+    "buildInputs",
+    "scout",
+    "createdAt",
+)
 MAX_MANIFEST_BYTES = 64 * 1024
+MAX_VALIDATION_ATTEMPTS = 20
 GIT_OBJECT_PATTERN = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
+SMOKE_RUN_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
 
 class ManifestError(ValueError):
@@ -48,6 +61,19 @@ def calculate_integrity(manifest: Mapping[str, object]) -> str:
     """Return the SHA-256 identity of the canonical manifest payload."""
 
     return f"sha256:{hashlib.sha256(_canonical_payload(manifest)).hexdigest()}"
+
+
+def calculate_release_id(manifest: Mapping[str, object]) -> str:
+    """Bind only the immutable T22 release core to one stable identifier."""
+
+    core = {key: manifest[key] for key in RELEASE_CORE_KEYS if key in manifest}
+    payload = json.dumps(
+        core,
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return f"sha256:{hashlib.sha256(payload).hexdigest()}"
 
 
 def _exact_object(value: object, *, name: str, keys: set[str]) -> Mapping[str, object]:
@@ -111,23 +137,85 @@ def verify_manifest(manifest: object) -> dict[str, object]:
     if scout["status"] not in {"passed", "findings", "error"}:
         raise ManifestError("scout status must be passed, findings, or error")
     _digest(scout["reportDigest"], name="scout.reportDigest")
+    _timestamp(document["createdAt"], name="createdAt")
+
+    release_id = _digest(document["releaseId"], name="releaseId")
+    if release_id != calculate_release_id(document):
+        raise ManifestError("releaseId does not match the immutable release core")
 
     dev_validation = _exact_object(
         document["devValidation"],
         name="devValidation",
-        keys={"status", "evidenceDigest"},
+        keys={"status", "attempts"},
     )
     status = dev_validation["status"]
     if status not in {"pending", "passed", "failed"}:
         raise ManifestError("dev validation status must be pending, passed, or failed")
-    evidence = dev_validation["evidenceDigest"]
-    if status == "pending":
-        if evidence is not None:
-            raise ManifestError("pending dev validation must not have evidence")
-    else:
-        _digest(evidence, name="devValidation.evidenceDigest")
+    attempts = dev_validation["attempts"]
+    if not isinstance(attempts, list) or len(attempts) > MAX_VALIDATION_ATTEMPTS:
+        raise ManifestError("dev validation attempts must be a bounded array")
+    seen_runs: set[str] = set()
+    argo_revision: str | None = None
+    results: list[object] = []
+    for index, raw_attempt in enumerate(attempts):
+        attempt = _exact_object(
+            raw_attempt,
+            name=f"devValidation.attempts[{index}]",
+            keys={
+                "releaseId",
+                "images",
+                "argoRevision",
+                "smokeRunId",
+                "timestamp",
+                "result",
+                "evidenceDigest",
+            },
+        )
+        if attempt["releaseId"] != release_id:
+            raise ManifestError("validation attempt release ID does not match")
+        attempt_images = _exact_object(
+            attempt["images"],
+            name=f"devValidation.attempts[{index}].images",
+            keys=set(IMAGE_NAMES),
+        )
+        if attempt_images != images:
+            raise ManifestError("validation attempt image map does not match")
+        revision = attempt["argoRevision"]
+        if (
+            not isinstance(revision, str)
+            or GIT_OBJECT_PATTERN.fullmatch(revision) is None
+        ):
+            raise ManifestError("validation attempt Argo revision is invalid")
+        if argo_revision is not None and revision != argo_revision:
+            raise ManifestError("validation attempt Argo revision changed")
+        argo_revision = revision
+        smoke_run_id = attempt["smokeRunId"]
+        if (
+            not isinstance(smoke_run_id, str)
+            or SMOKE_RUN_PATTERN.fullmatch(smoke_run_id) is None
+            or smoke_run_id in seen_runs
+        ):
+            raise ManifestError("validation attempt smoke-run identity is invalid")
+        seen_runs.add(smoke_run_id)
+        _timestamp(
+            attempt["timestamp"], name=f"devValidation.attempts[{index}].timestamp"
+        )
+        if attempt["result"] not in {"passed", "failed"}:
+            raise ManifestError("validation attempt result must be passed or failed")
+        results.append(attempt["result"])
+        _digest(
+            attempt["evidenceDigest"],
+            name=f"devValidation.attempts[{index}].evidenceDigest",
+        )
+    if status == "pending" and attempts:
+        raise ManifestError("pending dev validation must not have attempts")
+    if status == "failed" and (not results or results[-1] != "failed"):
+        raise ManifestError("failed dev validation must end with failed evidence")
+    if status == "passed" and (not results or results[-1] != "passed"):
+        raise ManifestError("passed dev validation must end with passed evidence")
+    if "passed" in results[:-1]:
+        raise ManifestError("passed validation evidence cannot be replaced")
 
-    _timestamp(document["createdAt"], name="createdAt")
     integrity = _exact_object(
         document["integrity"],
         name="integrity",

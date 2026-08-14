@@ -142,6 +142,7 @@ def test_each_environment_has_isolated_tables_secrets_and_cognito(
         }
         client = next(_values(plan, "aws_cognito_user_pool_client"))
         assert client["allowed_oauth_flows"] == ["code"]
+        assert set(client["allowed_oauth_scopes"]) == {"email", "openid", "profile"}
         assert client["generate_secret"] is False
         assert client["callback_urls"] == [
             f"https://app.{environment}.example.com/auth/callback"

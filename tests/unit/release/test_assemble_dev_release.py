@@ -26,8 +26,8 @@ def _prior() -> dict[str, object]:
         build_inputs=BUILD_INPUTS,
         scout_status="passed",
         scout_report_digest=f"sha256:{'3' * 64}",
-        dev_status="passed",
-        dev_evidence_digest=f"sha256:{'4' * 64}",
+        dev_status="pending",
+        dev_evidence_digest=None,
         created_at="2026-08-12T10:30:00Z",
     )
 

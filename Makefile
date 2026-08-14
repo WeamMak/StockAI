@@ -9,7 +9,7 @@ export UV_CACHE_DIR
 .PHONY: help sync lock-check format format-check lint test-unit test-integration \
 	test-e2e build odoo-image odoo-contract odoo-seed odoo-verify-seed \
 	compose-validate terraform-validate kubernetes-validate compose-up \
-	compose-down infra-provision promote-dev verify-release check
+	compose-down infra-provision promote-dev verify-release smoke-dev check
 
 help:
 	@echo "Available targets:"
@@ -34,6 +34,7 @@ help:
 	@echo "  infra-provision Run guided, approval-gated AWS provisioning"
 	@echo "  promote-dev   Prepare exact dev-validated prod digests for review"
 	@echo "  verify-release Verify committed dev/prod release manifests when present"
+	@echo "  smoke-dev     Validate and record the exact live dev release"
 	@echo "  check         Run the complete Python verification suite"
 
 sync:
@@ -146,5 +147,8 @@ verify-release:
 		fi; \
 	done; \
 	if test "$$found" -eq 0; then echo "No generated release manifests are present."; fi
+
+smoke-dev:
+	bash scripts/smoke/dev.sh
 
 check: lock-check format-check lint test-unit

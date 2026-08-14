@@ -1,6 +1,10 @@
 {
   "annotations": {"list": []},
   "editable": false,
+  "links": [
+    {"title": "Agent health", "type": "link", "url": "/d/stockai-agent-health"},
+    {"title": "Dependencies and edge", "type": "link", "url": "/d/stockai-dependencies-edge"}
+  ],
   "panels": [
     {
       "datasource": {"type": "prometheus", "uid": "stockai-prometheus"},

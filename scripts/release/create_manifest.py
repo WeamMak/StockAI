@@ -16,6 +16,7 @@ if __package__:
         IMAGE_NAMES,
         ManifestError,
         calculate_integrity,
+        calculate_release_id,
         verify_manifest,
     )
 else:
@@ -23,6 +24,7 @@ else:
         IMAGE_NAMES,
         ManifestError,
         calculate_integrity,
+        calculate_release_id,
         verify_manifest,
     )
 
@@ -54,13 +56,13 @@ def create_manifest(
             "status": scout_status,
             "reportDigest": scout_report_digest,
         },
-        "devValidation": {
-            "status": dev_status,
-            "evidenceDigest": dev_evidence_digest,
-        },
+        "devValidation": {"status": dev_status, "attempts": []},
         "createdAt": created_at
         or datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
     }
+    if dev_status != "pending" or dev_evidence_digest is not None:
+        raise ManifestError("new releases must begin with pending validation")
+    manifest["releaseId"] = calculate_release_id(manifest)
     manifest["integrity"] = {
         "algorithm": "sha256",
         "digest": calculate_integrity(manifest),
