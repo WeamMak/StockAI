@@ -224,7 +224,7 @@ jobs:
         uses: actions/download-artifact@v7
         with:
           pattern: dev-image-*
-          path: .
+          path: image-results
           merge-multiple: true
 
       - name: Assemble immutable release and update dev desired state
