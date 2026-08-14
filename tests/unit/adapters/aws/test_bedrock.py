@@ -302,6 +302,59 @@ async def test_one_schema_repair_attempt_then_safe_invalid_output_fallback() -> 
 
 
 @pytest.mark.anyio
+async def test_one_gpt_oss_leading_quote_is_normalized_before_validation() -> None:
+    live_text = (
+        '"{ "budget_acknowledgement":"not_evaluated", '
+        '"decision":"recommend", "product_id":"product-101", '
+        '"rationale":"Eligible product selected; budget not evaluated." '
+        '\t,"risk_flags":[] }\n'
+    )
+    response = _response(live_text)
+    response["output"]["message"]["content"].insert(
+        0,
+        {"reasoningContent": {"reasoningText": {"text": "not retained"}}},
+    )
+    client = FakeBedrockRuntimeClient(response, response)
+
+    recommendation = await _adapter(client).recommend(_request())
+
+    assert recommendation.product_id == "product-101"
+    assert len(client.requests) == 1
+
+
+@pytest.mark.parametrize(
+    "invalid_text",
+    (
+        """```json
+        {"decision":"recommend"}
+        ```""",
+        '"{"decision":"recommend"} trailing',
+        '"{\\"decision\\":\\"recommend\\"}"',
+        '"{"decision" "recommend"}',
+        '"{"decision":"recommend"}',
+        (
+            '"{"decision":"recommend","product_id":"not-eligible",'
+            '"rationale":"Invalid selection.","risk_flags":[],'
+            '"budget_acknowledgement":"not_evaluated"}'
+        ),
+    ),
+)
+@pytest.mark.anyio
+async def test_leading_quote_normalization_rejects_every_broader_case(
+    invalid_text: str,
+) -> None:
+    client = FakeBedrockRuntimeClient(
+        _response(invalid_text),
+        _response("still invalid"),
+    )
+
+    with pytest.raises(LlmOutputInvalidError):
+        await _adapter(client).recommend(_request())
+
+    assert len(client.requests) == 2
+
+
+@pytest.mark.anyio
 async def test_reasoning_content_is_ignored_and_never_returned() -> None:
     hidden_reasoning = "private hidden reasoning content"
     client = FakeBedrockRuntimeClient(
