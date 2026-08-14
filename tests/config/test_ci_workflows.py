@@ -216,3 +216,49 @@ def test_every_workflow_retains_reports_or_publishes_a_summary() -> None:
     assert "actions/upload-artifact@v6" in (WORKFLOWS / "terraform-plan.yml").read_text(
         encoding="utf-8"
     )
+
+
+def test_dev_images_builds_changed_images_and_updates_only_git_desired_state() -> None:
+    workflow = _workflow("dev-images.yml")
+    source = (WORKFLOWS / "dev-images.yml").read_text(encoding="utf-8")
+
+    assert workflow["on"]["push"]["branches"] == ["dev"]
+    assert workflow["permissions"] == {"contents": "read"}
+    assert workflow["jobs"]["desired-state"]["permissions"] == {"contents": "write"}
+    assert "github-actions[bot]" in source
+    assert "[skip dev-images]" in source
+    assert "scripts.release.build_inputs" in source
+    assert "scripts.release.verify_manifest" in source
+    assert "scripts.release.update_dev_overlay" in source
+    assert "docker/build-push-action@v7" in source
+    assert "push: true" in source
+    assert "@sha256" in source
+    assert "kubectl" not in source
+    assert "git commit" in source
+    assert "git push origin HEAD:dev" in source
+
+
+def test_dev_and_pr_scout_are_report_only() -> None:
+    dev_source = (WORKFLOWS / "dev-images.yml").read_text(encoding="utf-8")
+    pr_job = _workflow("pr-checks.yml")["jobs"]["docker-scout"]
+
+    assert "continue-on-error: true" in dev_source
+    assert "exit-code: false" in dev_source
+    assert "if-no-files-found: warn" in dev_source
+    scout_step = next(step for step in pr_job["steps"] if step.get("id") == "scout")
+    assert scout_step["continue-on-error"] == "true"
+    upload_step = next(
+        step for step in pr_job["steps"] if step.get("name") == "Retain Scout report"
+    )
+    assert upload_step["continue-on-error"] == "true"
+
+
+def test_dev_workflow_leaves_reconciliation_to_bootstrapped_argocd() -> None:
+    source = (WORKFLOWS / "dev-images.yml").read_text(encoding="utf-8")
+
+    assert "ARGOCD_SERVER" not in source
+    assert "ARGOCD_AUTH_TOKEN" not in source
+    assert "api/v1/applications" not in source
+    assert "curl" not in source
+    for forbidden in ("kubectl", "argocd app sync", "helm upgrade"):
+        assert forbidden not in source.lower()

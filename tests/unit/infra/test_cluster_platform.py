@@ -15,7 +15,9 @@ from scripts.infra.cluster_platform import (
 )
 
 
-def test_install_script_is_pinned_idempotent_and_excludes_application_state() -> None:
+def test_install_script_is_pinned_idempotent_and_applies_only_cluster_bootstrap() -> (
+    None
+):
     script = build_install_script(
         repository="WeamMak/StockAI",
         revision="a" * 40,
@@ -34,7 +36,6 @@ def test_install_script_is_pinned_idempotent_and_excludes_application_state() ->
     assert "deploy/kubernetes/cluster/argocd" in script
     assert "kubectl rollout status" in script
     assert "deploy/kubernetes/cluster/network" not in script
-    assert "deploy/kubernetes/argocd/dev-application" not in script
     assert "deploy/kubernetes/overlays/dev" not in script
     assert "deploy/kubernetes/overlays/prod" not in script
     assert "trap cleanup EXIT" in script

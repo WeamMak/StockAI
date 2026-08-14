@@ -31,6 +31,13 @@ def _manifest() -> dict[str, object]:
         source_tree=SOURCE_TREE,
         images=IMAGE_DIGESTS,
         provenance=PROVENANCE_DIGESTS,
+        application_identity=f"sha256:{'5' * 64}",
+        build_inputs={
+            "frontend": f"sha256:{'6' * 64}",
+            "api": f"sha256:{'7' * 64}",
+            "mcp": f"sha256:{'8' * 64}",
+            "odoo": f"sha256:{'9' * 64}",
+        },
         scout_status="passed",
         scout_report_digest=f"sha256:{'3' * 64}",
         dev_status="passed",
@@ -46,6 +53,7 @@ def test_complete_manifest_is_deterministic_and_verifiable(tmp_path: Path) -> No
     assert first == second
     assert first["images"] == IMAGE_DIGESTS
     assert first["provenance"] == PROVENANCE_DIGESTS
+    assert first["applicationIdentity"] == f"sha256:{'5' * 64}"
     assert verify_manifest(first) == first
 
     output = tmp_path / "release.json"
@@ -65,6 +73,11 @@ def test_manifest_rejects_a_missing_required_image(missing_image: str) -> None:
             source_tree=SOURCE_TREE,
             images=images,
             provenance=PROVENANCE_DIGESTS,
+            application_identity=f"sha256:{'5' * 64}",
+            build_inputs={
+                name: f"sha256:{index:064x}"
+                for index, name in enumerate(IMAGE_DIGESTS, 5)
+            },
             scout_status="passed",
             scout_report_digest=f"sha256:{'3' * 64}",
             dev_status="passed",
@@ -113,5 +126,6 @@ def test_schema_requires_exactly_the_four_project_images() -> None:
     images = schema["$defs"]["imageMap"]
 
     assert schema["properties"]["images"] == {"$ref": "#/$defs/imageMap"}
+    assert schema["properties"]["buildInputs"] == {"$ref": "#/$defs/imageMap"}
     assert set(images["required"]) == set(IMAGE_DIGESTS)
     assert images["additionalProperties"] is False

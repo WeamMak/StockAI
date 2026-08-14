@@ -18,6 +18,8 @@ MANIFEST_KEYS = {
     "source",
     "images",
     "provenance",
+    "applicationIdentity",
+    "buildInputs",
     "scout",
     "devValidation",
     "createdAt",
@@ -94,15 +96,20 @@ def verify_manifest(manifest: object) -> dict[str, object]:
     provenance = _exact_object(
         document["provenance"], name="provenance", keys=required_images
     )
+    build_inputs = _exact_object(
+        document["buildInputs"], name="buildInputs", keys=required_images
+    )
     for name in IMAGE_NAMES:
         _digest(images[name], name=f"images.{name}")
         _digest(provenance[name], name=f"provenance.{name}")
+        _digest(build_inputs[name], name=f"buildInputs.{name}")
+    _digest(document["applicationIdentity"], name="applicationIdentity")
 
     scout = _exact_object(
         document["scout"], name="scout", keys={"status", "reportDigest"}
     )
-    if scout["status"] not in {"passed", "failed"}:
-        raise ManifestError("scout status must be passed or failed")
+    if scout["status"] not in {"passed", "findings", "error"}:
+        raise ManifestError("scout status must be passed, findings, or error")
     _digest(scout["reportDigest"], name="scout.reportDigest")
 
     dev_validation = _exact_object(

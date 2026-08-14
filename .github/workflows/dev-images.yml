@@ -1,0 +1,265 @@
+name: Dev image release
+
+on:
+  push:
+    branches: [dev]
+    paths:
+      - compose.yaml
+      - compose.odoo.yaml
+      - docker/**
+      - frontend/**
+      - odoo/**
+      - src/**
+      - pyproject.toml
+      - uv.lock
+      - README.md
+      - scripts/release/**
+      - .github/workflows/dev-images.yml
+
+concurrency:
+  group: dev-images
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    if: github.actor != 'github-actions[bot]' && !contains(github.event.head_commit.message, '[skip dev-images]')
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.changes.outputs.changed }}
+      count: ${{ steps.changes.outputs.count }}
+      prior: ${{ steps.changes.outputs.prior }}
+    steps:
+      - name: Check out dev with its prior revision
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
+        with:
+          version: "0.11.27"
+
+      - name: Calculate build identities and changed images
+        id: changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run --frozen python -m scripts.release.build_inputs --output build-identities.json
+          prior=false
+          if git cat-file -e HEAD^:deploy/releases/dev.json 2>/dev/null; then
+            git show HEAD^:deploy/releases/dev.json > prior-release.json
+            uv run --frozen python -m scripts.release.verify_manifest prior-release.json
+            prior=true
+          else
+            printf '{}\n' > prior-release.json
+          fi
+          changed=$(jq --compact-output --slurpfile current build-identities.json --slurpfile prior prior-release.json '
+            $current[0].buildInputs as $now |
+            ($prior[0].buildInputs // {}) as $before |
+            [$now | to_entries[] | select(.value != $before[.key]) | .key |
+              if . == "frontend" then {name: ., dockerfile: "docker/frontend.Dockerfile"}
+              elif . == "api" then {name: ., dockerfile: "docker/api.Dockerfile"}
+              elif . == "mcp" then {name: ., dockerfile: "docker/mcp.Dockerfile"}
+              else {name: ., dockerfile: "docker/odoo.Dockerfile"} end]
+          ')
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+          echo "count=$(jq 'length' <<< "$changed")" >> "$GITHUB_OUTPUT"
+          echo "prior=$prior" >> "$GITHUB_OUTPUT"
+
+      - name: Retain verified release inputs
+        uses: actions/upload-artifact@v6
+        with:
+          name: dev-release-inputs
+          path: |
+            build-identities.json
+            prior-release.json
+          if-no-files-found: error
+          retention-days: 14
+
+  build:
+    needs: prepare
+    if: needs.prepare.outputs.count != '0'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.prepare.outputs.changed) }}
+    steps:
+      - name: Check out dev source
+        uses: actions/checkout@v6
+
+      - name: Set up BuildKit
+        uses: docker/setup-buildx-action@v4
+
+      - name: Authenticate to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and publish ${{ matrix.name }}
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: docker.io/weammak/stockai-${{ matrix.name }}:dev-${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+          provenance: mode=max
+          sbom: true
+
+      - name: Save build provenance metadata
+        env:
+          BUILD_METADATA: ${{ steps.build.outputs.metadata }}
+        run: |
+          mkdir -p "reports/scout/${{ matrix.name }}" image-results
+          printf '%s\n' "$BUILD_METADATA" > "reports/scout/${{ matrix.name }}/provenance.json"
+
+      - name: Run Docker Scout against the immutable @sha256 digest
+        id: scout
+        continue-on-error: true
+        uses: docker/scout-action@v1
+        with:
+          command: cves
+          dockerhub-user: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
+          image: docker.io/weammak/stockai-${{ matrix.name }}@${{ steps.build.outputs.digest }}
+          only-severities: critical,high
+          exit-code: false
+          sarif-file: reports/scout/${{ matrix.name }}/report.sarif
+          write-comment: false
+
+      - name: Record immutable build and report outcome
+        if: always() && steps.build.outcome == 'success'
+        env:
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          SCOUT_OUTCOME: ${{ steps.scout.outcome }}
+        run: |
+          set -euo pipefail
+          report="reports/scout/${{ matrix.name }}/report.sarif"
+          status=passed
+          if test "$SCOUT_OUTCOME" != success; then
+            status=error
+          elif test -s "$report"; then
+            if ! jq empty "$report" >/dev/null 2>&1; then
+              status=error
+            elif test "$(jq '[.runs[].results[]?] | length' "$report")" -gt 0; then
+              status=findings
+            fi
+          fi
+          if ! test -f "$report"; then
+            printf '{"scoutOutcome":"%s"}\n' "$status" > "$report"
+          fi
+          provenance=$(sha256sum "reports/scout/${{ matrix.name }}/provenance.json" | cut -d' ' -f1)
+          report_digest=$(sha256sum "$report" | cut -d' ' -f1)
+          jq --null-input \
+            --arg name '${{ matrix.name }}' \
+            --arg digest "$IMAGE_DIGEST" \
+            --arg provenance "sha256:$provenance" \
+            --arg scoutStatus "$status" \
+            --arg scoutReportDigest "sha256:$report_digest" \
+            '{$name, digest: $digest, provenance: $provenance, scoutStatus: $scoutStatus, scoutReportDigest: $scoutReportDigest}' \
+            > "image-results/${{ matrix.name }}.json"
+
+      - name: Publish Scout summary
+        if: always()
+        run: |
+          echo "## Docker Scout (${{ matrix.name }}): ${{ steps.scout.outcome }}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Retain immutable image result
+        if: steps.build.outcome == 'success'
+        uses: actions/upload-artifact@v6
+        with:
+          name: dev-image-${{ matrix.name }}
+          path: image-results/${{ matrix.name }}.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Retain report-only Scout and provenance evidence
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v6
+        with:
+          name: dev-scout-${{ matrix.name }}
+          path: reports/scout/${{ matrix.name }}/
+          if-no-files-found: warn
+          retention-days: 14
+
+  desired-state:
+    needs: [prepare, build]
+    if: always() && needs.prepare.result == 'success' && (needs.build.result == 'success' || needs.build.result == 'skipped')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the exact dev revision
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
+        with:
+          version: "0.11.27"
+
+      - name: Set up Kustomize
+        uses: imranismail/setup-kustomize@v2
+        with:
+          kustomize-version: "5.8.0"
+
+      - name: Download verified release inputs
+        uses: actions/download-artifact@v7
+        with:
+          name: dev-release-inputs
+
+      - name: Download changed image results
+        if: needs.prepare.outputs.count != '0'
+        uses: actions/download-artifact@v7
+        with:
+          pattern: dev-image-*
+          path: .
+          merge-multiple: true
+
+      - name: Assemble immutable release and update dev desired state
+        env:
+          HAS_PRIOR: ${{ needs.prepare.outputs.prior }}
+          SOURCE_COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p image-results
+          prior=()
+          if test "$HAS_PRIOR" = true; then prior=(--prior prior-release.json); fi
+          uv run --frozen python -m scripts.release.assemble_dev_release \
+            candidate.json \
+            --identities build-identities.json \
+            --results image-results \
+            "${prior[@]}" \
+            --source-commit "$SOURCE_COMMIT" \
+            --source-tree "$(git rev-parse HEAD^{tree})" \
+            --created-at "$(date --utc +%Y-%m-%dT%H:%M:%SZ)"
+          uv run --frozen python -m scripts.release.update_dev_overlay candidate.json
+          uv run --frozen python -m scripts.release.verify_manifest deploy/releases/dev.json
+          kustomize build deploy/kubernetes/overlays/dev >/dev/null
+          kustomize build deploy/kubernetes/overlays/prod >/dev/null
+
+      - name: Commit only bot-owned dev desired state
+        id: commit
+        run: |
+          set -euo pipefail
+          unexpected=$(git diff --name-only | grep -Ev '^(deploy/releases/dev.json|deploy/kubernetes/overlays/dev/kustomization.yaml)$' || true)
+          test -z "$unexpected" || { echo "Unexpected desired-state path: $unexpected" >&2; exit 2; }
+          if git diff --quiet; then
+            echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add deploy/releases/dev.json deploy/kubernetes/overlays/dev/kustomization.yaml
+          git commit -m 'chore(gitops): update dev image digests [skip dev-images]'
+          git push origin HEAD:dev
+          echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
