@@ -66,7 +66,13 @@ def _files(root: Path, entries: Iterable[str]) -> list[Path]:
         if candidate.is_file():
             files.add(candidate)
         elif candidate.is_dir():
-            files.update(path for path in candidate.rglob("*") if path.is_file())
+            files.update(
+                path
+                for path in candidate.rglob("*")
+                if path.is_file()
+                and "__pycache__" not in path.parts
+                and path.suffix not in {".pyc", ".pyo", ".pyd"}
+            )
     return sorted(files, key=lambda path: path.relative_to(root).as_posix())
 
 
