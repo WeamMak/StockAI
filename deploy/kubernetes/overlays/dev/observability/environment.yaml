@@ -5,16 +5,12 @@ metadata:
 data:
   ENVIRONMENT: dev
   AWS_REGION: us-east-1
-  LOKI_S3_BUCKET: replace-after-edge-terraform-apply
+  LOKI_S3_BUCKET: weam-stockai-loki-228281126655-us-east-1
   LOKI_S3_PREFIX: dev/
   LOKI_RETENTION_PERIOD: 336h
-  blackbox-targets.yaml: |
-    - targets:
-        - https://app.dev.stockai.fursa.click
-        - https://odoo.dev.stockai.fursa.click
-        - https://grafana.dev.stockai.fursa.click
-      labels:
-        environment: dev
+  blackbox-targets.yaml: "- targets:\n    - https://app.dev.stockai.fursa.click\n\
+    \    - https://odoo.dev.stockai.fursa.click\n    - https://grafana.dev.stockai.fursa.click\n\
+    \  labels:\n    environment: dev\n"
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -24,16 +20,16 @@ spec:
   template:
     spec:
       containers:
-        - name: loki
-          env:
-            - name: AWS_REGION
-              value: us-east-1
-            - name: LOKI_S3_BUCKET
-              value: replace-after-edge-terraform-apply
-            - name: LOKI_S3_PREFIX
-              value: dev/
-            - name: LOKI_RETENTION_PERIOD
-              value: 336h
+      - name: loki
+        env:
+        - name: AWS_REGION
+          value: us-east-1
+        - name: LOKI_S3_BUCKET
+          value: weam-stockai-loki-228281126655-us-east-1
+        - name: LOKI_S3_PREFIX
+          value: dev/
+        - name: LOKI_RETENTION_PERIOD
+          value: 336h
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -43,18 +39,18 @@ spec:
   template:
     spec:
       containers:
-        - name: external-secrets
-          args:
-            - --namespace=dev
-            - --controller-class=stockai-dev
-            - --enable-cluster-store-reconciler=false
-            - --enable-cluster-external-secret-reconciler=false
-            - --enable-cluster-push-secret-reconciler=false
-            - --enable-push-secret-reconciler=false
-            - --metrics-addr=:8080
-            - --live-addr=:8081
-            - --loglevel=info
-            - --concurrent=2
+      - name: external-secrets
+        args:
+        - --namespace=dev
+        - --controller-class=stockai-dev
+        - --enable-cluster-store-reconciler=false
+        - --enable-cluster-external-secret-reconciler=false
+        - --enable-cluster-push-secret-reconciler=false
+        - --enable-push-secret-reconciler=false
+        - --metrics-addr=:8080
+        - --live-addr=:8081
+        - --loglevel=info
+        - --concurrent=2
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -79,19 +75,19 @@ spec:
       nodeSelector:
         stockai.io/environment: dev
       tolerations:
-        - key: stockai.io/environment
-          operator: Equal
-          value: dev
-          effect: NoSchedule
+      - key: stockai.io/environment
+        operator: Equal
+        value: dev
+        effect: NoSchedule
       containers:
-        - name: fluent-bit
-          env:
-            - name: ENVIRONMENT
-              value: dev
-            - name: LOKI_HOST
-              value: loki.dev.svc.cluster.local
-            - name: TAIL_PATH
-              value: /var/log/containers/*_dev_*.log
+      - name: fluent-bit
+        env:
+        - name: ENVIRONMENT
+          value: dev
+        - name: LOKI_HOST
+          value: loki.dev.svc.cluster.local
+        - name: TAIL_PATH
+          value: /var/log/containers/*_dev_*.log
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -100,34 +96,34 @@ metadata:
   namespace: stockai-logs
 spec:
   egress:
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: kube-system
-      ports:
-        - protocol: UDP
-          port: 53
-        - protocol: TCP
-          port: 53
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              stockai.io/environment: dev
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/name: stockai-loki
-      ports:
-        - protocol: TCP
-          port: 3100
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          stockai.io/environment: dev
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: stockai-loki
+    ports:
+    - protocol: TCP
+      port: 3100
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: stockai-external-secrets
 subjects:
-  - kind: ServiceAccount
-    name: stockai-external-secrets
-    namespace: dev
+- kind: ServiceAccount
+  name: stockai-external-secrets
+  namespace: dev
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -135,18 +131,20 @@ metadata:
   name: allow-loki
 spec:
   ingress:
-    - from:
-        - podSelector:
-            matchExpressions:
-              - key: app.kubernetes.io/name
-                operator: In
-                values: [stockai-grafana, stockai-prometheus]
-        - namespaceSelector:
-            matchLabels:
-              stockai.io/log-environment: dev
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/name: stockai-fluent-bit
-      ports:
-        - protocol: TCP
-          port: 3100
+  - from:
+    - podSelector:
+        matchExpressions:
+        - key: app.kubernetes.io/name
+          operator: In
+          values:
+          - stockai-grafana
+          - stockai-prometheus
+    - namespaceSelector:
+        matchLabels:
+          stockai.io/log-environment: dev
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: stockai-fluent-bit
+    ports:
+    - protocol: TCP
+      port: 3100
