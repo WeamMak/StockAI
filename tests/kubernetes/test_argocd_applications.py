@@ -35,3 +35,20 @@ def test_dev_application_tracks_dev_overlay_and_uses_automated_gitops() -> None:
     }
     automated = application["spec"]["syncPolicy"]["automated"]
     assert automated == {"prune": True, "selfHeal": True}
+    assert application["spec"]["ignoreDifferences"] == [
+        {
+            "group": "apps",
+            "kind": "Deployment",
+            "name": name,
+            "jsonPointers": ["/spec/replicas"],
+        }
+        for name in (
+            "stockai-frontend",
+            "stockai-agent-api",
+            "stockai-procurement-mcp",
+        )
+    ]
+    assert application["spec"]["syncPolicy"]["syncOptions"] == [
+        "CreateNamespace=false",
+        "RespectIgnoreDifferences=true",
+    ]
