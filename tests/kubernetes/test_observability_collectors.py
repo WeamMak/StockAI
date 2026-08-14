@@ -220,6 +220,20 @@ def test_external_secrets_is_namespace_and_controller_class_scoped(
         "retryInterval": "5s",
     }
 
+    role = _named(resources, "Role", "stockai-external-secrets")
+    generator_rules = [
+        rule
+        for rule in role["rules"]
+        if rule["apiGroups"] == ["generators.external-secrets.io"]
+    ]
+    assert generator_rules == [
+        {
+            "apiGroups": ["generators.external-secrets.io"],
+            "resources": ["generatorstates"],
+            "verbs": ["get", "list", "watch"],
+        }
+    ]
+
 
 @pytest.mark.parametrize("environment", ENVIRONMENTS)
 def test_fluent_bit_is_namespace_filtered_without_weakening_application_pss(
