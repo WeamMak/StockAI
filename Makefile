@@ -9,7 +9,7 @@ export UV_CACHE_DIR
 .PHONY: help sync lock-check format format-check lint test-unit test-integration \
 	test-e2e build odoo-image odoo-contract odoo-seed odoo-verify-seed \
 	compose-validate terraform-validate kubernetes-validate compose-up \
-	compose-down infra-provision promote-dev verify-release smoke-dev check
+	compose-down infra-provision promote-dev verify-release smoke-dev smoke-prod check
 
 help:
 	@echo "Available targets:"
@@ -35,6 +35,7 @@ help:
 	@echo "  promote-dev   Prepare exact dev-validated prod digests for review"
 	@echo "  verify-release Verify committed dev/prod release manifests when present"
 	@echo "  smoke-dev     Validate and record the exact live dev release"
+	@echo "  smoke-prod    Validate the exact live promoted prod release"
 	@echo "  check         Run the complete Python verification suite"
 
 sync:
@@ -141,14 +142,16 @@ promote-dev:
 	$(UV) run python -m scripts.release.promote_dev
 
 verify-release:
-	@found=0; for manifest in deploy/releases/dev.json deploy/releases/prod.json; do \
-		if test -f "$$manifest"; then \
-			found=1; $(UV) run python -m scripts.release.verify_manifest "$$manifest"; \
-		fi; \
-	done; \
-	if test "$$found" -eq 0; then echo "No generated release manifests are present."; fi
+	@$(UV) run python -m scripts.release.verify_manifest deploy/releases/dev.json
+	@if test -f deploy/releases/prod.json; then \
+		$(UV) run python -m scripts.release.verify_manifest deploy/releases/prod.json \
+			--promoted-from deploy/releases/dev.json; \
+	fi
 
 smoke-dev:
 	bash scripts/smoke/dev.sh
+
+smoke-prod:
+	bash scripts/smoke/prod.sh
 
 check: lock-check format-check lint test-unit

@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
 import scripts.release.promote_dev as promotion
 from scripts.release.build_inputs import calculate_build_identities
 from scripts.release.create_manifest import create_manifest
-from scripts.release.promote_dev import PromotionError, prepare_promotion
+from scripts.release.promote_dev import (
+    PromotionError,
+    prepare_promotion,
+    verify_validation_history,
+)
 from scripts.release.record_validation import record_validation
 from scripts.release.verify_manifest import calculate_integrity
 
@@ -210,6 +215,24 @@ def test_dirty_feature_branch_is_rejected_before_fetch(
         promotion.promote(tmp_path, fetch=True)
 
 
+def test_missing_origin_dev_release_history_is_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fake_git(_root: Path, arguments: list[str]) -> str:
+        if arguments[0] == "symbolic-ref":
+            return "feature/t24\n"
+        if arguments[0] in {"status", "fetch"}:
+            return ""
+        if arguments[0] == "log":
+            return ""
+        return pytest.fail(f"unexpected Git operation: {arguments}")
+
+    monkeypatch.setattr(promotion, "_git", fake_git)
+
+    with pytest.raises(PromotionError, match="history is missing"):
+        promotion.promote(tmp_path)
+
+
 @pytest.mark.parametrize("failure", ["mutable", "missing", "tampered"])
 def test_invalid_candidate_stops_before_prod_mutation(
     tmp_path: Path, failure: str
@@ -245,3 +268,82 @@ def test_invalid_candidate_stops_before_prod_mutation(
 
     assert overlay.read_text(encoding="utf-8") == original
     assert not (tmp_path / "prod.json").exists()
+
+
+def test_default_validation_renders_both_overlays_in_temporary_workspace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _build_files(tmp_path)
+    prod_overlay = tmp_path / promotion.PROD_OVERLAY
+    prod_overlay.parent.mkdir(parents=True)
+    prod_overlay.write_text(_overlay(), encoding="utf-8")
+    dev_overlay = tmp_path / "deploy/kubernetes/overlays/dev/kustomization.yaml"
+    dev_overlay.parent.mkdir(parents=True)
+    dev_overlay.write_text(_overlay(), encoding="utf-8")
+    calls: list[list[str]] = []
+
+    def fake_run(
+        arguments: list[str], **_kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        calls.append(arguments)
+        return subprocess.CompletedProcess(arguments, 0, stdout="", stderr="")
+
+    monkeypatch.setattr("scripts.release.promote_dev.subprocess.run", fake_run)
+
+    prepare_promotion(
+        _candidate(tmp_path),
+        root=tmp_path,
+        prod_overlay=prod_overlay,
+        prod_release=tmp_path / promotion.PROD_RELEASE,
+    )
+
+    assert [call[:2] for call in calls] == [
+        ["kubectl", "kustomize"],
+        ["kubectl", "kustomize"],
+    ]
+    assert calls[0][-1].endswith("deploy/kubernetes/overlays/dev")
+    assert calls[1][-1].endswith("deploy/kubernetes/overlays/prod")
+
+
+def test_validation_history_accepts_only_append_only_evidence() -> None:
+    _root = Path("unused")
+    pending = create_manifest(
+        source_commit=SOURCE_COMMIT,
+        source_tree=SOURCE_TREE,
+        images=IMAGE_DIGESTS,
+        provenance=PROVENANCE_DIGESTS,
+        application_identity=f"sha256:{'a' * 64}",
+        build_inputs={
+            name: f"sha256:{index:064x}" for index, name in enumerate(IMAGE_DIGESTS, 1)
+        },
+        scout_status="passed",
+        scout_report_digest=f"sha256:{'3' * 64}",
+        dev_status="pending",
+        dev_evidence_digest=None,
+        created_at="2026-08-12T10:30:00Z",
+    )
+    passed = record_validation(
+        pending,
+        release_id=str(pending["releaseId"]),
+        images=IMAGE_DIGESTS,
+        argo_revision="a" * 40,
+        smoke_run_id="dev-smoke-history",
+        timestamp="2026-08-12T10:35:00Z",
+        result="passed",
+        evidence_digest=f"sha256:{'4' * 64}",
+    )
+
+    assert verify_validation_history([pending, passed]) == passed
+
+    rewritten = json.loads(json.dumps(passed))
+    validation = rewritten["devValidation"]
+    integrity = rewritten["integrity"]
+    assert isinstance(validation, dict)
+    attempts = validation["attempts"]
+    assert isinstance(attempts, list) and isinstance(attempts[0], dict)
+    attempts[0]["evidenceDigest"] = f"sha256:{'5' * 64}"
+    assert isinstance(integrity, dict)
+    integrity["digest"] = calculate_integrity(rewritten)
+
+    with pytest.raises(PromotionError, match="append-only"):
+        verify_validation_history([pending, passed, rewritten])

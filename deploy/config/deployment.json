@@ -45,6 +45,74 @@
     },
     "edge": {
       "loki_bucket_arn": "arn:aws:s3:::weam-stockai-loki-228281126655-us-east-1"
+    },
+    "dev": {
+      "application_table_name": "weam-stockai-dev-application",
+      "bedrock_model_arn": "arn:aws:bedrock:us-east-1::foundation-model/openai.gpt-oss-20b-1:0",
+      "checkpoint_retention_days": 30,
+      "checkpoint_table_name": "weam-stockai-dev-checkpoints",
+      "cognito_client_id": "2080cnhg4uen3e9308fj44lncj",
+      "cognito_domain": "weam-stockai-dev",
+      "cognito_user_pool_id": "us-east-1_WQwycA3vc",
+      "data_volumes": {
+        "dev": {
+          "odoo": {
+            "availability_zone": "us-east-1a",
+            "volume_id": "vol-051d6c42ca98f0b15"
+          },
+          "postgresql": {
+            "availability_zone": "us-east-1a",
+            "volume_id": "vol-0491b34550d11b018"
+          },
+          "prometheus": {
+            "availability_zone": "us-east-1a",
+            "volume_id": "vol-01ab986773724a6b1"
+          }
+        }
+      },
+      "loki_prefix": "dev/",
+      "secret_arns": {
+        "cron-token": "arn:aws:secretsmanager:us-east-1:228281126655:secret:weam-stockai/dev/cron-token-h2SuQz",
+        "grafana-admin-password": "arn:aws:secretsmanager:us-east-1:228281126655:secret:weam-stockai/dev/grafana-admin-password-E2LWUx",
+        "mcp-token": "arn:aws:secretsmanager:us-east-1:228281126655:secret:weam-stockai/dev/mcp-token-cPDims",
+        "odoo-api-key": "arn:aws:secretsmanager:us-east-1:228281126655:secret:weam-stockai/dev/odoo-api-key-Q2imb0",
+        "odoo-database-password": "arn:aws:secretsmanager:us-east-1:228281126655:secret:weam-stockai/dev/odoo-database-password-9YSX1Z",
+        "session-secret": "arn:aws:secretsmanager:us-east-1:228281126655:secret:weam-stockai/dev/session-secret-WNndwq"
+      }
+    },
+    "prod": {
+      "application_table_name": "weam-stockai-prod-application",
+      "bedrock_model_arn": "arn:aws:bedrock:us-east-1::foundation-model/openai.gpt-oss-20b-1:0",
+      "checkpoint_retention_days": 365,
+      "checkpoint_table_name": "weam-stockai-prod-checkpoints",
+      "cognito_client_id": "7lm69r46ejvjmj1nd0p0qf34h9",
+      "cognito_domain": "weam-stockai-prod",
+      "cognito_user_pool_id": "us-east-1_O0lQRvPKC",
+      "data_volumes": {
+        "prod": {
+          "odoo": {
+            "availability_zone": "us-east-1b",
+            "volume_id": "vol-0bb0829d15cf8c3ff"
+          },
+          "postgresql": {
+            "availability_zone": "us-east-1b",
+            "volume_id": "vol-036232bccf7af0db5"
+          },
+          "prometheus": {
+            "availability_zone": "us-east-1b",
+            "volume_id": "vol-0123471e9df8e801f"
+          }
+        }
+      },
+      "loki_prefix": "prod/",
+      "secret_arns": {
+        "cron-token": "arn:aws:secretsmanager:us-east-1:228281126655:secret:weam-stockai/prod/cron-token-bbI51i",
+        "grafana-admin-password": "arn:aws:secretsmanager:us-east-1:228281126655:secret:weam-stockai/prod/grafana-admin-password-Brwczr",
+        "mcp-token": "arn:aws:secretsmanager:us-east-1:228281126655:secret:weam-stockai/prod/mcp-token-9pkSer",
+        "odoo-api-key": "arn:aws:secretsmanager:us-east-1:228281126655:secret:weam-stockai/prod/odoo-api-key-5n11Yp",
+        "odoo-database-password": "arn:aws:secretsmanager:us-east-1:228281126655:secret:weam-stockai/prod/odoo-database-password-qAxhgx",
+        "session-secret": "arn:aws:secretsmanager:us-east-1:228281126655:secret:weam-stockai/prod/session-secret-wGMeFf"
+      }
     }
   }
 }

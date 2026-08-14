@@ -6,8 +6,8 @@ data:
   availabilityZone: us-east-1b
   environment: prod
   odooPersistentVolume: stockai-prod-odoo-filestore
-  odooVolumeHandle: vol-prod-odoo
+  odooVolumeHandle: vol-0bb0829d15cf8c3ff
   postgresqlPersistentVolume: stockai-prod-postgresql-data
-  postgresqlVolumeHandle: vol-prod-pg
+  postgresqlVolumeHandle: vol-036232bccf7af0db5
   prometheusPersistentVolume: stockai-prod-prometheus-data
-  prometheusVolumeHandle: vol-prod-prom
+  prometheusVolumeHandle: vol-0123471e9df8e801f

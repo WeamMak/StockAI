@@ -1,0 +1,88 @@
+name: Promote exact release to prod
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - deploy/releases/prod.json
+      - deploy/kubernetes/overlays/prod/**
+      - deploy/kubernetes/cluster/argocd/prod-application.yaml
+      - scripts/release/**
+      - scripts/smoke/prod.sh
+      - tests/smoke/test_prod_skeleton.py
+      - .github/workflows/main-promote.yml
+
+concurrency:
+  group: prod-promotion
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  promote:
+    name: Verify, reconcile, and smoke exact prod release
+    runs-on: ubuntu-latest
+    environment: prod
+    steps:
+      - name: Check out the merged main revision
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
+        with:
+          version: "0.11.27"
+
+      - name: Set up Kustomize
+        uses: imranismail/setup-kustomize@v2
+        with:
+          kustomize-version: "5.8.0"
+
+      - name: Configure keyless AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_TERRAFORM_APPLY_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Verify exact dev release and rendered desired state
+        run: |
+          set -euo pipefail
+          git fetch --quiet origin dev
+          git show origin/dev:deploy/releases/dev.json > /tmp/dev-release.json
+          uv run --frozen python -m scripts.release.verify_manifest \
+            deploy/releases/prod.json \
+            --promoted-from /tmp/dev-release.json
+          kustomize build deploy/kubernetes/overlays/dev >/dev/null
+          kustomize build deploy/kubernetes/overlays/prod >/dev/null
+          git diff --exit-code
+
+      - name: Observe exact prod Argo revision through its API
+        run: |
+          uv run --frozen python -m scripts.release.observe_argocd \
+            --application stockai-prod \
+            --expected-revision "${{ github.sha }}" \
+            --timeout-seconds 600
+
+      - name: Run public exact-release prod smoke
+        env:
+          STOCKAI_PROD_SESSION_TOKEN: ${{ secrets.STOCKAI_PROD_SESSION_TOKEN }}
+          STOCKAI_PROD_CSRF_TOKEN: ${{ secrets.STOCKAI_PROD_CSRF_TOKEN }}
+        run: make smoke-prod
+
+      - name: Retain sanitized prod smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: prod-smoke-evidence
+          path: reports/smoke/prod-smoke-*.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Publish promotion summary
+        if: always()
+        run: |
+          echo "## Exact prod promotion: ${{ job.status }}" \
+            >> "$GITHUB_STEP_SUMMARY"

@@ -28,6 +28,7 @@ def test_pull_request_checks_cover_required_offline_stages() -> None:
         "containers",
         "docker-scout",
         "infrastructure",
+        "release",
         "secrets",
         "tests",
     }
@@ -52,7 +53,7 @@ def test_pull_request_checks_pin_uv_and_prepare_fictional_compose_values() -> No
 
     assert "astral-sh/setup-uv@v9" not in source
     assert (
-        source.count("astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9") == 3
+        source.count("astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9") == 4
     )
     assert source.count("run: cp .env.example .env") == 2
 
@@ -263,4 +264,44 @@ def test_dev_workflow_leaves_reconciliation_to_bootstrapped_argocd() -> None:
     assert "api/v1/applications" not in source
     assert "curl" not in source
     for forbidden in ("kubectl", "argocd app sync", "helm upgrade"):
+        assert forbidden not in source.lower()
+
+
+def test_main_pull_request_rechecks_exact_prepared_dev_promotion() -> None:
+    job = _workflow("pr-checks.yml")["jobs"]["release"]
+    source = yaml.safe_dump(job)
+    checkout = next(
+        step
+        for step in job["steps"]
+        if step.get("name") == "Check out the promotion branch with history"
+    )
+
+    assert "base.ref == 'main'" in job["if"]
+    assert checkout["with"]["ref"] == "${{ github.head_ref }}"
+    assert "make promote-dev" in source
+    assert "make verify-release" in source
+    assert "git diff --exit-code" in source
+    for forbidden in ("docker build", "docker push", "git commit", "kubectl"):
+        assert forbidden not in source.lower()
+
+
+def test_main_promotion_verifies_observes_and_smokes_without_rebuild() -> None:
+    workflow = _workflow("main-promote.yml")
+    source = (WORKFLOWS / "main-promote.yml").read_text(encoding="utf-8")
+
+    assert workflow["on"]["push"]["branches"] == ["main"]
+    assert workflow["permissions"] == {"contents": "read", "id-token": "write"}
+    assert workflow["jobs"]["promote"]["environment"] == "prod"
+    assert "--promoted-from" in source
+    assert "scripts.release.observe_argocd" in source
+    assert "make smoke-prod" in source
+    assert "AWS_TERRAFORM_APPLY_ROLE_ARN" in source
+    for forbidden in (
+        "docker build",
+        "docker push",
+        "docker tag",
+        "git commit",
+        "git push",
+        "kubectl",
+    ):
         assert forbidden not in source.lower()

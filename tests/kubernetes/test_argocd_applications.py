@@ -52,3 +52,49 @@ def test_dev_application_tracks_dev_overlay_and_uses_automated_gitops() -> None:
         "CreateNamespace=false",
         "RespectIgnoreDifferences=true",
     ]
+
+
+def test_prod_application_tracks_main_overlay_and_uses_automated_gitops() -> None:
+    argocd_root = PROJECT_ROOT / "deploy/kubernetes/cluster/argocd"
+    application = yaml.safe_load(
+        (argocd_root / "prod-application.yaml").read_text(encoding="utf-8")
+    )
+    kustomization = yaml.safe_load(
+        (argocd_root / "kustomization.yaml").read_text(encoding="utf-8")
+    )
+
+    assert "prod-application.yaml" in kustomization["resources"]
+    assert application["metadata"] == {
+        "name": "stockai-prod",
+        "namespace": "argocd",
+    }
+    assert application["spec"]["source"] == {
+        "repoURL": "https://github.com/WeamMak/StockAI.git",
+        "targetRevision": "main",
+        "path": "deploy/kubernetes/overlays/prod",
+    }
+    assert application["spec"]["destination"] == {
+        "server": "https://kubernetes.default.svc",
+        "namespace": "stockai-prod",
+    }
+    assert application["spec"]["syncPolicy"]["automated"] == {
+        "prune": True,
+        "selfHeal": True,
+    }
+    assert application["spec"]["ignoreDifferences"] == [
+        {
+            "group": "apps",
+            "kind": "Deployment",
+            "name": name,
+            "jsonPointers": ["/spec/replicas"],
+        }
+        for name in (
+            "stockai-frontend",
+            "stockai-agent-api",
+            "stockai-procurement-mcp",
+        )
+    ]
+    assert application["spec"]["syncPolicy"]["syncOptions"] == [
+        "CreateNamespace=false",
+        "RespectIgnoreDifferences=true",
+    ]

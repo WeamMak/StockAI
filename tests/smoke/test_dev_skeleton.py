@@ -1,4 +1,4 @@
-"""Live T23 proof for the exact Argo-reconciled dev walking skeleton."""
+"""Live exact-release walking-skeleton proof shared by dev and prod."""
 
 from __future__ import annotations
 
@@ -18,10 +18,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 TERMINAL_STATUSES = {"succeeded", "failed"}
 
 
-def _required(name: str) -> str:
+def _required(name: str, *, environment: str) -> str:
     value = os.environ.get(name, "")
     if not value:
-        raise AssertionError(f"{name} is required for the live dev smoke test")
+        raise AssertionError(
+            f"{name} is required for the live {environment} smoke test"
+        )
     return value
 
 
@@ -45,16 +47,16 @@ def _control_plane_id() -> str:
     return str(instances[0]["InstanceId"])
 
 
-def _deployed_release() -> tuple[str, dict[str, str]]:
+def _deployed_release(environment: str) -> tuple[str, dict[str, str]]:
     commands = [
         "set -eu",
         "export KUBECONFIG=/etc/kubernetes/admin.conf",
         (
-            "kubectl -n argocd get application stockai-dev "
+            f"kubectl -n argocd get application stockai-{environment} "
             "-o jsonpath='{.status.sync.revision}{\"|\"}'"
         ),
         (
-            "kubectl -n argocd get application stockai-dev "
+            f"kubectl -n argocd get application stockai-{environment} "
             '-o jsonpath=\'{.status.sync.status}{"|"}{.status.health.status}{"\\n"}\''
         ),
     ]
@@ -68,7 +70,7 @@ def _deployed_release() -> tuple[str, dict[str, str]]:
         deployment, container = deployments[name]
         image_path = f'.spec.template.spec.containers[?(@.name=="{container}")].image'
         commands.append(
-            "kubectl -n dev get deployment "
+            f"kubectl -n {environment} get deployment "
             f"{deployment} -o jsonpath='{{{image_path}}}{{\"\\n\"}}'"
         )
     ssm = _aws_client("ssm")
@@ -108,7 +110,9 @@ def _deployed_release() -> tuple[str, dict[str, str]]:
     return revision, dict(zip(IMAGE_NAMES, lines[1:], strict=True))
 
 
-def _poll_scan(client: httpx.Client, location: str) -> dict[str, Any]:
+def _poll_scan(
+    client: httpx.Client, location: str, *, environment: str
+) -> dict[str, Any]:
     deadline = time.monotonic() + 180
     while time.monotonic() < deadline:
         response = client.get(location)
@@ -118,15 +122,12 @@ def _poll_scan(client: httpx.Client, location: str) -> dict[str, Any]:
         if payload.get("status") in TERMINAL_STATUSES:
             return payload
         time.sleep(2)
-    raise AssertionError("the live dev scan did not reach a terminal state")
+    raise AssertionError(f"the live {environment} scan did not reach a terminal state")
 
 
-def _grafana_password() -> str:
+def _grafana_password(environment: str) -> str:
     response = _aws_client("secretsmanager").get_secret_value(
-        SecretId=(
-            "arn:aws:secretsmanager:us-east-1:228281126655:secret:"
-            "weam-stockai/dev/grafana-admin-password-E2LWUx"
-        )
+        SecretId=f"weam-stockai/{environment}/grafana-admin-password"
     )
     value = response.get("SecretString")
     assert isinstance(value, str) and value
@@ -178,7 +179,11 @@ def _wait_for_metrics(client: httpx.Client, queries: tuple[str, ...]) -> None:
 
 
 def _wait_for_logs(
-    client: httpx.Client, *, scan_id: str, started_at: datetime
+    client: httpx.Client,
+    *,
+    environment: str,
+    scan_id: str,
+    started_at: datetime,
 ) -> dict[str, Any]:
     deadline = time.monotonic() + 90
     payload: dict[str, Any] = {}
@@ -188,7 +193,7 @@ def _wait_for_logs(
             "stockai-loki",
             "loki/api/v1/query_range",
             {
-                "query": f'{{environment="dev"}} |= "{scan_id}"',
+                "query": f'{{environment="{environment}"}} |= "{scan_id}"',
                 "start": str(
                     int((started_at - timedelta(minutes=2)).timestamp() * 1e9)
                 ),
@@ -204,26 +209,31 @@ def _wait_for_logs(
     raise AssertionError("matching scan logs did not arrive in Loki")
 
 
-@pytest.mark.skipif(
-    os.environ.get("STOCKAI_RUN_DEV_SMOKE") != "1",
-    reason="requires explicit live dev authorization and session input",
-)
-def test_exact_dev_walking_skeleton() -> None:
-    manifest = load_manifest(PROJECT_ROOT / "deploy/releases/dev.json")
+def run_exact_walking_skeleton(environment: str) -> None:
+    """Exercise one exact deployed release through its public critical path."""
+
+    assert environment in {"dev", "prod"}
+    upper_environment = environment.upper()
+    manifest = load_manifest(PROJECT_ROOT / f"deploy/releases/{environment}.json")
     release_id = str(manifest["releaseId"])
     expected_images = manifest["images"]
     assert isinstance(expected_images, dict)
-    argo_revision, deployed_images = _deployed_release()
+    argo_revision, deployed_images = _deployed_release(environment)
     for name in IMAGE_NAMES:
         assert deployed_images[name].endswith(f"@{expected_images[name]}")
 
     base_url = os.environ.get(
-        "STOCKAI_DEV_BASE_URL", "https://app.dev.stockai.fursa.click"
+        f"STOCKAI_{upper_environment}_BASE_URL",
+        f"https://app.{environment}.stockai.fursa.click",
     )
     assert httpx.URL(base_url).scheme == "https"
-    smoke_run_id = _required("STOCKAI_SMOKE_RUN_ID")
-    session_token = _required("STOCKAI_DEV_SESSION_TOKEN")
-    csrf_token = _required("STOCKAI_DEV_CSRF_TOKEN")
+    smoke_run_id = _required("STOCKAI_SMOKE_RUN_ID", environment=environment)
+    session_token = _required(
+        f"STOCKAI_{upper_environment}_SESSION_TOKEN", environment=environment
+    )
+    csrf_token = _required(
+        f"STOCKAI_{upper_environment}_CSRF_TOKEN", environment=environment
+    )
     started_at = datetime.now(UTC)
     cookies = {
         "stockai_session": session_token,
@@ -248,7 +258,7 @@ def test_exact_dev_walking_skeleton() -> None:
         )
         assert accepted.status_code == 202
         location = accepted.headers["location"]
-        completed = _poll_scan(client, location)
+        completed = _poll_scan(client, location, environment=environment)
         listed = client.get("/api/v1/scans")
         listed.raise_for_status()
         assert any(
@@ -262,18 +272,21 @@ def test_exact_dev_walking_skeleton() -> None:
 
     dynamodb = _aws_client("dynamodb")
     item = dynamodb.get_item(
-        TableName="weam-stockai-dev-application",
-        Key={"PK": {"S": "ENV#dev"}, "SK": {"S": f"CASE#{scan_id}"}},
+        TableName=f"weam-stockai-{environment}-application",
+        Key={
+            "PK": {"S": f"ENV#{environment}"},
+            "SK": {"S": f"CASE#{scan_id}"},
+        },
         ConsistentRead=True,
     ).get("Item")
     assert item is not None
     assert item["status"]["S"] == "succeeded"
     assert item["case_id"]["S"] == scan_id
     audit_items = dynamodb.query(
-        TableName="weam-stockai-dev-application",
+        TableName=f"weam-stockai-{environment}-application",
         KeyConditionExpression="PK = :pk AND begins_with(SK, :prefix)",
         ExpressionAttributeValues={
-            ":pk": {"S": "ENV#dev"},
+            ":pk": {"S": f"ENV#{environment}"},
             ":prefix": {"S": f"AUDIT#{scan_id}#"},
         },
         ConsistentRead=True,
@@ -284,16 +297,16 @@ def test_exact_dev_walking_skeleton() -> None:
         "succeeded",
     }
     checkpoints = dynamodb.query(
-        TableName="weam-stockai-dev-checkpoints",
+        TableName=f"weam-stockai-{environment}-checkpoints",
         KeyConditionExpression="PK = :pk",
         ExpressionAttributeValues={":pk": {"S": f"CHECKPOINT_{scan_id}"}},
         ConsistentRead=True,
     )["Items"]
     assert checkpoints
 
-    grafana_password = _grafana_password()
+    grafana_password = _grafana_password(environment)
     with httpx.Client(
-        base_url="https://grafana.dev.stockai.fursa.click",
+        base_url=f"https://grafana.{environment}.stockai.fursa.click",
         auth=("admin", grafana_password),
         timeout=30,
     ) as grafana:
@@ -308,7 +321,12 @@ def test_exact_dev_walking_skeleton() -> None:
                 'increase(procurement_odoo_calls_total{status="success"}[10m])',
             ),
         )
-        logs = _wait_for_logs(grafana, scan_id=scan_id, started_at=started_at)
+        logs = _wait_for_logs(
+            grafana,
+            environment=environment,
+            scan_id=scan_id,
+            started_at=started_at,
+        )
     serialized_logs = json.dumps(logs, sort_keys=True)
     assert scan_id in serialized_logs
     for secret in (session_token, csrf_token, grafana_password):
@@ -318,7 +336,7 @@ def test_exact_dev_walking_skeleton() -> None:
 
     objects = _aws_client("s3").list_objects_v2(
         Bucket="weam-stockai-loki-228281126655-us-east-1",
-        Prefix="dev/",
+        Prefix=f"{environment}/",
         MaxKeys=1,
     )
     assert objects.get("KeyCount", 0) > 0
@@ -348,8 +366,16 @@ def test_exact_dev_walking_skeleton() -> None:
             "lokiS3Objects": True,
         },
     }
-    output = Path(_required("STOCKAI_SMOKE_EVIDENCE"))
+    output = Path(_required("STOCKAI_SMOKE_EVIDENCE", environment=environment))
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(
         json.dumps(evidence, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
+
+
+@pytest.mark.skipif(
+    os.environ.get("STOCKAI_RUN_DEV_SMOKE") != "1",
+    reason="requires explicit live dev authorization and session input",
+)
+def test_exact_dev_walking_skeleton() -> None:
+    run_exact_walking_skeleton("dev")
