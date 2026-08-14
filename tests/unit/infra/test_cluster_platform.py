@@ -33,7 +33,19 @@ def test_install_script_is_pinned_idempotent_and_applies_only_cluster_bootstrap(
     assert "deploy/kubernetes/cluster/ingress" in script
     assert "deploy/kubernetes/cluster/ebs-csi" in script
     assert "deploy/kubernetes/cluster/metrics" in script
+    assert "deploy/kubernetes/cluster/external-secrets" in script
     assert "deploy/kubernetes/cluster/argocd" in script
+    assert (
+        "kubectl wait --for=condition=Established "
+        "crd/externalsecrets.external-secrets.io "
+        "crd/secretstores.external-secrets.io --timeout=5m" in script
+    )
+    assert script.index("deploy/kubernetes/cluster/external-secrets") < script.index(
+        "deploy/kubernetes/cluster/argocd"
+    )
+    assert script.index("crd/secretstores.external-secrets.io") < script.index(
+        "deploy/kubernetes/cluster/argocd"
+    )
     assert "kubectl rollout status" in script
     assert "deploy/kubernetes/cluster/network" not in script
     assert "deploy/kubernetes/overlays/dev" not in script

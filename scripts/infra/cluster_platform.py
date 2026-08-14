@@ -91,6 +91,8 @@ git checkout --detach {revision_value} >/dev/null
 kubectl apply --server-side --field-manager=stockai-platform -k deploy/kubernetes/cluster/ingress >/dev/null
 kubectl apply --server-side --field-manager=stockai-platform -k deploy/kubernetes/cluster/ebs-csi >/dev/null
 kubectl apply --server-side --field-manager=stockai-platform -k deploy/kubernetes/cluster/metrics >/dev/null
+kubectl apply --server-side --field-manager=stockai-platform -k deploy/kubernetes/cluster/external-secrets >/dev/null
+kubectl wait --for=condition=Established crd/externalsecrets.external-secrets.io crd/secretstores.external-secrets.io --timeout=5m >/dev/null
 kubectl apply --server-side --field-manager=stockai-platform -k deploy/kubernetes/cluster/argocd >/dev/null
 
 kubectl rollout status daemonset/ingress-nginx-controller -n ingress-nginx --timeout=10m >/dev/null
