@@ -227,6 +227,7 @@ def test_dev_images_builds_changed_images_and_updates_only_git_desired_state() -
     assert workflow["jobs"]["desired-state"]["permissions"] == {"contents": "write"}
     assert "github-actions[bot]" in source
     assert "[skip dev-images]" in source
+    assert "[record dev-validation]" in source
     assert "scripts.release.build_inputs" in source
     assert "jq --null-input --compact-output" in source
     assert "scripts.release.verify_manifest" in source

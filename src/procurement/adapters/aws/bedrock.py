@@ -80,6 +80,27 @@ def _json_value(value: Decimal | date) -> str:
     return str(value)
 
 
+def _decode_structured_object(text: str) -> Mapping[str, object]:
+    """Decode strict JSON plus the two observed GPT-OSS prefix defects."""
+
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        bounded = text.rstrip(" \t\r\n")
+        if not bounded.endswith("}"):
+            raise
+        if bounded.startswith('"{'):
+            normalized = bounded[1:]
+        elif bounded.startswith('{"{'):
+            normalized = bounded[2:]
+        else:
+            raise
+        payload = json.loads(normalized)
+    if not isinstance(payload, Mapping):
+        raise ValueError("Bedrock output must be a JSON object")
+    return payload
+
+
 @dataclass(frozen=True, slots=True)
 class BedrockStructuredLlm(StructuredLlmPort):
     """Invoke only the approved Bedrock model through a strict JSON boundary."""
@@ -264,7 +285,5 @@ class BedrockStructuredLlm(StructuredLlmPort):
             raise ValueError("Bedrock output must contain one text result")
         text = text_blocks[0]
         usage = response["usage"]
-        payload = json.loads(text)
-        if not isinstance(payload, Mapping):
-            raise ValueError("Bedrock output must be a JSON object")
+        payload = _decode_structured_object(text)
         return payload, usage["inputTokens"], usage["outputTokens"]

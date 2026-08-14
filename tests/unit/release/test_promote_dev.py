@@ -10,6 +10,7 @@ import scripts.release.promote_dev as promotion
 from scripts.release.build_inputs import calculate_build_identities
 from scripts.release.create_manifest import create_manifest
 from scripts.release.promote_dev import PromotionError, prepare_promotion
+from scripts.release.record_validation import record_validation
 from scripts.release.verify_manifest import calculate_integrity
 
 from .test_manifest import IMAGE_DIGESTS, PROVENANCE_DIGESTS, SOURCE_COMMIT, SOURCE_TREE
@@ -41,7 +42,7 @@ def _build_files(root: Path) -> None:
 
 def _candidate(root: Path) -> dict[str, object]:
     identities = calculate_build_identities(root)
-    return create_manifest(
+    pending = create_manifest(
         source_commit=SOURCE_COMMIT,
         source_tree=SOURCE_TREE,
         images=IMAGE_DIGESTS,
@@ -50,9 +51,19 @@ def _candidate(root: Path) -> dict[str, object]:
         build_inputs=identities.images,
         scout_status="findings",
         scout_report_digest=f"sha256:{'3' * 64}",
-        dev_status="passed",
-        dev_evidence_digest=f"sha256:{'4' * 64}",
+        dev_status="pending",
+        dev_evidence_digest=None,
         created_at="2026-08-12T10:30:00Z",
+    )
+    return record_validation(
+        pending,
+        release_id=str(pending["releaseId"]),
+        images=IMAGE_DIGESTS,
+        argo_revision="a" * 40,
+        smoke_run_id="dev-smoke-20260812-001",
+        timestamp="2026-08-12T10:35:00Z",
+        result="passed",
+        evidence_digest=f"sha256:{'4' * 64}",
     )
 
 
@@ -115,7 +126,14 @@ def test_release_must_have_passed_dev_evidence(tmp_path: Path, status: str) -> N
     validation = candidate["devValidation"]
     assert isinstance(validation, dict)
     validation["status"] = status
-    validation["evidenceDigest"] = None if status == "pending" else f"sha256:{'4' * 64}"
+    attempts = validation["attempts"]
+    assert isinstance(attempts, list)
+    if status == "pending":
+        attempts.clear()
+    else:
+        attempt = attempts[0]
+        assert isinstance(attempt, dict)
+        attempt["result"] = "failed"
     integrity = candidate["integrity"]
     assert isinstance(integrity, dict)
     from scripts.release.verify_manifest import calculate_integrity

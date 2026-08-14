@@ -39,3 +39,7 @@ def test_promote_dev_is_a_local_preparation_command() -> None:
         assert forbidden not in recipe.lower()
     for forbidden in ("boto3", "kubectl", "terraform"):
         assert forbidden not in source.lower()
+
+
+def test_smoke_dev_runs_only_the_bounded_t23_script() -> None:
+    assert "bash scripts/smoke/dev.sh" in _recipe("smoke-dev")
