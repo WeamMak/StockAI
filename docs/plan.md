@@ -13,14 +13,14 @@ ORM-bootstrap contracts selected after T10 discovery.
 
 **Tech Stack:** Python 3.12, FastAPI, LangGraph, Python MCP SDK, React, TypeScript, Vite, Odoo 19 Community, PostgreSQL, Terraform, AWS EC2/Auto Scaling/SSM/EventBridge/Lambda/EBS/ALB/ACM/Route 53, kubeadm Kubernetes, Kustomize, Argo CD, Prometheus, Grafana, Loki, Alertmanager, GitHub Actions.
 
-**Status:** T21A is merged; the synchronized T21B infrastructure-lifecycle and
-T22/T24 immutable-promotion amendments await review and explicit
-implementation authorization
+**Status:** Proposed remaining-MVP simplification amendment; specification
+approved by the user and course staff, plan awaiting exact user and renewed
+course-staff approval
 
-**Date:** 2026-08-13
+**Date:** 2026-08-14
 
-**Source design:** Previously approved `docs/spec.md` plus its proposed
-2026-08-13 synchronized amendment
+**Source design:** User- and course-staff-approved `docs/spec.md` dated
+2026-08-14
 
 **Current gate:** The user approved the exact 2026-08-07 revision, confirmed
 course-staff approval, and explicitly authorized implementation to resume. T10,
@@ -33,12 +33,14 @@ through PR #20 at `debbb5f`. T17 through T19A are complete and merged, including
 the accepted T18B deferred live failure drill. T19B is merged through PR #27 at
 `055aa01`. T20A is merged through PR #28 at `970aa8d`. T20B is merged through
 PR #29 at `1e1b98d`. T21A is merged through PR #31 at `0b87a61`. T21B is
-implemented, and its broad-IAM amendment is approved for the course account.
+implemented locally with its remaining live lifecycle verification recorded in
+`docs/implementation-status.md`. T22 is the next proposed task.
 
-**Approved plan amendment:** T21B records the user- and course-staff-approved
-scope for protected GitHub-managed provisioning and destruction; T22/T24
-define the requested immutable dev-to-feature-to-main promotion path. The user
-explicitly authorized the broad-IAM implementation on the current T21B branch.
+**Proposed plan amendment:** Preserve T01–T21B history and implemented
+architecture; replace only future work with the compact T22–T29 and T32–T35
+structure below. Implementation remains blocked until the user and course
+staff approve this exact plan amendment and the user explicitly authorizes the
+affected task.
 
 ## 1. Approval status and purpose
 
@@ -52,6 +54,12 @@ under that authorization. T10 then triggered its approved stop condition. On
 2026-08-07 the user selected the remediation, approved this exact synchronized
 specification and plan, confirmed course-staff approval, and explicitly
 authorized T10 implementation to resume.
+
+On 2026-08-14 the user approved the focused remaining-MVP design and exact
+written specification amendment, then confirmed renewed course-staff approval.
+This synchronized plan amendment is now the next approval artifact. T22 and
+later remain unauthorized until the user and course staff approve this exact
+plan and the user explicitly authorizes implementation to resume.
 
 If an implementation discovery conflicts with the approved specification, work
 must stop, the affected design and plan sections must be revised, and the
@@ -74,6 +82,8 @@ project-required `docs/plan.md` location:
   criteria;
 - preserve the required branch, immutable-artifact, GitHub Actions, and Argo CD
   workflow.
+- remove duplicated acceptance work and split tasks only at meaningful review
+  boundaries.
 
 ## 3. Global constraints
 
@@ -118,10 +128,21 @@ after the required new approval and must not then be silently changed:
 - Every purchase order requires a revision-bound manager approval.
 - The application owns one fixed, version-controlled system prompt; users
   configure only typed recommendation preferences in Odoo.
-- Effective recommendation preferences resolve product, then category, then
-  company scope and are snapshotted by immutable version on each case.
+- Current recommendation preferences resolve product, then category, then
+  company scope. Each record has a server-managed monotonically increasing
+  revision, and each case stores an immutable applied-preference snapshot.
 - Hard eligibility and approval policy always outrank advisory preferences;
   configured hard price-premium limits are enforced deterministically.
+- The manager workflow is approve-to-confirm or reject-to-cancel only. The
+  existing safe Odoo draft-update primitive remains implemented but outside
+  the MVP flow.
+- Every relevant non-bot dev release builds all four project images and binds
+  them to one deterministic application-content identity. Changed-image
+  detection and prior-digest carry-forward are excluded.
+- Release identity, four image digests, content digest, provenance, Scout
+  result, source traceability, and creation metadata are immutable after T22;
+  T23 appends exact-release validation evidence that cannot be silently
+  replaced after passing.
 - Supplier contact, payment, and real legal ordering remain outside the MVP.
 
 The implementation may choose exact dependency patch versions only after
@@ -242,8 +263,9 @@ Boundary rules:
 - `frontend` uses only the versioned API and never receives AWS, Odoo, or
   Cognito tokens.
 - `odoo/addons/stockai_procurement` owns only typed monthly budgets, explicit
-  revision-bound PO methods, typed preference models, constraints, access
-  control, administration views, and immutable preference history. It contains
+  revision-bound PO methods, typed current preference records with monotonic
+  revisions and Odoo change tracking, constraints, access control, and
+  administration views. It contains
   no LLM, AWS client, system-prompt editor, supplier communication, payment
   operation, autonomous scheduler, or direct PO-state write.
 - `odoo/bootstrap/bootstrap.py` is finite deployment/bootstrap code executed
@@ -333,8 +355,8 @@ capabilities and Make targets must remain stable.
 | `make promote-dev` | From a clean feature branch, verify the `origin/dev` release and prepare the exact prod digest/provenance changes without commit, push, merge, AWS, or Kubernetes access |
 | `make smoke-dev` | Public HTTPS, auth, real Bedrock, real MCP, real Odoo, DynamoDB, audit, metrics, and logs |
 | `make smoke-prod` | Same critical path against prod with prod-only fictional seed data |
-| `make test-resilience` | HPA/manual ASG capacity, clean/fail-open termination, retained-volume reattachment, inactive/startup warming, and recovery drills |
-| `make verify-release` | Verify source revision, image digests, attestations, dev evidence, and prod promotion identity |
+| `make test-resilience` | Detailed automated retry/shutdown/lifecycle cases plus representative interruption, HPA/manual capacity, snapshot recovery, and one inactive/startup drill |
+| `make verify-release` | Verify the immutable release core, single application-content identity, append-only exact-release validation, and exact four-digest prod promotion |
 
 The full pull-request suite invokes all offline deterministic checks. Live
 Bedrock and deployed-environment smoke tests do not run on ordinary pull
@@ -2038,8 +2060,10 @@ verification.
    concrete runbook action.
 - [x] **Step 4:** Keep delivery internal to Grafana/Alertmanager for the MVP.
 
-**Verification:** Validate dashboard and rule syntax, load every dashboard,
-fire one safe test alert from each alert category, and follow its runbook.
+**Verification:** Validate every dashboard and rule automatically and load all
+Grafana content. T34 reuses this evidence and live-fires only the three
+representative application/dependency, capacity/infrastructure, and worker-
+lifecycle alerts defined by the approved specification.
 
 **Dependencies:** T20A.
 
@@ -2250,9 +2274,9 @@ four removed TFVARS JSON variables.
 
 #### T21B — Add protected GitHub-managed infrastructure lifecycle
 
-**Task status:** Implementation exists, and the user and course staff approved
-the broad-IAM amendment for implementation on the current T21B branch. Live
-bootstrap apply and lifecycle verification remain separately gated.
+**Task status:** Proposed amendment reflecting the user- and
+course-staff-approved scope; implementation remains blocked until this exact
+plan text is reviewed and the user explicitly authorizes T21B implementation.
 
 **Files**
 
@@ -2266,12 +2290,9 @@ bootstrap apply and lifecycle verification remain separately gated.
   generated-input, backend, and typed-output operations needed by a
   non-interactive GitHub runner; preserve the interactive local
   `make infra-provision` path.
-- Modify `infra/terraform/bootstrap/main.tf` and
-  `tests/infra/test_terraform_bootstrap.py` to replace the accumulated
-  per-service lifecycle allow policies with AWS-managed `ReadOnlyAccess` on
-  the plan role and AWS-managed `AdministratorAccess` on the protected apply
-  role. Preserve explicit denies for the bootstrap state bucket, lock table,
-  GitHub OIDC provider, and bootstrap roles.
+- Modify `infra/terraform/bootstrap/main.tf`, its variables/outputs only when
+  necessary, and `tests/infra/test_terraform_bootstrap.py` to add reviewed,
+  resource-scoped lifecycle permissions to the existing GitHub apply role.
 - Modify `tests/config/test_ci_workflows.py`,
   `docs/runbooks/infrastructure-provisioning.md`, `README.md`, and
   `docs/implementation-status.md` for lifecycle contracts and operator use.
@@ -2306,19 +2327,17 @@ bootstrap apply and lifecycle verification remain separately gated.
   bootstrap apply/destroy path. Assert the provision order
   `platform -> edge -> dev -> prod` and destruction order
   `prod -> dev -> edge -> platform`, with failure stopping all later roots.
-- [x] **Step 2 amendment: Replace lifecycle allowlists with broad OIDC
-  permission sets.** Attach AWS-managed `ReadOnlyAccess` to the plan role and
-  AWS-managed `AdministratorAccess` to the protected apply role. Remove the
-  accumulated service-specific allow policies after proving the managed
-  policies cover refreshed plans and applies. Retain the existing scoped state
-  access/locking policies and a dedicated explicit-deny policy protecting the
-  bootstrap state bucket, lock table, GitHub OIDC provider, and bootstrap
-  roles. Test that the plan role has no AWS mutation policy beyond required
-  Terraform state locking, the apply role can assume authority only through
-  the protected GitHub environments, bootstrap explicit denies override
-  administrator access, and no static credentials or automatic mutation
-  trigger is introduced. Record this as a deliberate course-account security
-  trade-off rather than least privilege.
+- [ ] **Step 2: Add reviewed least-privilege lifecycle permissions.** Extend
+  the bootstrap-managed GitHub apply role with only the actions Terraform and
+  the cluster-platform SSM step require for the existing StockAI network,
+  compute, ASG, lifecycle, EBS, ALB/ACM/Route 53, S3, DynamoDB, Secrets
+  Manager, Cognito, EventBridge, Lambda, CloudWatch, IAM, and SSM resources.
+  Restrict resource-capable actions to deterministic StockAI names, paths,
+  ARNs, and required ownership tags; isolate unavoidable AWS list/describe
+  actions in reviewed read-only statements. Test that the plan role remains
+  read-only, `iam:PassRole` names only approved StockAI roles, SSM commands
+  target only the tagged control-plane instance, and neither role can mutate
+  the bootstrap bucket, lock table, OIDC provider, or bootstrap roles.
 - [ ] **Step 3: Implement saved-plan sequential provisioning.** Authenticate
   with the apply role through OIDC, verify the T21A descriptor against the AWS
   account and repository identity, generate ignored inputs, and for each of
@@ -2366,10 +2385,6 @@ bootstrap apply and lifecycle verification remain separately gated.
 `pytest tests/unit/infra/test_cluster_platform.py tests/infra/test_terraform_bootstrap.py tests/config/test_ci_workflows.py -v`,
 all infrastructure and Kubernetes tests, actionlint, ShellCheck, Terraform
 formatting/provider-schema validation, `make check`, and `git diff --check`.
-For the broad-IAM amendment, inspect a fresh local bootstrap saved plan and
-require it to show only managed-policy attachment/removal and explicit-deny
-policy changes; applying that bootstrap plan requires separate explicit user
-approval after course-staff approval of this amendment.
 For live acceptance, manually approve the provision workflow, verify all four
 saved plans and checksums, confirm three Ready nodes and healthy shared
 controllers, and prove a second run plans no changes. Exercise destruction
@@ -2388,747 +2403,742 @@ to run the separately protected reverse-order destruction path, while normal
 branch activity never mutates infrastructure, bootstrap remains preserved,
 and Argo CD retains application deployment responsibility.
 
-The approved broad-IAM amendment is additionally complete only when the plan
-role uses AWS-managed `ReadOnlyAccess`, the protected apply role uses
-AWS-managed `AdministratorAccess`, the bootstrap foundation remains protected
-by explicit denies, the accumulated per-service lifecycle allow policies are
-removed, and a fresh no-change lifecycle run succeeds without per-API IAM
-patches.
+#### Remaining-work simplification and task mapping
 
-#### T22 — Implement dev build, GitOps update, and Argo CD reconciliation
+This amendment changes only future work. T01–T21B history, implemented
+architecture, existing tests, and safe Odoo atomic methods remain intact.
+
+| Previous task | Revised task | Disposition |
+|---|---|---|
+| T22 | T22 | Build every project image and create one immutable dev release. |
+| T23 | T23 | Bind real dev validation to the exact T22 release; retain one representative worker-replacement drill. |
+| T24 | T24 | Prepare and promote the exact dev-tested digests without rebuild or direct deployment. |
+| T25 + T26 + T27 | T25 | Merge forecast, duplicate/open-PO coverage, offers, quantity, performance, and budget into one deterministic-evidence slice. |
+| T27A + T27B + T27C | T26 | Merge Odoo preference configuration, MCP resolution, enforcement, case snapshot, prompt binding, audit, and read-only UI. |
+| T28 | T27 | Keep contextual AI recommendation and safe fallback as a separate reasoning boundary. |
+| T29 | T28 | Keep idempotent draft creation, persistence, evidence/revision binding, and manager pause separate. |
+| T30 + reject/cancel/reconcile portions of T31 | T29 | Merge approval/confirmation and rejection/cancellation into one manager-decision lifecycle. |
+| T31 request-change/update/reapproval behavior | Removed from MVP | Leave the implemented Odoo update primitive in place but do not expose or orchestrate it. |
+| T32 | T32 | Verify existing security boundaries and close actual gaps with representative live rotation. |
+| T33 | T33 | Run representative interruption, capacity, snapshot recovery, shutdown/restart, and cost scenarios. |
+| T34 | T34 | Treat as the release-candidate acceptance and evidence gate. |
+| T35 | T35 | Consolidate and rehearse the 15-minute demo and presentation. |
+
+Type A simplifications remove duplicate work or task fragmentation without
+changing product behavior. Type B simplifications change the approved
+preference and manager-decision behavior; they are already reflected in the
+2026-08-14 approved specification and require this plan's renewed approval.
+
+#### T22 — Build and reconcile one complete four-image dev release
 
 **Files**
 
 - Create `.github/workflows/dev-images.yml`,
   `deploy/kubernetes/argocd/dev-application.yaml`,
+  `scripts/release/content_identity.py`,
   `scripts/release/update_dev_overlay.py`,
-  `scripts/release/promote_dev.py`,
-  `tests/unit/release/test_update_dev_overlay.py`, and
-  `tests/unit/release/test_promote_dev.py`.
-- Modify `Makefile` to add the stable `make promote-dev` interface and modify
-  `.github/workflows/pr-checks.yml` plus its workflow regression assertions to
-  keep Docker Scout report-only while preserving all blocking validation.
+  `tests/unit/release/test_content_identity.py`, and
+  `tests/unit/release/test_update_dev_overlay.py`.
+- Modify `deploy/releases/schema.json`,
+  `scripts/release/create_manifest.py`,
+  `scripts/release/verify_manifest.py`, `.github/workflows/pr-checks.yml`,
+  `tests/unit/release/test_manifest.py`, `tests/config/test_ci_workflows.py`,
+  and `tests/config/test_makefile_contract.py`.
 
 **Interfaces**
 
-- Consumes: relevant project changes on `dev`, the two Docker Hub secrets, the
-  complete prior release when an image is unchanged, and for promotion a clean
-  local feature branch plus the validated release at `origin/dev`.
-- Produces: four immutable Docker Hub digest references, retained Scout
-  outcome/report metadata, a dev release manifest and dev Kustomize update,
-  and a local `make promote-dev` operation that prepares the matching prod
-  manifest/overlay changes on the feature branch.
-- Excludes: committing or pushing from `make promote-dev`, direct writes to
-  protected `main`, rebuilding during promotion, Terraform mutation, and any
-  GitHub Actions `kubectl` deployment.
+- Consumes: a relevant non-bot push to `dev`, the four existing Docker build
+  definitions, and the two Docker Hub secrets.
+- Produces: one stable release ID, one deterministic application-content
+  digest, four immutable `@sha256` image references, per-image provenance,
+  immutable Scout/creation/source metadata, pending validation state, and the
+  dev overlay desired-state commit.
+- Excludes: changed-image detection, prior-digest carry-forward, mixed old/new
+  releases, direct `kubectl`, and any application deployment outside Argo CD.
 
 **Work and tests**
 
-- [ ] **Step 1: Build and publish only changed dev images.** On relevant `dev`
-  pushes, calculate the four approved build-input identities, build only the
-  changed frontend, API, MCP, or Odoo images, push immutable Docker Hub
-  references, resolve registry digests, and carry forward an unchanged image
-  only from a fully verified prior release. Record the source revision,
-  application/build-input identities, all four digests, and provenance in the
-  schema-validated release manifest.
-- [ ] **Step 2: Make Docker Scout report-only.** Scan the newly published dev
-  digests, retain the machine-readable and human-readable reports, and publish
-  the scan/tool outcome in the job summary and release metadata. Vulnerability
-  findings, scanner errors, and report upload errors must never block image
-  publication, the desired-state update, or Argo CD reconciliation. Keep
-  secret scanning, digest/provenance verification, tests, builds, and manifest
-  validation blocking. The required main-PR Scout check similarly reports its
-  outcome without using vulnerability findings as a merge gate.
-- [ ] **Step 3: Update dev desired state without workflow loops.** Update only
-  the four approved digest fields and release record on `dev`, validate both
-  Kustomize overlays and the release schema, commit with the repository
-  `GITHUB_TOKEN`, and use path/actor/message guards so the bot-only desired
-  state commit cannot rebuild or republish images.
-- [ ] **Step 4: Configure and observe dev Argo CD.** Configure the dev Argo CD
-  Application to track the `dev` revision and dev overlay. Query Argo CD
-  through its authenticated API for bounded sync/health status and publish the
-  result; do not run `kubectl` from GitHub Actions.
-- [ ] **Step 5: Add exact feature-to-prod preparation.** Implement
-  `make promote-dev` through `scripts/release/promote_dev.py`. Require a clean
-  branch other than `dev` or `main`, fetch/read `origin/dev` without modifying
-  it, validate the complete release and all four immutable digests, and compare
-  its recorded application/build-input identities with the feature branch.
-  On an exact match, copy the four digests and provenance into the prod overlay
-  and prod release record and run release/Kustomize validation. Stop without
-  mutation on stale, missing, mutable, incomplete, mismatched, or tampered
-  input. Leave the resulting files unstaged for human review; never commit,
-  push, merge, call AWS, contact Kubernetes, or modify either protected branch.
-- [ ] **Step 6: Freeze promotion and report behavior with regressions.** Test a
-  dirty branch, `dev`/`main`, stale release, feature mismatch, missing image,
-  mutable tag, tampered provenance, successful four-digest copy, unchanged
-  second run, and failure after validation without partial writes. Assert that
-  Scout cannot fail the dev or PR workflow and that every non-Scout release
-  integrity and validation failure remains blocking.
+- [ ] **Step 1: Freeze the release schema before changing workflows.** Add
+  failing schema/unit cases for the immutable release core, exact four-image
+  map, stable release ID, single content digest, append-only validation-attempt
+  collection, and canonical integrity digest. Reject mutable tags, extra or
+  missing images, duplicate keys, tampered core fields, and passed validation
+  without bound evidence.
+- [ ] **Step 2: Implement one content identity.** Hash a canonical manifest of
+  the declared release-relevant inputs for all four builds. Include Dockerfiles,
+  lockfiles, source, frontend, Odoo add-on/bootstrap, and build configuration;
+  exclude generated release records and overlay digest edits. Test order and
+  timestamp independence, one relevant-file change, irrelevant generated-file
+  changes, and feature/dev merge-commit equivalence.
+- [ ] **Step 3: Build and publish all four images.** On every guarded relevant
+  `dev` push, use BuildKit caching, build frontend/API/MCP/Odoo, push all four,
+  resolve registry digests, collect provenance, and run Docker Scout as
+  report-only. Build, push, digest, provenance, schema, and Kustomize failures
+  remain blocking; Scout findings or scanner/report-upload errors do not.
+- [ ] **Step 4: Create the immutable candidate.** Create the manifest only
+  after all four digests, provenance, Scout outcome, source traceability, and
+  creation metadata are known. Once created, no T23 operation may rewrite
+  those fields.
+- [ ] **Step 5: Update dev desired state without recursion.** Atomically update
+  the four approved dev Kustomize image fields and release record, validate
+  both overlays and the schema, then commit with actor/path/message guards so
+  the bot-only desired-state commit cannot trigger a second build.
+- [ ] **Step 6: Configure Argo CD and observe convergence.** Track the `dev`
+  revision and dev overlay, query bounded authenticated Argo API sync/health
+  status, and publish it as deployment evidence. Do not treat Argo health as
+  T23 smoke evidence and do not run `kubectl` from Actions.
+- [ ] **Step 7: Run focused and regression checks.** Run the release and
+  workflow unit tests, `make build`, `make kubernetes-validate`,
+  `make verify-release`, and the existing PR workflow assertions. Exercise a
+  normal build, Scout findings, Scout tool error, bot-loop guard, manifest
+  tampering, missing digest, and Argo observation timeout.
 
-**Verification:** Run the focused release/workflow tests, a no-change path,
-one-image path, four-image path, Scout findings/error paths, workflow-loop
-path, tampered or mismatched promotion paths, successful `make promote-dev`,
-Argo failure path, and successful dev reconciliation. Verify that the prod
-changes produced on the feature branch exactly match the dev release and that
-the command made no Git, AWS, or Kubernetes side effect beyond local files.
+**Dependencies:** T21B and explicit T22 implementation authorization.
 
-**Dependencies:** T21B.
+**Requirements:** CR-08, CR-11, CR-13, CR-15; spec sections 18 and 22.5.
 
-**Requirements:** CR-08, CR-11, CR-15; spec section 18.3.
+**Complete when:** One relevant dev push publishes a coherent four-image
+release, records one deterministic content identity and immutable release core,
+updates only Git desired state, and Argo CD reconciles dev without any Actions
+`kubectl` deployment.
 
-**Complete when:** A dev push publishes and records the immutable release,
-report-only Scout cannot block reconciliation, dev Argo CD deploys from Git,
-and `make promote-dev` safely prepares the exact validated prod digests on the
-originating feature branch for its pull request to `main`.
-
-#### T23 — Deploy and validate the cloud walking skeleton in dev
+#### T23 — Validate the exact dev release and prove worker replacement once
 
 **Files**
 
-- Create `tests/smoke/test_dev_skeleton.py`,
-  `scripts/smoke/dev.sh`, and
+- Create `scripts/release/record_validation.py`,
+  `tests/unit/release/test_record_validation.py`,
+  `tests/smoke/test_dev_skeleton.py`, `scripts/smoke/dev.sh`, and
   `docs/runbooks/dev-validation.md`.
-- Update dev dashboard panels and `docs/implementation-status.md`.
+- Modify `.github/workflows/dev-images.yml`, `deploy/releases/schema.json`,
+  release verification code, dev dashboard links, and
+  `docs/implementation-status.md`.
+
+**Interfaces**
+
+- Consumes: the Argo-reconciled T22 release and its stable release ID.
+- Produces: append-only validation attempts bound to the stable release ID,
+  exact four-digest map, Argo revision, smoke-run identity, timestamp, result,
+  and evidence digest.
+- Preserves: immutable T22 identity, content digest, images, provenance, Scout,
+  source, and creation metadata.
 
 **Work and tests**
 
-- [ ] **Step 1:** Run T21B's protected manual provisioning workflow with the
-   T21A-generated deployment configuration. Review the saved plans, apply the
-   four non-bootstrap roots, establish the shared Kubernetes platform through
-   SSM, synchronize non-secret Terraform outputs, and verify control-plane,
-   worker, NGINX Ingress, EBS CSI, metrics, and Argo CD readiness without
-   manually entering account ID, AMI, AZs, resource/state names, cross-root
-   outputs, Kubernetes volume coordinates, static AWS keys, or an SSH key.
-- [ ] **Step 2:** Reconcile the complete dev stack through Argo CD.
-- [ ] **Step 3:** Seed fictional dev Odoo and bootstrap fictional Cognito users.
-- [ ] **Step 4:** Exercise real Cognito login, real Bedrock GPT-OSS, real MCP transport, real
-   Odoo candidate read, DynamoDB persistence, frontend polling, metrics, logs,
-   and S3 Loki objects.
-- [ ] **Step 5:** Record image digests, Argo status, smoke evidence, resource use, and cost
-   observations in the release manifest.
-- [ ] **Step 6:** Record fictional Odoo/PostgreSQL data and a Prometheus sample, terminate the
-   dev worker through its ASG, and verify clean lifecycle completion, old Node
-   removal, automatic replacement/join, dev labels/taint/role, reattachment of
-   all three dev EBS volumes, application readiness, retained data, and restored
-   ALB target health. Verify Grafana reconstructs from Git rather than EBS.
+- [ ] **Step 1: Lock validation transitions with failing tests.** Cover
+  pending-to-passed, pending-to-failed, explicit failed-then-passed retry,
+  wrong release ID, changed image map, changed Argo revision, missing smoke
+  evidence, attempt rewriting, passed-evidence replacement, and downgrade from
+  passed. A boolean alone must never make a release promotable.
+- [ ] **Step 2: Implement atomic append-only evidence recording.** Validate
+  the existing manifest, append one bounded attempt for the exact release,
+  recompute document integrity without changing the release core, and stage
+  validation before replacement. Once passed, reject silent evidence changes.
+- [ ] **Step 3: Run the real dev walking-skeleton smoke.** Exercise public
+  HTTPS, Cognito, FastAPI, compiled LangGraph, Bedrock GPT-OSS, real Streamable
+  HTTP MCP, real Odoo read, DynamoDB persistence, frontend polling, metrics,
+  sanitized logs, and Loki/S3 evidence. Bind the same correlation and release
+  identifiers throughout.
+- [ ] **Step 4: Perform one representative worker-replacement drill.** Record
+  fictional Odoo/PostgreSQL data and a Prometheus sample, terminate the dev
+  worker through its ASG, and verify lifecycle cleanup, old-Node removal,
+  replacement join and environment identity, all three retained EBS
+  reattachments, workload and ALB recovery, retained data, and Grafana
+  reconstruction from Git.
+- [ ] **Step 5: Publish reusable evidence.** Record smoke and worker-recovery
+  evidence once in the release/runbook/status artifacts. Future feature release
+  validation reruns the smoke path but does not repeat the worker drill unless
+  worker/storage behavior changed or prior evidence is invalid.
 
-**Verification:** Run `make smoke-dev`; inspect the same correlation ID in UI,
-API/MCP logs, metrics, DynamoDB audit, and Odoo.
+**Verification:** Run `make smoke-dev`, focused validation tests, release
+verification, and the controlled ASG replacement checklist. Inspect matching
+release/correlation IDs in UI, API/MCP logs, metrics, DynamoDB, Odoo, Argo, and
+the validation evidence.
 
-**Dependencies:** T21B, T22, and authorized AWS apply/deployment.
+**Dependencies:** T22 and authorized AWS/deployment access.
 
-**Requirements:** CR-02 through CR-13, CR-15, CR-16 as applicable to the
+**Requirements:** CR-02 through CR-13, CR-15, and CR-16 as applicable to the
 walking skeleton.
 
-**Complete when:** Dev proves the full infrastructure and integration chain
-with no unapproved write behavior.
+**Complete when:** The exact four-image release has immutable successful dev
+evidence and the existing replacement-safe retained-storage design has one
+complete reusable live proof.
 
-#### T24 — Promote the identical walking-skeleton artifact to prod
+#### T24 — Prepare and promote the exact dev-tested release to prod
 
 **Files**
 
-- Create `.github/workflows/main-promote.yml`,
+- Create `scripts/release/promote_dev.py`,
+  `tests/unit/release/test_promote_dev.py`,
+  `.github/workflows/main-promote.yml`,
   `deploy/kubernetes/argocd/prod-application.yaml`,
   `tests/smoke/test_prod_skeleton.py`, and
   `docs/runbooks/prod-promotion.md`.
+- Modify `Makefile`, `.github/workflows/pr-checks.yml`, release verification,
+  both overlays' release representation, and workflow regression tests.
+
+**Interfaces**
+
+- Consumes: a clean feature branch and the passed immutable release read from
+  `origin/dev` without modifying that branch.
+- Produces: local unstaged prod overlay/release changes containing the exact
+  four dev-tested digests and provenance; after reviewed main merge, prod Argo
+  reconciliation and smoke evidence.
+- Excludes: commit, push, merge, branch modification, image rebuild/retag,
+  mutable image selection, AWS/Kubernetes access from `make promote-dev`,
+  workflow commits, and direct `kubectl` deployment.
 
 **Work and tests**
 
-- [ ] **Step 1:** Make the feature pull-request merge to protected `main` the
-   explicit production decision; no workflow or GitHub App may bypass the
-   branch protection to commit directly to `main`.
-- [ ] **Step 2:** Verify that the prod overlay and release record already
-   committed by `make promote-dev` contain the exact dev-tested digests and
-   provenance; never rebuild, retag, or select a mutable image.
-- [ ] **Step 3:** Configure prod Argo CD to track the prod overlay on `main`.
-   The pull-request merge itself changes the desired digest; the main workflow
-   performs verification and observes reconciliation but makes no Git commit
-   and performs no direct deployment.
-- [ ] **Step 4:** Use separate prod Cognito, tables, secrets, Odoo/PostgreSQL, seed,
-   observability, hostnames, retained EBS volumes, ASG, role, labels/taint, and
-   Availability Zone placement.
-- [ ] **Step 5:** Query Argo CD through its API and run public prod smoke tests without
-   `kubectl` in Actions.
-- [ ] **Step 6:** Document rollback as a Git revert to a previously verified release manifest.
+- [ ] **Step 1: Write promotion safety tests.** Cover dirty worktree,
+  `dev`/`main`, missing `origin/dev`, malformed/tampered manifest, mutable or
+  missing image, missing/pending/failed validation, rewritten passed evidence,
+  application-content mismatch, success, unchanged second run, and any failed
+  validation leaving all target files unchanged.
+- [ ] **Step 2: Implement read-only candidate selection.** Fetch or read the
+  exact release object from `origin/dev` without checkout or mutation. Validate
+  core integrity, append-only passed evidence, and the exact immutable image
+  map.
+- [ ] **Step 3: Compare application content rather than commit equality.** Use
+  the same T22 input declaration and digest algorithm against the feature
+  branch. Retain commit SHAs for traceability but allow legitimate merge and
+  GitOps bot commit differences.
+- [ ] **Step 4: Prepare outputs transactionally.** Render the prod release and
+  overlay in a temporary workspace, copy the exact four digests/provenance,
+  run schema and both Kustomize validations there, then replace local targets
+  only after every check succeeds. Leave files unstaged for human review.
+- [ ] **Step 5: Verify protected-main promotion.** The main PR runs the full
+  suite, report-only Scout, release/schema/Kustomize checks, and exact
+  dev-evidence comparison. After merge, the main workflow verifies without
+  rebuilding or committing, observes prod Argo through its API, and runs the
+  public prod smoke.
+- [ ] **Step 6: Verify rollback semantics.** Document and test Git revert to a
+  previously verified prod release; never rebuild an old version or select a
+  mutable tag.
 
-**Verification:** Prove digest identity across dev and prod, prod namespace
-isolation, prod smoke success, and rollback of a deliberately bad health-check
-configuration in a controlled exercise.
+**Verification:** Run focused promotion tests, `make promote-dev`,
+`make verify-release`, `make kubernetes-validate`, workflow assertions, prod
+Argo observation, and `make smoke-prod`. Prove the dev and prod four-digest maps
+are byte-for-byte identical.
 
 **Dependencies:** T23.
 
-**Requirements:** CR-08, CR-10, CR-11, CR-12, CR-15; spec section 18.
+**Requirements:** CR-08, CR-11, CR-12, CR-13, CR-15; spec section 18.
 
-**Complete when:** The minimal system is healthy in both namespaces and the
-required promotion path has been exercised end to end.
+**Complete when:** Protected-main merge promotes exactly the dev-validated
+release through Git and Argo CD, with no rebuild, retag, workflow commit,
+`kubectl`, or direct deployment.
 
 ### Phase 5 — Remaining procurement vertical slices
 
-Each capability in this phase updates domain code, MCP, graph, API, UI, tests,
-documentation, logs, metrics, and dashboard panels as relevant. A capability
-may be split into ordered, independently reviewable tasks when one task would
-otherwise be too large; the system remains runnable after each task. Each
-completed task is validated in dev and promoted as the same immutable artifact
-before the next dependent task begins.
+Each task below delivers one demonstrable user-facing vertical slice and
+updates domain, Odoo/MCP, graph, API, React, persistence, audit, tests,
+documentation, metrics, logs, alerts, and dashboards only where relevant. The
+system remains runnable after each task, and the approved T22–T24 path promotes
+the complete four-image release.
 
-#### T25 — Add replenishment projection and duplicate prevention
+#### T25 — Complete deterministic procurement evidence
 
 **Files**
 
-- Create `src/procurement/domain/policy/forecast.py` and
-  `src/procurement/domain/policy/duplicates.py`.
-- Create MCP tools
-  `src/procurement/mcp_server/tools/forecast.py` and
-  `src/procurement/mcp_server/tools/open_purchase_orders.py`.
-- Add graph nodes under `src/procurement/agent/nodes/inventory.py`.
-- Add case list/detail routes under `src/procurement/api/routes/cases.py`.
-- Add React overview, scan detail, case queue, forecast, and skip-reason
+- Create focused policy modules under `src/procurement/domain/policy/` for
+  forecast, duplicate coverage, offers, quantity, performance, and budget.
+- Create or extend MCP evidence tools under
+  `src/procurement/mcp_server/tools/`, Odoo port/adapter mappers, graph evidence
+  nodes, `src/procurement/api/routes/cases.py`, and React case/evidence
   components.
-- Add corresponding unit, real-transport integration, and dev smoke tests.
+- Add corresponding domain, adapter, MCP-tool, real-transport, API, React,
+  observability, seed, and dev-smoke tests.
 
-**Behavior**
+**Interfaces**
 
-- [ ] **Step 1:** Implement 14-day projection from known stock movements only.
-- [ ] **Step 2:** Distinguish reorder trigger date from need-by/stockout date.
-- [ ] **Step 3:** Check pending cases, drafts, and confirmed incoming POs.
-- [ ] **Step 4:** Handle full coverage, partial coverage, residual quantities, pagination,
-   a 50-candidate limit, and at most three concurrent product workflows.
-- [ ] **Step 5:** Audit skipped and duplicate-blocked cases.
+- Produces one authoritative `ProcurementEvidence` boundary containing the
+  shortage timeline, open-PO coverage, eligible/rejected offers, per-offer
+  quantity and normalized cost, performance evidence, and budget result.
+- Later LLM code may compare this evidence but may not calculate, replace, or
+  override any authoritative value.
 
-**Verification:** Test date/timezone edges, missing movements, concurrency,
-partial coverage, duplicate conditional writes, Odoo mapping, UI display,
-metrics, and dev real-Odoo results.
+**Work and tests**
+
+- [ ] **Step 1: Define the complete typed evidence contract.** Add failing
+  tests for exact decimals, currencies, dates, confidence/evidence counts,
+  deterministic reason codes, environment binding, and serialization limits.
+- [ ] **Step 2: Implement shortage and coverage policy.** Project 14 days from
+  known movements, distinguish reorder trigger from need-by/stockout, and
+  account for pending cases plus draft/confirmed incoming POs. Cover full,
+  partial, and residual coverage, pagination, the 50-candidate limit, and at
+  most three concurrent product workflows.
+- [ ] **Step 3: Implement offer and quantity policy.** Enforce vendor approval
+  and blocks, offer validity, price/currency, delivery by need-by, reorder
+  maximum, arrival projection, MOQ, packaging/UoM rounding, normalized order
+  cost, projected/excess inventory, and deterministic rejection reasons.
+- [ ] **Step 4: Implement performance evidence.** Calculate the 365-day
+  completed-order count, on-time rate, average positive lateness, receipt and
+  return proxy, evidence counts, and insufficient-history status below three
+  orders.
+- [ ] **Step 5: Implement authoritative budget evidence.** Resolve the category,
+  analytic account, and calendar-month budget; calculate confirmed commitment,
+  remaining before/after, and exact overage. Over-budget remains eligible and
+  requires explicit manager exception unless a separately specified
+  deterministic hard policy excludes it.
+- [ ] **Step 6: Integrate the vertical slice.** Expose the evidence through
+  real MCP transport, graph state, case API, React detail/skip views, immutable
+  audit, bounded metrics, and sanitized logs.
+- [ ] **Step 7: Run focused and end-to-end checks.** Test timezone/month edges,
+  missing/malformed Odoo data, duplicate conditional writes, concurrency,
+  precision and rounding, prompt-injection-like vendor text, budget mismatch,
+  real seeded Odoo evidence, and deterministic rejected/skip reasons.
+
+**Verification:** Run focused unit/UI tests, `make test-integration`, the real
+Odoo contract/adapter cases, `make smoke-dev`, and T22–T24 release validation.
 
 **Dependencies:** T24.
 
-**Requirements:** CR-02, CR-03, CR-06, CR-12, CR-13, CR-15; spec sections 7.1,
-8.1, and 8.2.
+**Requirements:** CR-02, CR-03, CR-04, CR-06, CR-12, CR-13, CR-15; spec
+sections 7.1 and 8.1–8.6.
 
-**Complete when:** The system detects only uncovered shortages and cannot
-create two active cases for one shortage.
+**Complete when:** Every candidate has one coherent authoritative evidence
+record before LLM reasoning, every exclusion has a deterministic reason, and
+duplicate or fully covered shortages cannot proceed.
 
-#### T26 — Add approved-offer, quantity, and vendor-performance comparison
-
-**Files**
-
-- Create policy modules `offers.py`, `quantity.py`, and `performance.py`.
-- Create MCP tools `offers.py` and `vendor_performance.py`.
-- Add graph evidence nodes and React vendor comparison/evidence-confidence
-  components.
-- Add unit, Odoo adapter, MCP transport, API, React, and dev smoke tests.
-
-**Behavior**
-
-- [ ] **Step 1:** Enforce approved/unblocked vendor tags, offer validity, required price and
-   currency, lead time, and delivery by need-by date.
-- [ ] **Step 2:** Calculate quantity separately per offer using arrival projection, reorder
-   maximum, MOQ, and packaging/UoM rounding.
-- [ ] **Step 3:** Return normalized current order cost, projected inventory, and excess
-   inventory without claiming landed cost.
-- [ ] **Step 4:** Compute 365-day on-time rate, average positive lateness, return proxy,
-   evidence counts, and insufficient-history status below three orders.
-- [ ] **Step 5:** Display rejected offers with safe deterministic reasons.
-
-**Verification:** Cover all eligibility branches, currency/decimal precision,
-MOQ/packaging edges, missing data, history window edges, prompt injection-like
-vendor text, and real Odoo evidence.
-
-**Dependencies:** T25.
-
-**Requirements:** CR-02, CR-03, CR-06, CR-12, CR-13, CR-15; spec sections
-8.3–8.5.
-
-**Complete when:** Every eligible offer has authoritative computed values and
-every excluded offer has a deterministic reason.
-
-#### T27 — Add category budget status and exception presentation
+#### T26 — Apply typed revisioned preferences end to end
 
 **Files**
 
-- Create `src/procurement/domain/policy/budget.py` and
-  `src/procurement/mcp_server/tools/budget.py`.
-- Add budget evidence to graph state, case API schemas, React recommendation
-  details, metrics, dashboard panels, and audit events.
-- Add unit, Odoo contract, MCP transport, API, React, and dev smoke tests.
-
-**Behavior**
-
-- [ ] **Step 1:** Read the matching `stockai.procurement.budget` record and map
-   product category to its approved analytic account and calendar-month period.
-- [ ] **Step 2:** Calculate budget, current confirmed commitments, remaining before/after,
-   and exact overage in authoritative code.
-- [ ] **Step 3:** Keep an over-budget offer eligible but mark it as requiring explicit
-   manager exception and justification.
-- [ ] **Step 4:** Reject malformed, mismatched-period, or mismatched-currency budget data.
-
-**Verification:** Test month boundaries, no budget record, exact budget,
-overage, currency errors, UI warning prominence, sanitized logs, and the real
-Odoo budget scenario.
-
-**Dependencies:** T26.
-
-**Requirements:** CR-02, CR-06, CR-12, CR-13, CR-15; spec sections 8.6 and 14.
-
-**Complete when:** Every proposed amount has an authoritative budget result and
-an overage cannot be visually or structurally hidden.
-
-#### T27A — Add the versioned Odoo preference model and administration UI
-
-**Files**
-
-- Extend `odoo/addons/stockai_procurement/` with profile/version and
-  ordered-priority models, constraints, access controls, menus, forms, and
-  inheritance preview.
-- Update the existing StockAI Odoo image digest in Compose and Kubernetes
-  overlays through the already-tested four-image release workflow.
-- Add Odoo add-on model/view/access tests and a dev Odoo administration smoke
-  test.
-
-**Behavior**
-
-- [ ] **Step 1:** Require one active company profile and resolve optional overrides in strict
-   product → category → company order for the single-company MVP.
-- [ ] **Step 2:** Store immutable versions containing effective dates, required change
-   reason, every supported criterion exactly once in a unique order, a 0–100%
-   maximum price premium, non-overlapping scope periods, and `advisory` or
-   `hard` enforcement.
-- [ ] **Step 3:** Give only the Odoo Procurement configuration administrator permission to
-   activate versions. Do not grant that role case approval, raw system-prompt
-   editing, or PO automation, and keep the seeded configuration administrator
-   and Procurement manager as separate identities.
-- [ ] **Step 4:** Provide a structured inheritance preview and activate new immutable
-   versions without deleting or mutating historical versions.
-- [ ] **Step 5:** Seed a reliability-first company profile, delivery-first category
-   override, and price-first product override in both fictional environments.
-
-**Verification:** Test scope precedence, inheritance preview, effective-date
-and overlap constraints, immutable history, role denial, 0–100% boundaries,
-unsupported/duplicate criteria, absence of a prompt editor, seeded profiles,
-and immutable StockAI Odoo image build, scan, render, and dev deployment.
-
-**Dependencies:** T27.
-
-**Requirements:** CR-02, CR-04, CR-08, CR-11, CR-13, CR-15; spec sections 6,
-8.7, 12, 14.2, 18.2, 20, and 22.
-
-**Complete when:** An authorized administrator can safely manage and audit
-typed preference versions in Odoo, unauthorized roles cannot, and all four
-required project images follow the tested GitOps promotion contract.
-
-#### T27B — Resolve and enforce preferences through the real MCP boundary
-
-**Files**
-
+- Extend `odoo/addons/stockai_procurement/` with one current typed preference
+  record per scope, ordered priorities, monotonic revision handling, Odoo
+  tracking, constraints, access controls, menus, and forms.
 - Create `src/procurement/domain/policy/preferences.py`,
   `src/procurement/adapters/odoo/preference_mapper.py`, and
   `src/procurement/mcp_server/tools/preferences.py`.
-- Extend the Odoo port, MCP schemas, tool registry, error taxonomy, metrics,
-  and fake Odoo gateway.
-- Add domain, adapter, isolated MCP-tool, real Streamable HTTP, malformed
-  response, timeout, and real-Odoo contract tests.
+- Extend MCP schemas/registry, Odoo port, graph state/nodes, prompt renderer,
+  case/evidence/audit schemas, DynamoDB mapping, API output, and
+  `frontend/src/components/AppliedPreferences.tsx`.
+- Add Odoo add-on, domain, mapper, MCP, real-transport, graph, prompt-boundary,
+  persistence, API, React, observability, and dev-smoke tests.
 
-**Behavior**
+**Interfaces**
 
-- [ ] **Step 1:** Implement `get_procurement_preferences` with company, category, product,
-   and as-of inputs and a typed inheritance trace and immutable version output.
-- [ ] **Step 2:** Independently validate scope precedence, effective dates, unique supported
-   criteria, 0–100% premium, enforcement enum, and authorization metadata.
-- [ ] **Step 3:** Calculate premium against the cheapest otherwise-eligible normalized total
-   cost with explicit decimal handling; reject any zero/non-positive offer
-   that escaped the earlier offer boundary.
-- [ ] **Step 4:** Return advisory exceedance as evidence; remove above-cap offers
-   deterministically in hard mode before any LLM comparison.
-- [ ] **Step 5:** Return a safe preference-configuration error for missing, overlapping,
-   expired, malformed, or unauthorized data; never guess a default.
+- Consumes: company, category, product, and otherwise-eligible T25 offers.
+- Produces: one validated effective preference snapshot containing profile ID,
+  scope, server-managed revision, ordered supported criteria, bounded premium,
+  enforcement mode, precedence source, and premium result.
+- Excludes: effective dates, overlap rules, activation/version-history models,
+  inheritance-preview UI, separate history administration, raw prompt editing,
+  and manager mutation through React.
 
-**Verification:** Test every inheritance branch, boundary and decimal case,
-advisory/hard behavior, no otherwise-eligible offer, malformed/untrusted Odoo
-responses, retry/timeout rules, low-cardinality metrics, and the real seeded
-Odoo add-on through Streamable HTTP.
+**Work and tests**
 
-**Dependencies:** T27A.
+- [ ] **Step 1: Define the simple Odoo model and authorization tests.** Require
+  one company record and at most one category/product record per scope. Only
+  the configuration administrator may create/update/archive; server-side
+  writes increment revision monotonically and Odoo tracks changes. Officers,
+  managers, and the integration user cannot administer preferences.
+- [ ] **Step 2: Implement and seed typed configuration.** Support the existing
+  criterion enum, 0–100% max premium, and `advisory|hard`. Seed reliability-
+  first company, delivery-first category, and price-first product records with
+  reproducible revisions and no prompt editor.
+- [ ] **Step 3: Resolve through MCP.** Resolve product → category → company,
+  return only typed fields and precedence metadata, and independently validate
+  scope, record identity, positive revision, unique criteria, percentage, and
+  enforcement. Missing/malformed/unauthorized configuration returns a safe
+  manual-review error and no default guess.
+- [ ] **Step 4: Enforce premium deterministically.** Compare each otherwise-
+  eligible normalized total with the cheapest eligible baseline. Record an
+  advisory exceedance or remove above-cap offers in hard mode before LLM
+  reasoning; reject non-positive escaped costs.
+- [ ] **Step 5: Bind the immutable case snapshot.** Copy the exact resolved
+  values and premium result into the case and evidence hash once. Later Odoo
+  edits affect later scans only and cannot rewrite an in-flight snapshot.
+- [ ] **Step 6: Render safe model context and read-only UI.** Pass only typed
+  enums, numbers, identifiers, scope, and revision to the application-owned
+  renderer. Show the applied scope/revision/criteria/premium/result/mode in
+  React and audit without exposing editable controls.
+- [ ] **Step 7: Verify the whole slice.** Cover precedence, monotonic revision,
+  concurrent update, role denial, boundaries, advisory/hard behavior,
+  malformed Odoo output, raw audit/business-text injection, snapshot stability,
+  metric cardinality, container/release inclusion, and all three real seeded
+  scenarios through Odoo, MCP, graph, API, and UI.
 
-**Requirements:** CR-02, CR-05, CR-06, CR-12, CR-13, CR-15; spec sections 8.7,
-9.2, 11, 12, 19, 20, and 22.
+**Verification:** Run focused Odoo/Python/React tests, the Odoo contract,
+`make test-integration`, `make smoke-dev`, and the complete four-image release
+checks.
 
-**Complete when:** The real MCP boundary returns one validated effective
-profile and deterministic premium result, and invalid configuration cannot
-reach LLM reasoning.
+**Dependencies:** T25.
 
-#### T27C — Bind preferences to cases, prompting, audit, and read-only UI
+**Requirements:** CR-02, CR-03, CR-04, CR-05, CR-06, CR-08, CR-11, CR-12,
+CR-13, CR-15; spec sections 6, 8.7, 9, 11–15, 20, and 22.
 
-**Files**
+**Complete when:** An authorized administrator can maintain simple typed
+preferences in Odoo, the exact effective revision is enforced and snapshotted
+through MCP, and officers/managers see it read-only without any prompt or
+eligibility bypass.
 
-- Add the graph preference-resolution node, fixed typed preference renderer,
-  recommendation schema fields, case evidence/hash fields, API schemas, audit
-  events, and `frontend/src/components/AppliedPreferences.tsx`.
-- Add graph, prompt-boundary, API, DynamoDB, audit, React, integration,
-  observability, and dev Bedrock smoke tests.
-
-**Behavior**
-
-- [ ] **Step 1:** Call the real preference MCP tool before reasoning and route any safe
-   configuration error to manual review without creating a draft.
-- [ ] **Step 2:** Pass only typed enums, numbers, identifiers, and version metadata to the
-   application-owned system-prompt renderer; never interpolate Odoo free text
-   or change reasons.
-- [ ] **Step 3:** Snapshot profile ID, scope, version, ordered criteria, premium result, and
-   enforcement mode into the case and evidence hash.
-- [ ] **Step 4:** Retain that snapshot for in-flight manager change requests and reapproval;
-   newly activated versions affect only later scans.
-- [ ] **Step 5:** Show the applied snapshot and inheritance source read-only in the React
-   recommendation view and immutable audit trail.
-- [ ] **Step 6:** Emit preference-resolution failure and advisory-premium-exceedance metrics
-   without profile IDs or versions as metric labels.
-
-**Verification:** Test malformed profile manual review, injection-like change
-reasons, fixed prompt rendering, evidence-hash binding, active-case stability,
-read-only UI display, audit order, metric cardinality, and all three seeded
-company/category/product scenarios with real Odoo, MCP, and Bedrock in dev.
-
-**Dependencies:** T27B.
-
-**Requirements:** CR-02, CR-03, CR-04, CR-05, CR-06, CR-12, CR-13, CR-15;
-   spec sections 8.7, 9, 10.4, 13, 14, 20, 21, and 22.
-
-**Complete when:** Every recommendation uses and displays one immutable
-preference snapshot, and neither business text nor configuration can expand
-the safe action space.
-
-#### T28 — Complete contextual recommendation reasoning and safe fallback
+#### T27 — Produce a contextual AI recommendation with safe fallback
 
 **Files**
 
-- Add graph nodes for hard policy, evidence gathering, reasoning, output
-  validation, manual review, and final audit.
+- Add/finalize graph nodes for evidence assembly, reasoning, output validation,
+  manual review, and final audit under `src/procurement/agent/`.
 - Finalize `src/procurement/agent/prompts/procurement_system.md` and structured
-  schemas.
-- Add recommendation rationale/risk/uncertainty UI components and LLM/MCP
-  dashboard panels.
-- Add unit, integration, and live Bedrock smoke tests.
+  recommendation schemas.
+- Add rationale/risk/uncertainty React components and LLM/MCP dashboard panels.
+- Add graph, mocked-LLM, real-transport, prompt-boundary, API, React,
+  observability, and live Bedrock smoke tests.
 
-**Behavior**
+**Interfaces**
 
-- [ ] **Step 1:** Give Bedrock only eligible, bounded, sanitized alternatives, authoritative
-   calculations, and the machine-generated validated preference section.
-- [ ] **Step 2:** Allow `recommend` or `manual_review`; validate the selected offer and every
-   copied number against evidence.
-- [ ] **Step 3:** Apply the effective advisory priority order and surface contextual
-   cost/delivery/reliability/quality/order/payment/evidence trade-offs without
-   fixed-score overclaiming.
-- [ ] **Step 4:** On repeated Bedrock failure or invalid output, show deterministic comparison
-   and create no draft.
-- [ ] **Step 5:** Emit token, latency, retry, invalid-output, and fallback metrics.
+- Consumes: the complete T25 deterministic evidence and T26 immutable typed
+  preference snapshot.
+- Produces: `recommend` with one eligible offer ID and bounded explanation, or
+  `manual_review`; it produces no ERP write authority.
 
-**Verification:** Test valid recommendation, manual review, ineligible
-identifier, altered arithmetic, omitted warning, applied-profile
-acknowledgement, different company/category/product priorities, malicious
-business text, timeout/retries, schema repair, fallback, and live
-selected-model invocation.
+**Work and tests**
 
-**Dependencies:** T27C.
+- [ ] **Step 1: Freeze the structured-output boundary.** Test valid recommend,
+  manual review, unknown/ineligible offer, copied-number mismatch, omitted
+  warning, hard-policy bypass, malformed schema, and untrusted business text.
+- [ ] **Step 2: Invoke Bedrock with bounded context.** Supply only eligible
+  alternatives, authoritative quantities/costs/performance/budget, and safe
+  typed preferences. Preserve the fixed system prompt and selected model.
+- [ ] **Step 3: Validate every output against evidence.** The LLM cannot change
+  eligibility, quantity, price, budget arithmetic, evidence hash, or hard
+  preference enforcement and cannot call Odoo writes.
+- [ ] **Step 4: Implement bounded retry and fallback.** Apply the approved
+  transient retries and one schema repair. On repeated timeout, failure, or
+  invalid output, show the deterministic comparison, enter manual review, and
+  create no draft.
+- [ ] **Step 5: Expose explanation and observability.** Show concise trade-offs,
+  risks, uncertainty, evidence limitations, budget/preference acknowledgement,
+  and emit bounded token/latency/retry/invalid/fallback metrics and sanitized
+  logs.
+- [ ] **Step 6: Verify with mocked and real model paths.** Exercise differing
+  company/category/product priorities, malicious text, timeout, repair,
+  fallback, and one live selected-model invocation in dev.
 
-**Requirements:** CR-02, CR-03, CR-05, CR-12, CR-13, CR-15; spec sections 4.3,
-8.7, 9, and 19.
+**Verification:** Run agent/prompt/UI tests, `make test-integration`, live
+Bedrock dev smoke, observability queries, and release promotion checks.
 
-**Complete when:** The LLM contributes real contextual judgment but cannot
-expand the eligible set, change facts, or cause a write.
+**Dependencies:** T26.
 
-#### T29 — Create idempotent draft POs and pause for human approval
+**Requirements:** CR-02, CR-03, CR-05, CR-12, CR-13, CR-15; spec sections
+4.3, 8.7, 9, and 19.
+
+**Complete when:** Bedrock contributes contextual judgment inside the
+deterministic safe set, and every invalid or unavailable-model path falls back
+without a draft.
+
+#### T28 — Create one idempotent draft and pause for manager decision
 
 **Files**
 
 - Create `src/procurement/mcp_server/tools/create_draft.py`,
   `src/procurement/mcp_server/idempotency.py`, and graph draft/interrupt nodes.
-- Extend checkpoint, case, evidence-hash, revision, audit, API, and React
-  recommendation detail behavior.
-- Add unit, MCP transport, concurrency, restart/resume, Odoo, API, UI, and dev
-  smoke tests.
+- Extend case/checkpoint/evidence/revision/audit repositories, case API output,
+  and React recommendation detail.
+- Add unit, MCP transport, concurrency, ambiguous-write, restart/resume, Odoo,
+  API, UI, observability, and dev-smoke tests.
 
-**Behavior**
+**Interfaces**
 
-- [ ] **Step 1:** Create one draft PO per product using only a validated eligible offer and
-   deterministic quantity.
-- [ ] **Step 2:** Store case ID in Odoo origin/reference and use DynamoDB conditional
-   idempotency records.
-- [ ] **Step 3:** On a write timeout, reconcile DynamoDB and Odoo before any retry.
-- [ ] **Step 4:** Bind the evidence hash—including the immutable applied-preference
-   snapshot—and PO revision, checkpoint, and interrupt without holding an HTTP
-   request open.
-- [ ] **Step 5:** Enter `RECONCILIATION_REQUIRED` on ambiguous results.
+- Consumes: one validated T27 recommendation and its exact T25/T26 evidence.
+- Produces: at most one traceable Odoo draft, case/evidence hash, current PO
+  revision, durable checkpoint, and `PendingApproval` state.
 
-**Verification:** Test repeated requests, concurrent scans, response loss after
-Odoo commit, process termination after write, revision changes, checkpoint
-resume, draft link display, audit, and metrics.
+**Work and tests**
 
-**Dependencies:** T28.
+- [ ] **Step 1: Write idempotency and ambiguity tests.** Cover repeat and
+  concurrent calls, response loss after Odoo commit, process termination after
+  write, conflicting case/reference, revision changes, restart, and no long-
+  held HTTP request.
+- [ ] **Step 2: Create from authoritative inputs only.** Permit only the
+  validated offer, deterministic quantity/date/cost, exact preference snapshot,
+  and evidence hash. Store the stable case ID in Odoo origin/reference.
+- [ ] **Step 3: Coordinate Odoo and DynamoDB idempotency.** Use conditional
+  application records and the existing atomic Odoo contract. On timeout or
+  ambiguous response, inspect both systems before retry and enter
+  `RECONCILIATION_REQUIRED` when safe resolution is unavailable.
+- [ ] **Step 4: Persist and interrupt.** Record PO ID/revision, immutable
+  evidence, checkpoint, and audit, then return control without holding an HTTP
+  request while waiting for a manager.
+- [ ] **Step 5: Expose safe UI and observability.** Show the draft link,
+  revision, evidence summary, and pending state; emit bounded create,
+  idempotency, ambiguity, reconciliation, and wait metrics/logs.
+- [ ] **Step 6: Verify restart-safe behavior.** Run focused tests, real MCP
+  transport, real Odoo dev creation, process restart/resume, and release smoke.
+
+**Dependencies:** T27.
 
 **Requirements:** CR-02, CR-03, CR-05, CR-06, CR-12, CR-13, CR-15; spec
 sections 7, 9, 11, and 19.
 
-**Complete when:** Eligible cases create at most one traceable draft and wait
-safely for a human.
+**Complete when:** A valid recommendation creates at most one evidence-bound
+draft and waits durably for a manager with ambiguous writes reconciled before
+retry.
 
-#### T30 — Add revision-bound approval, budget exception, and PO confirmation
+#### T29 — Complete the approve/confirm and reject/cancel lifecycle
 
 **Files**
 
-- Create approval domain/service modules,
-  `src/procurement/mcp_server/tools/confirm.py`, and
+- Create approval/decision domain and service modules,
+  `src/procurement/mcp_server/tools/confirm.py`,
+  `src/procurement/mcp_server/tools/cancel_draft.py`, and
   `src/procurement/api/routes/decisions.py`.
-- Add React manager decision and budget-exception components.
-- Add approval/confirmation audit, metrics, dashboards, alerts, and unit,
-  integration, Odoo, API, UI, and dev smoke tests.
+- Add approve/reject React controls, budget-exception UI, audit timeline,
+  approval/confirmation/cancellation metrics, dashboards, alerts, and tests.
+- Do not create a request-change API, graph branch, or React action; retain the
+  already implemented Odoo update method without wiring it into the MVP.
 
-**Behavior**
+**Interfaces**
 
-- [ ] **Step 1:** Allow only authenticated managers to approve the exact current case,
-   vendor, quantity, amount, budget state, evidence hash, and PO revision.
-- [ ] **Step 2:** Require an explicit exception flag and non-empty bounded justification for
-   every over-budget approval.
-- [ ] **Step 3:** Have MCP perform a strongly consistent approval read and independent exact
-   match before Odoo confirmation.
-- [ ] **Step 4:** Call only
-   `purchase.order.action_stockai_confirm(expected)` so Odoo locks and compares
-   the current revision-critical snapshot before invoking `button_confirm` in
-   the same transaction. Reject wrong role, stale/expired/replayed approval,
-   changed draft, missing exception, or environment mismatch.
-- [ ] **Step 5:** Confirm only a fictional Odoo PO; do not contact a supplier or move money.
+- Approve consumes: authenticated manager, exact case/vendor/quantity/amount,
+  budget state and exception fields, immutable evidence hash, and current PO
+  revision. It produces an immutable approval record before confirmation.
+- Reject consumes: authenticated manager, exact case/PO revision, bounded
+  reason, and idempotency key. It produces immutable rejection evidence and a
+  cancelled draft or explicit reconciliation state.
 
-**Verification:** Run the happy path and over-budget path end to end, plus
-every approval-safety failure, concurrency/replay tests, ambiguous confirm
-reconciliation, audit inspection, and safety alert.
+**Work and tests**
 
-**Dependencies:** T29.
+- [ ] **Step 1: Freeze authorization and binding tests.** Cover officer denial,
+  environment mismatch, altered vendor/quantity/amount/budget/evidence,
+  stale/current PO revision, expired/replayed decision, concurrent decisions,
+  and idempotent repeats.
+- [ ] **Step 2: Persist approval immutably.** Store the authenticated manager,
+  exact decision payload, exception state/justification, evidence hash, PO
+  revision, timestamp, and expiry using a conditional write. Never mutate or
+  reuse an approval for another revision.
+- [ ] **Step 3: Enforce the budget exception.** Over-budget remains eligible,
+  but confirmation requires an explicit exception flag and non-empty bounded
+  justification unless a separately specified deterministic hard policy has
+  already excluded the offer.
+- [ ] **Step 4: Independently revalidate before confirmation.** MCP performs a
+  strongly consistent approval read and matches every bound field plus the
+  current Odoo revision immediately before calling only
+  `action_stockai_confirm(expected)`. Odoo locks, rereads, compares, and calls
+  its standard confirmation in one transaction.
+- [ ] **Step 5: Implement rejection and cancellation.** Persist the immutable
+  rejection, call only `action_stockai_cancel_draft(expected)`, preserve the
+  audit record, and close after idempotent cancellation. Reconcile ambiguous
+  cancel/confirm results before any write retry.
+- [ ] **Step 6: Expose the bounded manager UI.** Present approve, budget
+  exception, and reject only. Remove request-change states/endpoints/actions
+  from contracts and tests; show exact evidence/revision and chronological
+  immutable audit.
+- [ ] **Step 7: Run safety and real-environment verification.** Exercise happy,
+  over-budget, rejection, stale, replay, role, concurrency, response-loss,
+  restart/reconcile, alert, and real Odoo paths. Confirm no supplier contact,
+  payment, legal ordering, or autonomous approval occurs.
+
+**Verification:** Run focused decision/API/UI/Odoo tests,
+`make test-integration`, `make smoke-dev`, `make smoke-prod`, audit inspection,
+safety-alert evidence, and exact release promotion.
+
+**Dependencies:** T28.
 
 **Requirements:** CR-02, CR-05, CR-06, CR-12, CR-13, CR-15; spec sections 6,
-7.3, 8.6, and 11.3.
+7.3, 8.6, 11.3, 13, and 19.
 
-**Complete when:** There is no code path that confirms without a current,
-strongly revalidated manager approval.
-
-#### T31 — Add rejection, change requests, cancellation, and reconciliation
-
-**Files**
-
-- Create MCP tools `update_draft.py` and `cancel_draft.py`.
-- Add graph nodes for rejection, bounded changes, recomputation, cancellation,
-  and reconciliation.
-- Complete decision routes and React reject/change/audit timeline screens.
-- Add unit, transport, Odoo, API, UI, restart, concurrency, and dev smoke tests.
-
-**Behavior constraint:** Draft changes and cancellation must call only
-`purchase.order.action_stockai_update_draft(expected, changes)` and
-`purchase.order.action_stockai_cancel_draft(expected)`. The MCP allowlists
-change fields, Odoo performs its row-lock/revision check and standard business
-action, and ambiguous responses enter reconciliation rather than being blindly
-retried.
-
-**Behavior**
-
-- [ ] **Step 1:** Reject with a bounded reason, preserve the decision, and idempotently cancel
-   the draft.
-- [ ] **Step 2:** Accept only supported structured change fields plus an untrusted bounded
-   note.
-- [ ] **Step 3:** Invalidate prior recommendation/approval, recompute all policy, safely
-   update the same draft, increment revision, retain the case’s snapshotted
-   preference version, and require reapproval.
-- [ ] **Step 4:** Route unsupported or ambiguous requests to manual review.
-- [ ] **Step 5:** Reconcile create/update/cancel/confirm results before any write retry.
-- [ ] **Step 6:** Expose a chronological immutable audit timeline.
-
-**Verification:** Test stale change requests, unsafe vendor selection,
-quantity/date changes, invalidated approval, update conflict, ambiguous
-cancellation, restart during reconcile, audit ordering, and all final states.
-
-**Dependencies:** T30.
-
-**Requirements:** CR-02, CR-05, CR-06, CR-12, CR-13, CR-15; spec sections 7.3,
-11.2, 13, and 19.
-
-**Complete when:** All manager actions are safe, revision-aware, recoverable,
-and visible in the UI and audit.
+**Complete when:** Every confirmation uses a current immutable independently
+revalidated manager approval, every rejection cancels safely, and no
+request-change/update/reapproval product path exists.
 
 ### Phase 6 — Security, resilience, acceptance, and presentation
 
-#### T32 — Perform security and secrets hardening
+#### T32 — Verify security boundaries and close remaining gaps
 
 **Files**
 
-- Add security headers, request limits, input constraints, and redaction tests.
-- Finalize NetworkPolicies, namespace RBAC, service accounts, pod security
-  contexts, External Secrets resources, and IAM policies.
-- Create `docs/runbooks/secret-rotation.md`,
-  `docs/runbooks/security-incident.md`, and security test cases.
+- Modify application headers/limits/redaction, Kubernetes NetworkPolicy/RBAC/
+  security contexts, External Secrets, IAM documentation, and tests only where
+  verification finds an actual gap.
+- Create or finalize `docs/runbooks/secret-rotation.md` and
+  `docs/runbooks/security-incident.md`.
+- Update `docs/implementation-status.md` with the T18C residual-risk decision.
 
 **Work and tests**
 
-- [ ] **Step 1:** Verify default-deny network flows and only documented allow paths.
-- [ ] **Step 2:** Verify containers run non-root, drop capabilities, use seccomp, and use
-   read-only roots with explicit writable volumes where supported.
-- [ ] **Step 3:** Rotate Odoo key, MCP/Cron tokens, session secret, database
-   credentials, and Grafana credentials without logging old/new values. For
-   the Odoo key, attach the exact-secret bootstrap policy through the protected
-   Terraform gate, run and verify rotation, detach it on success or failure,
-   and assert the normal worker plan again has no Secrets Manager write.
-- [ ] **Step 4:** Test browser security headers, CSRF, session fixation, role escalation,
-   preference-configuration authorization, input limits, untrusted MCP output,
-   prompt injection-like profile text/business data, and error leakage.
-- [ ] **Step 5:** Inspect image/dependency/secret/configuration scans and record accepted
-   residual risks.
+- [ ] **Step 1: Verify existing workload and network controls.** Test default-
+  deny paths, documented allows, namespace RBAC/service accounts, non-root,
+  dropped capabilities, seccomp, read-only roots, explicit writable volumes,
+  and no cross-environment access.
+- [ ] **Step 2: Verify application boundaries.** Test browser headers, request
+  limits, CSRF, session fixation, role escalation, preference administration,
+  immutable approval, untrusted MCP output, business-data/prompt injection,
+  stable safe errors, and recursive redaction.
+- [ ] **Step 3: Perform representative live rotation.** Rotate the Odoo
+  integration key through the protected exact-secret policy window and rotate
+  one application/session credential without logging values. Automatically
+  test and document the same delivery/reload mechanism for MCP/Cron, database,
+  and Grafana credential classes instead of repeating equivalent live drills.
+- [ ] **Step 4: Review IAM and repository security.** Confirm OIDC rather than
+  long-lived AWS keys, accepted single-region role naming, accurate plan/apply
+  descriptions, bootstrap explicit denies, environment permissions, secret
+  scanning, dependency/image/configuration reports, and known broad T21B
+  course-account residual risk.
+- [ ] **Step 5: Resolve the T18C risk decision.** Either implement an approved
+  automated CA-signed kubelet serving-certificate lifecycle or explicitly
+  accept and document the bounded restricted-network
+  `--kubelet-insecure-tls` limitation. Do not ignore it.
+- [ ] **Step 6: Close only demonstrated gaps and rerun security checks.** Add
+  focused regressions for each fix and record accepted residual risks. Do not
+  redesign working Cognito, DynamoDB, Odoo, Kubernetes, or IAM architecture.
 
-**Verification:** Run `make security-scan`, authorization suites, NetworkPolicy
-connectivity checks, secret rotation in dev, and an IAM least-privilege review.
+**Verification:** Run `make security-scan`, authorization suites,
+NetworkPolicy/policy/render checks, representative dev rotations, IAM review,
+and relevant regression suites.
 
-**Dependencies:** T31.
+**Dependencies:** T29.
 
-**Requirements:** CR-09, CR-15; spec sections 11.3, 17.5, and 20.
+**Requirements:** CR-09, CR-13, CR-15; spec sections 11.3, 17.5, 20, and 22.
 
-**Complete when:** Trust boundaries have executable evidence and no critical
-unresolved security finding remains.
+**Complete when:** Existing trust boundaries have executable evidence, actual
+gaps are closed, representative rotation works, and every residual risk is
+explicit rather than silently ignored.
 
-#### T33 — Validate retries, shutdown, capacity, HPA, recovery, and cost
+#### T33 — Run representative resilience, capacity, recovery, and cost drills
 
 **Files**
 
-- Finalize lifecycle/retry modules and workload probes/resources.
-- Create `tests/resilience/`, `tests/load/`,
-  `docs/runbooks/recovery.md`, and `docs/runbooks/active-periods.md`.
-- Update alerts and resource dashboards.
+- Create or finalize focused scenarios under `tests/resilience/` and
+  `tests/load/`, plus `docs/runbooks/recovery.md` and
+  `docs/runbooks/active-periods.md`.
+- Modify workload/resource hypotheses, alerts, dashboards, and
+  `docs/implementation-status.md` only when measured evidence requires it.
 
 **Work and tests**
 
-- [ ] **Step 1:** Verify exact read/write/LLM timeouts and retries, permanent-error
-   no-retry behavior, 120-second case limit, and reconciliation before write
-   retry.
-- [ ] **Step 2:** Send SIGTERM during reads, reasoning, draft creation, human wait, and
-   confirmation; verify immediate readiness failure, checkpoint/reconciliation,
-   and completion within the 45-second grace period.
-- [ ] **Step 3:** Load the seeded scenario, confirm p95 approval-ready time, and separately
-   drive frontend, API, and MCP CPU above 50%. Verify each HPA scales from one
-   toward its maximum of three and scales down after load. First capture
-   pending pods at insufficient one-worker capacity; then change only the dev
-   ASG desired-capacity input through a reviewed Terraform apply, verify the
-   additional worker joins and pending pods schedule, and restore desired one.
-   Record this as manual capacity, never automatic node scaling.
-- [ ] **Step 4:** Measure every pod’s CPU/memory/disk use on one `t3.medium` worker; adjust
-   hypotheses without removing required services. Verify pending-pod
-   visibility and alerts if the normal ASG capacity cannot schedule a requested
-   replica.
-- [ ] **Step 5:** Exercise inactive operation by applying worker `min = 0` and `desired = 0`,
-   then stopping the fixed control plane. Restart the control plane, verify
-   finite token rotation, restore worker desired one through Terraform, and
-   confirm the warming transition. Do not stop an ASG-managed worker directly.
-- [ ] **Step 6:** Exercise prod Odoo/PostgreSQL snapshot recovery, retained EBS
-   reattachment after worker replacement, Prometheus history across pod
-   restart, Grafana reconstruction from Git after pod deletion, and
-   reproducible seed fallback.
-- [ ] **Step 7:** Verify public DNS aliases, HTTP-to-HTTPS redirect, ACM hostname validation,
-   ALB target health/host routing, and the absence of direct public worker
-   application access.
-- [ ] **Step 8:** Verify clean, forced, failed, timeout, and duplicate termination-cleanup
-   outcomes; lifecycle release remains bounded, non-clean outcomes alert, and
-   the stale-node/EBS-detach runbook is executable.
-- [ ] **Step 9:** Record normal desired-one cost, temporary test-capacity cost, and retained
-   ALB/storage cost; confirm the $70 target/$90 review-ceiling alerts.
+- [ ] **Step 1: Verify detailed behavior offline.** Run automated timeout,
+  retry/no-retry, 120-second case bound, graceful termination, checkpoint,
+  idempotency, reconciliation-before-write-retry, lifecycle, and graph-state
+  tests. Do not reproduce every state as a separate live SIGTERM drill.
+- [ ] **Step 2: Run two interruption scenarios.** Interrupt one active
+  read/reasoning workflow and one persisted/waiting or write-sensitive boundary;
+  verify readiness failure, bounded 45-second shutdown, checkpoint/reconcile,
+  and safe resume or manual review.
+- [ ] **Step 3: Demonstrate HPA plus manual capacity.** Load frontend/API/MCP,
+  verify HPA demand and scale-down, capture pending pods when one worker is
+  insufficient, apply only dev ASG desired capacity 1→2 through reviewed
+  Terraform, verify the new correctly labeled worker and scheduling, then
+  restore desired one. Do not add a node autoscaler.
+- [ ] **Step 4: Reuse T23 worker recovery evidence.** Verify that the recorded
+  T23 release/evidence remains applicable; rerun only a focused check if worker
+  or retained-volume behavior changed.
+- [ ] **Step 5: Exercise snapshot recovery.** When practical, restore the prod
+  Odoo/PostgreSQL tagged snapshots into an isolated reviewed recovery path,
+  verify expected fictional data and application consistency, and document
+  cleanup. If a real restore is blocked by a documented external constraint,
+  stop and obtain approval rather than substituting an unclaimed result.
+- [ ] **Step 6: Run one shutdown/restart drill.** Through reviewed Terraform,
+  set worker ASGs to min/desired zero, stop the fixed control plane, then
+  restart it, verify finite token rotation, restore desired workers, observe
+  the warming state, and complete an authorized scan. Do this once only.
+- [ ] **Step 7: Record resource and cost evidence.** Measure steady one-worker
+  resources, temporary two-worker capacity, shutdown, retained ALB/storage,
+  and the current $70 target/$90 manual review threshold. Preserve actionable
+  pending-capacity and cost/runbook evidence without inventing AWS Budget.
 
-**Stop condition**
+**Stop condition:** Stop for an approved resource/design revision if a complete
+environment cannot fit below the specified safety margin, HPA/manual capacity
+cannot work as documented, a worker cannot join with the correct identity,
+state cannot reattach/restore, shutdown cannot recover safely, or any write
+cannot reconcile. Do not add Cluster Autoscaler or weaken safety as a shortcut.
 
-If a complete environment cannot fit safely below 85% memory, the three
-stateless HPAs cannot demonstrate safe scale-up/scale-down under the documented
-normal/manual capacity sequence, any worker cannot join with the correct
-environment identity, lifecycle cleanup can remain stuck beyond 300 seconds,
-retained state cannot reattach to a replacement, or Prometheus exceeds its
-5 GiB volume budget, stop stretch work and revise resource values or the
-approved architecture before production promotion. Do not add Cluster
-Autoscaler or an ASG scaling policy as an unapproved workaround.
-
-**Verification:** Run `make test-resilience`, inspect Kubernetes events and
-dashboards, perform the controlled recovery/capacity/termination drills, and
-update evidence.
+**Verification:** Run `make test-resilience`, focused load tests, the two live
+interruption scenarios, reviewed capacity change, snapshot recovery evidence,
+one shutdown/restart drill, and dashboard/event inspection.
 
 **Dependencies:** T32.
 
-**Requirements:** CR-05, CR-09, CR-12, CR-13, CR-16; spec sections 17, 19, and
-23.
+**Requirements:** CR-05, CR-09, CR-12, CR-13, CR-16; spec sections 17, 19,
+22.5, and 23.
 
-**Complete when:** The deployed MVP meets its specified timing, safety,
-shutdown, resource, recovery, and cost constraints.
+**Complete when:** Representative live scenarios plus detailed automated tests
+support the claimed graceful interruption, HPA/manual capacity, retained-state,
+snapshot recovery, non-24/7 operation, and cost behavior without duplicated
+drills.
 
-#### T34 — Complete observability and requirements acceptance
+#### T34 — Accept the release candidate and assemble requirement evidence
 
 **Files**
 
-- Finalize all dashboards and alert rules under the observability paths.
-- Complete `tests/acceptance/` and `docs/implementation-status.md`.
-- Finalize `docs/runbooks/alerts.md` and create
-  `docs/runbooks/demo-health.md`.
+- Create/finalize `tests/acceptance/`, `docs/runbooks/demo-health.md`, and the
+  CR-01–CR-16 evidence index in `docs/implementation-status.md`.
+- Modify existing dashboards, alert rules, and `docs/runbooks/alerts.md` only
+  for acceptance gaps; do not recreate the T20B observability implementation.
 
 **Work and tests**
 
-- [ ] **Step 1:** Verify metrics for requests, errors, latency, LLM/MCP failures/timeouts,
-   retries, tokens, scan/case outcomes, approval latency, duplicates, safety
-   attempts, preference-resolution failures, advisory-premium exceedances, pod
-   restarts, CPU/memory, disk, dependencies, ASG desired/in-service capacity,
-   Ready workers, replacement duration, volume attach errors, and worker
-   cleanup outcomes.
-   Specifically verify requests per minute split by success/error, error rate,
-   p50/p95/p99 request latency, and separate LLM input/output token panels.
-- [ ] **Step 2:** Verify log fields and redaction from every service, Loki queryability, S3
-   objects, and dev 14-day/prod 90-day lifecycle configuration.
-- [ ] **Step 3:** Fire every actionable alert safely, including ASG/Ready-node mismatch,
-   forced/failed cleanup, Lambda error/lifecycle timeout, ALB target/5xx, and
-   EBS/PV failures, and confirm its runbook action.
-- [ ] **Step 4:** Run the complete unit, integration, UI, Compose, infrastructure, security,
-   resilience, dev smoke, prod smoke, and immutable-release verification.
-- [ ] **Step 5:** Walk CR-01 through CR-16 and attach actual evidence; do not mark a
-   requirement complete based only on planned files.
+- [ ] **Step 1: Run the complete automated suite once.** Execute all quality,
+  unit, integration, UI, Compose, Odoo contract, infrastructure, Kubernetes,
+  security, resilience, release, and build targets and retain actual reports.
+- [ ] **Step 2: Run final dev/prod acceptance.** Verify public smoke paths,
+  environment isolation, Argo health, immutable exact-release evidence, and
+  byte-identical dev-tested prod image digests.
+- [ ] **Step 3: Verify observability.** Confirm required request/error/latency,
+  LLM/token, MCP/retry/timeout, procurement-safety, Kubernetes/resource/HPA,
+  dependency/edge, ASG/Ready-node, lifecycle, storage, and log signals using
+  real data; confirm redaction and Loki/S3 retention.
+- [ ] **Step 4: Validate alerts proportionally.** Validate every rule
+  automatically, then live-fire one application/dependency alert, one
+  capacity/infrastructure alert, and one worker-lifecycle alert. Reuse valid
+  T20B/T23/T33 evidence and do not manufacture every failure again.
+- [ ] **Step 5: Map CR-01 through CR-16.** Link each requirement to actual test,
+  workflow, Terraform, Argo, smoke, dashboard, runbook, or live-drill evidence;
+  record known residual risks and never mark planned-only evidence complete.
 
-**Verification:** Run all Make targets and archive real JUnit, coverage, scan,
-smoke, dashboard, Argo, Terraform, and release evidence.
+**Verification:** Archive actual JUnit/coverage/scan/render/plan/smoke/release/
+Argo/dashboard evidence and review the complete requirement matrix.
 
 **Dependencies:** T33.
 
 **Requirements:** CR-01 through CR-16.
 
-**Complete when:** Every mandatory requirement has evidence, every alert is
-actionable, and no required check is merely asserted.
+**Complete when:** The exact release candidate passes required checks, every
+course requirement has truthful evidence, representative alerts work, and no
+earlier acceptance work is needlessly repeated.
 
 #### T35 — Prepare and rehearse the final demo and presentation
 
 **Files**
 
-- Create `docs/demo/script.md`, `docs/demo/seed-scenarios.md`,
-  `docs/demo/manual-baseline.md`, `docs/demo/presentation-outline.md`,
-  `docs/demo/ai-agent-reflection.md`, and `docs/demo/fallback-plan.md`.
+- Create `docs/demo/demo.md` and `docs/demo/evidence.md`.
+- Do not create six separate documents unless course staff later requires
+  separate submission artifacts.
 
 **Work and tests**
 
-- [ ] **Step 1:** Time the documented manual replenishment workflow at least three times and
-   record the baseline method and result.
-- [ ] **Step 2:** Rehearse the happy path, preference-override path, and over-budget
-   exception path from clean, environment-specific fictional seed data.
-- [ ] **Step 3:** Show Odoo preference administration, applied preference/version, draft and
-   confirmation, UI evidence, immutable audit, Grafana metrics/logs/alerts,
-   GitHub Actions, Argo CD, and immutable digest promotion.
-- [ ] **Step 4:** Fit introduction, value, architecture, agent/MCP, live demo,
-   infrastructure/observability/testing, pipeline, and AI-agent reflection into
-   15 minutes.
-- [ ] **Step 5:** Prepare a truthful failure fallback using pre-recorded screenshots or
-   exported evidence; do not use generated video and do not present fallback
-   evidence as live.
-- [ ] **Step 6:** Perform one cold-start rehearsal after the cluster was intentionally
-   stopped and verify warming/scan behavior.
+- [ ] **Step 1: Record the manual baseline.** Time the documented manual
+  replenishment workflow at least three times and record method, fictional
+  inputs, results, and comparison limitations in `docs/demo/demo.md`.
+- [ ] **Step 2: Assemble the 15-minute script.** Include introduction, problem
+  and value, architecture, deterministic/LLM boundary, MCP/Odoo, AWS/Terraform,
+  self-managed Kubernetes, testing, security, observability, GitHub Actions,
+  Argo CD, same-digest promotion, and AI-agent reflection.
+- [ ] **Step 3: Rehearse the user-facing scenarios.** Demonstrate happy path,
+  company/category/product preference behavior, over-budget exception,
+  immutable manager approval, rejection/cancellation as time permits, draft
+  and confirmation, audit, metrics/logs, and safe fallback.
+- [ ] **Step 4: Build truthful evidence and fallback.** Put screenshots,
+  exported evidence references, pipeline/release provenance, skills used,
+  reflection, and failure fallback in `docs/demo/evidence.md`. Do not present
+  recorded evidence as live and do not generate a substitute video.
+- [ ] **Step 5: Rehearse twice.** Run at least two timed rehearsals, one with a
+  safe injected failure, resolve critical blockers, and keep the final path
+  within 15 minutes. Reuse the single T33 shutdown evidence rather than adding
+  another cold-start drill solely for presentation.
 
-**Verification:** Conduct at least two timed rehearsals, one with an injected
-safe failure, and resolve all critical demo blockers.
+**Verification:** Review both consolidated documents, run two timed rehearsals,
+and verify every live link, account, fictional seed, dashboard, workflow, Argo
+view, and fallback artifact before presentation day.
 
 **Dependencies:** T34.
 
-**Requirements:** CR-02, CR-14; spec section 24.
+**Requirements:** CR-02 and CR-14; spec section 24.
 
 **Complete when:** The user can explain every major decision and deliver the
-full presentation and live interaction within 15 minutes.
+full live interaction, observability, pipeline, reflection, and fallback within
+15 minutes.
 
 ## 9. Phase exit gates
 
@@ -3140,10 +3150,10 @@ full presentation and live interaction within 15 minutes.
 | G2 — Odoo boundary | Executable Odoo contract, repeatable seed, live MCP read | No unresolved Odoo contract assumption |
 | G3 — Container | Image builds, Compose E2E, image contract checks | Local system runs from pinned containers |
 | G4 — Platform | Guided T21A configuration plus protected T21B lifecycle evidence, Terraform/cluster/Kustomize/CI validation, and bounded clean/fail-open node-replacement drills | Reproducible AWS, automatically synchronized configuration, isolated worker ASGs, and a healthy shared Kubernetes platform |
-| G5 — Dev skeleton | Real Bedrock/Odoo/MCP/DynamoDB/Cognito smoke, retained-volume replacement, and observability evidence | Full walking skeleton healthy and replacement-safe in dev |
+| G5 — Dev skeleton | Exact-release Bedrock/Odoo/MCP/DynamoDB/Cognito smoke, append-only validation evidence, retained-volume replacement, and observability evidence | Full walking skeleton healthy, exact-release validated, and replacement-safe in dev |
 | G6 — Prod skeleton | Same-digest proof, Argo health, prod smoke | Promotion workflow proven |
-| G7 — Functional MVP | All Phase 5 tasks, including the three small preference tasks T27A–T27C, and safety tests | Preference-aware, approval-gated fictional PO workflow works end to end |
-| G8 — Release candidate | Security, resilience, resource, cost, observability, and CR-01–CR-16 evidence | MVP is submission-ready |
+| G7 — Functional MVP | T25–T29 vertical slices and safety tests | Deterministic evidence, revisioned preferences, contextual recommendation, idempotent draft, approve/confirm, and reject/cancel work end to end |
+| G8 — Release candidate | T32 security evidence, T33 representative resilience/recovery/cost drills, and T34 CR-01–CR-16 acceptance | MVP is submission-ready without duplicated acceptance work |
 | G9 — Presentation | Two timed rehearsals and fallback evidence | Fifteen-minute demo is ready |
 
 No stretch work may begin before G9.
@@ -3153,20 +3163,20 @@ No stretch work may begin before G9.
 | Requirement | Primary implementation tasks | Acceptance evidence |
 |---|---|---|
 | CR-01 Planning gates | Current plan, T34 | Approved spec/plan PRs and explicit implementation instruction |
-| CR-02 Business problem/value | T11A–T11B, T25–T27, T27A–T27C, T28–T31, T35 | Timed baseline, preference-aware approval-ready latency, live workflow |
-| CR-03 Coded LLM framework | T05, T12, T27C, T28–T31 | LangGraph tests, deployed graph, real model evidence |
-| CR-04 HTTP API/UI | T03, T05, T06, T14, T25–T27, T27A–T27C, T28–T31 | API/UI tests, live dashboard, Odoo preference UI |
-| CR-05 Reliability contracts | T02–T05, T12, T18B, T27B–T27C, T28–T33 | Errors, preference validation, retries, fallback, lifecycle bounds, reconciliation, shutdown tests |
-| CR-06 Real MCP interaction | T04, T07, T11A–T11B, T25–T27, T27A–T27C, T28–T31 | Streamable HTTP tests and demo traces |
+| CR-02 Business problem/value | T11A–T11B, T25–T29, T35 | Timed baseline, preference-aware approval-ready latency, approve/reject live workflow |
+| CR-03 Coded LLM framework | T05, T12, T25–T29 | LangGraph tests, deployed graph, real model evidence |
+| CR-04 HTTP API/UI | T03, T05, T06, T14, T25–T29 | API/UI tests, live dashboard, typed Odoo preference UI |
+| CR-05 Reliability contracts | T02–T05, T12, T18B, T23, T25–T29, T32–T33 | Errors, preference validation, immutable approval, retries, fallback, lifecycle bounds, reconciliation, representative shutdown tests |
+| CR-06 Real MCP interaction | T04, T07, T11A–T11B, T25–T29 | Ten-tool Streamable HTTP tests and demo traces |
 | CR-07 Self-managed EC2 Kubernetes | T16, T18A–T18C, T21A–T21B | Terraform state, protected provisioning, ASG/node inventory, finite join, controlled replacement, no EKS |
 | CR-08 Complete dev/prod | T17, T19A–T24 | Generated separate configuration, full-stack overlays, namespaces, Argo apps, smoke |
 | CR-09 Workload quality | T18A–T20B, T32, T33 | Probes, resources, HPA, retained CSI volumes, secrets, graceful shutdown/drain evidence |
 | CR-10 Terraform | T15–T18B, T21A–T21B | Validated/applied ASG, lifecycle, storage, edge, service state, protected orchestration/destruction, and reproducible runbooks |
-| CR-11 CI/CD/GitOps | T21–T24, T27A | Generated GitHub configuration, four-image PR/dev/main flows, Argo reconciliation, digest identity |
-| CR-12 Observability | T03–T05, T18B, T20A–T20B, T25–T27, T27A–T27C, T28–T34 | Application/ASG/cleanup metrics, logs, S3 objects, dashboards, fired alerts |
+| CR-11 CI/CD/GitOps | T21–T24, T26 | Complete four-image dev releases, one content identity, exact validation evidence, Argo reconciliation, same-digest promotion |
+| CR-12 Observability | T03–T05, T18B, T20A–T20B, T23, T25–T29, T32–T34 | Application/ASG/cleanup metrics, logs, S3 objects, dashboards, automatically validated rules, representative live alerts |
 | CR-13 Automated testing | Every behavior task; T34 audit | Unit/integration/UI/smoke/JUnit/coverage evidence |
-| CR-14 Presentation | T06, T23, T30, T34, T35 | Timed live demo, dashboard, pipeline, reflection |
-| CR-15 Security | T02–T04, T11A–T11B, T12–T24, T25–T27, T27A–T27C, T28–T33 | IAM/RBAC/CSRF/idempotency/redaction/network/preference/approval tests |
+| CR-14 Presentation | T06, T23, T29, T34, T35 | Timed live demo, dashboard, pipeline, reflection |
+| CR-15 Security | T02–T04, T11A–T11B, T12–T29, T32–T33 | IAM/RBAC/CSRF/idempotency/redaction/network/preference/immutable-approval tests |
 | CR-16 Decision/AWS justification | T15–T18B, T21A–T21B, T23, T33–T35 | Plans, protected deployment evidence, lifecycle/cost evidence, implementation status, explanation |
 
 ## 11. Test coverage map
@@ -3175,23 +3185,24 @@ No stretch work may begin before G9.
 |---|---|---|---|
 | Forecast/trigger/need-by | T25 | T25 real MCP transport | T25 real Odoo |
 | Duplicate/full/partial coverage | T25 | T25 concurrency | T25 seeded open PO |
-| Offer eligibility/quantity | T26 | T26 MCP + Odoo adapter | T26 vendor comparison |
-| Performance evidence | T26 | T26 MCP + Odoo adapter | T26 seeded receipts/returns |
-| Budget and overage | T11A model/ACL; T27 policy/UI | T11A Odoo contract; T27 MCP + Odoo adapter | T27/T30 exception path |
-| Preference versioning and Odoo authorization | T27A | T27A add-on/container/release tests | T27A Odoo administration smoke |
-| Preference resolution and premium | T27B | T27B real MCP + Odoo add-on | T27B company/category/product scenarios |
-| Preference case/prompt/UI binding | T27C | T27C graph/API/React tests | T27C real Bedrock and read-only case view |
-| LLM recommendation/fallback | T12/T28 mocked | T28 graph + MCP | T28 real Bedrock |
-| Draft/idempotency | T29 | T29 concurrency/ambiguous result | T29 real Odoo |
-| Approval/confirmation | T11A atomic Odoo contract; T30 approval/MCP integration | T11A/T30 stale/replay/role/exception | T30 real Odoo |
-| Reject/change/reconcile | T31 | T31 failures/restarts | T31 real Odoo |
-| API/auth/CSRF | T03/T05/T14/T25–T27/T27C/T28–T31 | T14/T25–T27/T27C/T28–T31 | T23/T24/T27C/T30 |
-| React states/actions | T06/T14/T25–T27/T27C/T28–T31 | Local browser E2E | Dev/prod browser smoke |
-| MCP tools | T04/T11B/T25–T27/T27B/T28–T31 | All eleven over Streamable HTTP | Real Odoo demo traces |
+| Offer eligibility/quantity | T25 | T25 MCP + Odoo adapter | T25 vendor comparison |
+| Performance evidence | T25 | T25 MCP + Odoo adapter | T25 seeded receipts/returns |
+| Budget and overage | T11A model/ACL; T25 policy/UI | T11A Odoo contract; T25 MCP + Odoo adapter | T25/T29 exception path |
+| Preference revision and Odoo authorization | T26 | T26 add-on/container/release tests | T26 Odoo administration smoke |
+| Preference resolution and premium | T26 | T26 real MCP + Odoo add-on | T26 company/category/product scenarios |
+| Preference snapshot/prompt/UI binding | T26 | T26 graph/API/React tests | T26 real MCP and read-only applied revision |
+| LLM recommendation/fallback | T12/T27 mocked | T27 graph + MCP | T27 real Bedrock |
+| Draft/idempotency | T28 | T28 concurrency/ambiguous result | T28 real Odoo |
+| Approval/confirmation | T11A atomic Odoo contract; T29 approval/MCP | T11A/T29 stale/replay/role/exception | T29 real Odoo |
+| Reject/cancel/reconcile | T29 | T29 failures/restarts | T29 real Odoo |
+| API/auth/CSRF | T03/T05/T14/T25–T29 | T14/T25–T29 | T23/T24/T26/T29 |
+| React states/actions | T06/T14/T25–T29 | Local browser E2E | Dev/prod browser smoke |
+| MCP tools | T04/T11B/T25–T29 | All ten over Streamable HTTP | Real Odoo demo traces |
 | AWS repositories | T12–T14 mocked | DynamoDB Local | Dev/prod AWS smoke |
 | Worker bootstrap and termination | T18A/T18B mocks | Terraform/event/IAM/SSM integration checks | Clean and fail-open dev replacement drills |
 | Kubernetes/config, ingress, and storage | T17–T20B static | Terraform/render/policy/resource tests | ASG/ACM/ALB/NGINX health, six EBS bindings/reattachment, Grafana reconstruction, Argo recovery |
-| Security/shutdown/load | T32/T33 | Fault injection | Dev drills and prod-safe checks |
+| Release identity/validation/promotion | T22/T24 | T22–T24 workflow/release tests | Exact dev evidence and same-digest prod smoke |
+| Security/shutdown/load | T32/T33 | Automated fault injection | Representative rotations, interruptions, HPA/capacity, snapshot restore, and one shutdown/restart drill |
 
 ## 12. Risk-driven stop conditions
 
@@ -3200,9 +3211,9 @@ Implementation stops for review when any of these occurs:
 - Odoo 19 Community, JSON-2, or the narrowly approved StockAI add-on cannot
   provide a required standard or extension contract.
 - The StockAI Odoo add-on cannot enforce budget uniqueness, atomic
-  revision-bound PO actions, immutable preference versions, non-overlapping
-  effective profiles, or least-privilege administration without materially
-  broader authority than approved.
+  revision-bound PO actions, one typed current preference per scope,
+  server-managed monotonic revisions, Odoo change tracking, or least-privilege
+  administration without materially broader authority than approved.
 - The selected Bedrock model is unavailable in the approved region/account or
   violates the expected IAM invocation contract.
 - The complete stack cannot fit safely on each `t3.medium`/30 GB worker after
@@ -3225,9 +3236,12 @@ Implementation stops for review when any of these occurs:
 - External Secrets cannot access only the intended environment secrets without
   broadening the control-plane role.
 - A write cannot be reconciled safely after an ambiguous timeout.
-- A PO can be confirmed without a strongly consistent, exact,
-  revision-bound manager approval.
-- Dev and prod cannot use the identical immutable image digests.
+- A manager approval cannot be immutably persisted and independently
+  revalidated against the exact evidence hash and current PO revision before
+  confirmation.
+- Dev and prod cannot use the identical immutable four-image digest map, or
+  release promotion cannot distinguish content identity from traceability
+  commit differences.
 - A new requirement would add an unapproved external integration, AWS service,
   high-impact action, or materially different architecture.
 
@@ -3265,7 +3279,12 @@ The order is:
    tenant-aware administration only after the single-company profile,
    category/product inheritance, audit, and authorization boundaries are
    proven.
-7. **S07 — Real node autoscaling.** If Phase 1 and G9 are complete with time
+7. **S07 — Bounded manager change and reapproval.** If real user evidence
+   justifies it, design a small allowlisted request-change path using the
+   existing atomic Odoo update primitive, new immutable evidence, approval
+   invalidation, recomputation, and reapproval. It requires a separate spec and
+   plan amendment and is not implied by the MVP API.
+8. **S08 — Real node autoscaling.** If Phase 1 and G9 are complete with time
    remaining, revise and re-approve the specification and plan before adding
    Cluster Autoscaler to manage the existing dev/prod ASGs. Keep all HPAs and
    validate scale-up, scale-down, drain, cost, IAM, and retained-volume behavior.
@@ -3280,13 +3299,16 @@ The user and course staff should confirm:
 
 - The task order matches the course’s walking-skeleton-first strategy.
 - Each task is small enough to review and has concrete files and checks.
-- All eleven MCP tools and their real transport are covered.
-- Preference administration is structured and versioned, never a raw prompt
+- All ten MVP MCP tools and their real transport are covered; the existing
+  Odoo update primitive is not exposed as an MVP tool.
+- Preference administration is structured and revisioned, never a raw prompt
   editor, and product/category/company precedence is unambiguous.
 - Preference configuration and case approval are separately authorized, with
   read-only applied preference evidence visible to officers and managers.
 - Odoo feasibility is tested before broad dependence on its data model.
-- Every PO remains manager-approved and revision-bound.
+- Every confirmation has an immutable manager approval independently
+  revalidated against the exact evidence hash and current PO revision; reject
+  safely cancels, and request-change/update/reapproval is outside the MVP.
 - Dev and prod are complete, isolated, and constrained to their approved
   single-AZ worker ASGs, labels/taints, roles, and target groups.
 - Normal active capacity is one fixed control plane plus one desired worker in
@@ -3302,30 +3324,34 @@ The user and course staff should confirm:
   covered by clean/fail-open recovery drills.
 - All AWS services are justified and provisioned through Terraform.
 - GitHub Actions never deploys workloads directly.
-- The exact dev-tested image digests are promoted to prod.
+- Every relevant dev release builds all four images, uses one deterministic
+  content identity, locks its release core, and receives append-only exact-
+  release validation evidence before the exact digests reach prod.
 - Tests cover happy paths, failures, malformed outputs, timeouts, retries,
   fallbacks, concurrency, and ambiguous writes.
 - Logs reach Loki and encrypted S3 without leaking sensitive procurement data.
 - Dashboards and alerts cover application, LLM, MCP, Kubernetes, dependencies,
   ALB/HTTPS edge health, exact request/latency/error/token panels, and
   procurement safety.
-- Cost, disk, memory, non-24/7 operation, and recovery limitations are tested
-  and presented honestly.
+- Cost, disk, memory, non-24/7 operation, retained-volume replacement, and prod
+  snapshot recovery limitations are tested with representative non-duplicated
+  live drills and detailed automated coverage.
 - Stretch integrations remain blocked until the submission-ready MVP is
   complete.
 
 ## 15. Next approval gate
 
-The original planning gate and subsequent approved revisions authorized T01
-through T09, which are complete. T10 triggered its approved stop condition.
-The user approved the exact remediation revision, confirmed course-staff
-approval, and explicitly authorized T10 implementation to resume on 2026-08-07.
-T10 through T14 are approved and merged; T14 merged through PR #18 at
-`fd6ba1d`. The user explicitly authorized T15 on 2026-08-09, and T15 was
-reviewed and merged through PR #19 at `f89a089`. The user explicitly authorized
-T16 on 2026-08-11, and T16 was reviewed and merged through PR #20 at
-`debbb5f`. The user explicitly authorized T17 on 2026-08-11; its offline
-Terraform plan contracts and provider-schema validation are complete and await
-user review. Remote-backend initialization with account-specific inputs, the
-reviewed real plans, apply, quota/cost checks, and post-apply AWS verification
-retain the separate explicit infrastructure approval gate.
+T01–T21B history and authorization remain governed by their recorded approval
+and live-infrastructure gates in `docs/implementation-status.md`. This amendment
+does not retroactively change completed work.
+
+On 2026-08-14 the user approved the focused simplification design and exact
+written `docs/spec.md` amendment and confirmed renewed course-staff approval.
+This exact `docs/plan.md` amendment must now be reviewed and approved by the
+user and course staff. After both approvals, the user must explicitly authorize
+T22 implementation; approval of this plan does not itself authorize code,
+workflow, infrastructure, deployment, test, or live-environment changes.
+
+Protected Terraform apply/destroy operations, live AWS changes, worker
+capacity changes, snapshot restore, and the shutdown/restart drill retain their
+separate explicit execution approvals even after implementation authorization.
