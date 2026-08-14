@@ -215,6 +215,31 @@ def test_dirty_feature_branch_is_rejected_before_fetch(
         promotion.promote(tmp_path, fetch=True)
 
 
+def test_fetch_refreshes_origin_dev_remote_tracking_ref(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[list[str]] = []
+
+    def fake_git(_root: Path, arguments: list[str]) -> str:
+        calls.append(arguments)
+        if arguments[0] == "symbolic-ref":
+            return "feature/t24-fix\n"
+        if arguments[0] in {"status", "fetch"}:
+            return ""
+        return pytest.fail(f"unexpected Git operation: {arguments}")
+
+    monkeypatch.setattr(promotion, "_git", fake_git)
+    monkeypatch.setattr(promotion, "_load_origin_dev", lambda _root: {})
+    monkeypatch.setattr(
+        promotion,
+        "prepare_promotion",
+        lambda *_args, **_kwargs: False,
+    )
+
+    assert promotion.promote(tmp_path) is False
+    assert ["fetch", "--quiet", "origin", promotion.ORIGIN_DEV_REFSPEC] in calls
+
+
 def test_missing_origin_dev_release_history_is_rejected(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

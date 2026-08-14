@@ -301,6 +301,7 @@ def test_main_promotion_verifies_observes_and_smokes_without_rebuild() -> None:
     assert workflow["permissions"] == {"contents": "read", "id-token": "write"}
     assert workflow["jobs"]["promote"]["environment"] == "prod"
     assert "--promoted-from" in source
+    assert "+refs/heads/dev:refs/remotes/origin/dev" in source
     assert "scripts.release.observe_argocd" in source
     assert "make smoke-prod" in source
     assert "AWS_TERRAFORM_APPLY_ROLE_ARN" in source
