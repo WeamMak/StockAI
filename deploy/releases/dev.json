@@ -8,7 +8,7 @@
   },
   "createdAt": "2026-08-14T11:05:40Z",
   "devValidation": {
-    "evidenceDigest": null,
+    "attempts": [],
     "status": "pending"
   },
   "images": {
@@ -19,7 +19,7 @@
   },
   "integrity": {
     "algorithm": "sha256",
-    "digest": "sha256:d7857964611dc62bdc62a4eb7bd81d1f28813064bb8c48e89318a81cfd611a0f"
+    "digest": "sha256:0725fe6811dbc8156f3d4bc192c0a20abbbb2eae8ec589b3be404015f7131f89"
   },
   "provenance": {
     "api": "sha256:8f7ec2187fd356bdafefde84ac512753ae3f10badafe0e1b4a48a26301c1b544",
@@ -27,6 +27,7 @@
     "mcp": "sha256:6dd67fc3e7ea208fe8e5f8476cc9f96a75c0083d47e8791c836c0f38eb16a68f",
     "odoo": "sha256:8f9eb6f41667c1a491719639b2d1f43c66dac3c4e8ef4c9c4390225580bae42d"
   },
+  "releaseId": "sha256:09fab48d2d3417f54f33853c109fd46b4381b6dddc750ee5f7377c0da2f8057d",
   "schemaVersion": 1,
   "scout": {
     "reportDigest": "sha256:4f613d1502b9864872018094280ff9a668aa9ac1f5f10f01ae2ce47009584f3d",

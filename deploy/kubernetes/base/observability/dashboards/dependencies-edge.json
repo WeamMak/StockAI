@@ -1,6 +1,10 @@
 {
   "annotations": {"list": []},
   "editable": false,
+  "links": [
+    {"title": "Agent health", "type": "link", "url": "/d/stockai-agent-health"},
+    {"title": "Kubernetes and capacity", "type": "link", "url": "/d/stockai-kubernetes-capacity"}
+  ],
   "panels": [
     {
       "datasource": {"type": "prometheus", "uid": "stockai-prometheus"},

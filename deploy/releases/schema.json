@@ -12,12 +12,14 @@
     "images",
     "integrity",
     "provenance",
+    "releaseId",
     "schemaVersion",
     "scout",
     "source"
   ],
   "properties": {
     "schemaVersion": { "const": 1 },
+    "releaseId": { "$ref": "#/$defs/digest" },
     "source": {
       "type": "object",
       "additionalProperties": false,
@@ -43,22 +45,20 @@
     "devValidation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["evidenceDigest", "status"],
+      "required": ["attempts", "status"],
       "properties": {
         "status": { "enum": ["pending", "passed", "failed"] },
-        "evidenceDigest": {
-          "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }]
+        "attempts": {
+          "type": "array",
+          "maxItems": 20,
+          "items": { "$ref": "#/$defs/validationAttempt" }
         }
       },
       "allOf": [
         {
           "if": { "properties": { "status": { "const": "pending" } } },
-          "then": { "properties": { "evidenceDigest": { "type": "null" } } },
-          "else": {
-            "properties": {
-              "evidenceDigest": { "$ref": "#/$defs/digest" }
-            }
-          }
+          "then": { "properties": { "attempts": { "maxItems": 0 } } },
+          "else": { "properties": { "attempts": { "minItems": 1 } } }
         }
       ]
     },
@@ -88,6 +88,31 @@
         "frontend": { "$ref": "#/$defs/digest" },
         "mcp": { "$ref": "#/$defs/digest" },
         "odoo": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "validationAttempt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "argoRevision",
+        "evidenceDigest",
+        "images",
+        "releaseId",
+        "result",
+        "smokeRunId",
+        "timestamp"
+      ],
+      "properties": {
+        "releaseId": { "$ref": "#/$defs/digest" },
+        "images": { "$ref": "#/$defs/imageMap" },
+        "argoRevision": { "$ref": "#/$defs/gitObject" },
+        "smokeRunId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "timestamp": { "type": "string", "format": "date-time", "pattern": "Z$" },
+        "result": { "enum": ["passed", "failed"] },
+        "evidenceDigest": { "$ref": "#/$defs/digest" }
       }
     }
   }

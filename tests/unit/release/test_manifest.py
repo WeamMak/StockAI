@@ -7,7 +7,12 @@ from pathlib import Path
 
 import pytest
 from scripts.release.create_manifest import create_manifest, write_manifest
-from scripts.release.verify_manifest import ManifestError, verify_manifest
+from scripts.release.verify_manifest import (
+    ManifestError,
+    calculate_integrity,
+    calculate_release_id,
+    verify_manifest,
+)
 
 SOURCE_COMMIT = "1" * 40
 SOURCE_TREE = "2" * 40
@@ -40,8 +45,8 @@ def _manifest() -> dict[str, object]:
         },
         scout_status="passed",
         scout_report_digest=f"sha256:{'3' * 64}",
-        dev_status="passed",
-        dev_evidence_digest=f"sha256:{'4' * 64}",
+        dev_status="pending",
+        dev_evidence_digest=None,
         created_at="2026-08-12T10:30:00Z",
     )
 
@@ -54,6 +59,7 @@ def test_complete_manifest_is_deterministic_and_verifiable(tmp_path: Path) -> No
     assert first["images"] == IMAGE_DIGESTS
     assert first["provenance"] == PROVENANCE_DIGESTS
     assert first["applicationIdentity"] == f"sha256:{'5' * 64}"
+    assert first["releaseId"] == calculate_release_id(first)
     assert verify_manifest(first) == first
 
     output = tmp_path / "release.json"
@@ -80,8 +86,8 @@ def test_manifest_rejects_a_missing_required_image(missing_image: str) -> None:
             },
             scout_status="passed",
             scout_report_digest=f"sha256:{'3' * 64}",
-            dev_status="passed",
-            dev_evidence_digest=f"sha256:{'4' * 64}",
+            dev_status="pending",
+            dev_evidence_digest=None,
             created_at="2026-08-12T10:30:00Z",
         )
 
@@ -92,7 +98,7 @@ def test_manifest_rejects_tampered_artifact_identity() -> None:
     assert isinstance(images, dict)
     images["api"] = f"sha256:{'9' * 64}"
 
-    with pytest.raises(ManifestError, match="integrity digest does not match"):
+    with pytest.raises(ManifestError, match="releaseId"):
         verify_manifest(manifest)
 
 
@@ -127,5 +133,24 @@ def test_schema_requires_exactly_the_four_project_images() -> None:
 
     assert schema["properties"]["images"] == {"$ref": "#/$defs/imageMap"}
     assert schema["properties"]["buildInputs"] == {"$ref": "#/$defs/imageMap"}
+    assert schema["properties"]["releaseId"] == {"$ref": "#/$defs/digest"}
+    assert schema["properties"]["devValidation"]["properties"]["attempts"] == {
+        "type": "array",
+        "maxItems": 20,
+        "items": {"$ref": "#/$defs/validationAttempt"},
+    }
     assert set(images["required"]) == set(IMAGE_DIGESTS)
     assert images["additionalProperties"] is False
+
+
+def test_release_id_rejects_core_tampering_even_with_new_document_integrity() -> None:
+    manifest = _manifest()
+    source = manifest["source"]
+    integrity = manifest["integrity"]
+    assert isinstance(source, dict)
+    assert isinstance(integrity, dict)
+    source["commit"] = "9" * 40
+    integrity["digest"] = calculate_integrity(manifest)
+
+    with pytest.raises(ManifestError, match="releaseId"):
+        verify_manifest(manifest)

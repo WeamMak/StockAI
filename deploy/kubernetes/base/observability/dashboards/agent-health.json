@@ -1,6 +1,10 @@
 {
   "annotations": {"list": []},
   "editable": false,
+  "links": [
+    {"title": "LLM and MCP", "type": "link", "url": "/d/stockai-llm-mcp"},
+    {"title": "Dependencies and edge", "type": "link", "url": "/d/stockai-dependencies-edge"}
+  ],
   "panels": [
     {
       "datasource": {"type": "prometheus", "uid": "stockai-prometheus"},
