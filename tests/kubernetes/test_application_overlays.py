@@ -170,9 +170,7 @@ def test_stateful_storage_and_finite_odoo_bootstrap(environment: str) -> None:
     assert bootstrap_pod["volumes"] == [
         {"emptyDir": {"sizeLimit": "64Mi"}, "name": "tmp"}
     ]
-    assert bootstrap_container["volumeMounts"] == [
-        {"mountPath": "/tmp", "name": "tmp"}
-    ]
+    assert bootstrap_container["volumeMounts"] == [{"mountPath": "/tmp", "name": "tmp"}]
     assert bootstrap_container["command"] == ["bash", "-lc"]
     assert "/opt/stockai/bootstrap.py" in bootstrap_container["args"][0]
     env = {item["name"]: item for item in bootstrap_container["env"]}
