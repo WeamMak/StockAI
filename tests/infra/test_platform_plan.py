@@ -302,18 +302,37 @@ def test_control_plane_ebs_csi_policy_is_tag_and_resource_scoped(
     assert statements["DescribeEbsTopology"]["Resource"] == "*"
 
 
-def test_public_ingress_is_limited_to_admin_ssh_and_api(
+def test_cidr_ingress_is_limited_to_admin_and_pod_api_access(
     platform_plan: TerraformPlan,
 ) -> None:
     ingress_rules = list(_values(platform_plan, "aws_vpc_security_group_ingress_rule"))
-    public_rules = [rule for rule in ingress_rules if rule.get("cidr_ipv4")]
+    cidr_rules = [rule for rule in ingress_rules if rule.get("cidr_ipv4")]
 
-    assert {rule["cidr_ipv4"] for rule in public_rules} == {"203.0.113.10/32"}
-    assert {(rule["from_port"], rule["to_port"]) for rule in public_rules} == {
-        (22, 22),
-        (6443, 6443),
+    assert {
+        (rule["cidr_ipv4"], rule["from_port"], rule["to_port"]) for rule in cidr_rules
+    } == {
+        ("203.0.113.10/32", 22, 22),
+        ("203.0.113.10/32", 6443, 6443),
+        ("192.168.0.0/16", 6443, 6443),
     }
+    assert all(rule["ip_protocol"] == "tcp" for rule in cidr_rules)
     assert all(rule.get("cidr_ipv4") != "0.0.0.0/0" for rule in ingress_rules)
+
+
+def test_control_plane_pod_api_rule_is_narrow(
+    platform_plan: TerraformPlan,
+) -> None:
+    rules = list(_values(platform_plan, "aws_vpc_security_group_ingress_rule"))
+    pod_api_rule = next(
+        rule
+        for rule in rules
+        if rule.get("description") == "Kubernetes API from the Calico pod CIDR"
+    )
+
+    assert pod_api_rule["cidr_ipv4"] == "192.168.0.0/16"
+    assert pod_api_rule["from_port"] == 6443
+    assert pod_api_rule["to_port"] == 6443
+    assert pod_api_rule["ip_protocol"] == "tcp"
 
 
 def test_platform_exports_the_approved_t16_interface(

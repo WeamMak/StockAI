@@ -153,6 +153,7 @@ def test_loki_is_s3_prefixed_and_locally_bounded(environment: str) -> None:
     assert env["LOKI_RETENTION_PERIOD"] == ("336h" if environment == "dev" else "2160h")
     assert "object_prefix: ${LOKI_S3_PREFIX}" in config["loki.yaml"]
     assert "bucketnames: ${LOKI_S3_BUCKET}" in config["loki.yaml"]
+    assert "delete_request_store: s3" in config["loki.yaml"]
     assert "retention_period: ${LOKI_RETENTION_PERIOD}" in config["loki.yaml"]
     scratch = next(
         volume for volume in pod_spec["volumes"] if volume["name"] == "loki-data"

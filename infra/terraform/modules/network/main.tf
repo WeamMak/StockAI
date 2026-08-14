@@ -101,6 +101,15 @@ resource "aws_vpc_security_group_ingress_rule" "control_plane_api_admin" {
   to_port           = 6443
 }
 
+resource "aws_vpc_security_group_ingress_rule" "control_plane_api_pods" {
+  security_group_id = aws_security_group.control_plane.id
+  cidr_ipv4         = "192.168.0.0/16"
+  description       = "Kubernetes API from the Calico pod CIDR"
+  from_port         = 6443
+  ip_protocol       = "tcp"
+  to_port           = 6443
+}
+
 resource "aws_vpc_security_group_ingress_rule" "control_plane_self" {
   security_group_id            = aws_security_group.control_plane.id
   description                  = "Control-plane component traffic"
