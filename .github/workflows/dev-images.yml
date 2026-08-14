@@ -65,9 +65,11 @@ jobs:
               elif . == "mcp" then {name: ., dockerfile: "docker/mcp.Dockerfile"}
               else {name: ., dockerfile: "docker/odoo.Dockerfile"} end]
           ')
-          echo "changed=$changed" >> "$GITHUB_OUTPUT"
-          echo "count=$(jq 'length' <<< "$changed")" >> "$GITHUB_OUTPUT"
-          echo "prior=$prior" >> "$GITHUB_OUTPUT"
+          {
+            echo "changed=$changed"
+            echo "count=$(jq 'length' <<< "$changed")"
+            echo "prior=$prior"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Retain verified release inputs
         uses: actions/upload-artifact@v6
@@ -240,7 +242,7 @@ jobs:
             --results image-results \
             "${prior[@]}" \
             --source-commit "$SOURCE_COMMIT" \
-            --source-tree "$(git rev-parse HEAD^{tree})" \
+            --source-tree "$(git rev-parse 'HEAD^{tree}')" \
             --created-at "$(date --utc +%Y-%m-%dT%H:%M:%SZ)"
           uv run --frozen python -m scripts.release.update_dev_overlay candidate.json
           uv run --frozen python -m scripts.release.verify_manifest deploy/releases/dev.json
