@@ -54,6 +54,9 @@ def test_observer_uses_argocd_api_and_accepts_exact_healthy_revision() -> None:
     commands = ssm.parameters["Parameters"]["commands"]
     assert isinstance(commands, list)
     source = "\n".join(commands)
+    assert "jsonpath='{.spec.clusterIP}'" in source
+    assert "https://$server_ip/api/v1/session" in source
+    assert "argocd-server.argocd.svc" not in source
     assert "/api/v1/applications/stockai-prod" in source
     assert "/api/v1/session" in source
     assert "while test" in source
