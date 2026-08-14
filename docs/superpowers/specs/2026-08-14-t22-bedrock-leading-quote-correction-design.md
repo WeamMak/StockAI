@@ -60,11 +60,15 @@ also invalid.
 
 ## Release and live verification
 
-The normal T22 dev workflow remains authoritative. A relevant dev source push
-builds all four project images, produces a new content identity and immutable
-release manifest, updates the exact four dev overlay digests, and lets Argo CD
-reconcile the desired state. There is no manual image deployment, partial
-release, mutable tag, prior-manifest rewrite, or direct `kubectl` deployment.
+The normal T22 dev workflow remains authoritative. It calculates all four image
+input identities and assembles one coherent four-image release. Because both
+the API and MCP images consume `src/`, this correction rebuilds those two
+images; it may carry forward frontend and Odoo only when their identities match
+the verified prior release. The workflow produces a new content identity and
+immutable release manifest, updates the exact four dev overlay digests, and
+lets Argo CD reconcile the desired state. There is no manual image deployment,
+partial release, mutable tag, unverified digest carry-forward, prior-manifest
+rewrite, or direct `kubectl` deployment.
 
 After Argo reports the new release Synced and Healthy with all four exact
 digests, T23 restarts against that release. The authenticated smoke must pass
