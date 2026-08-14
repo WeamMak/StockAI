@@ -420,6 +420,7 @@ jobs:
           role-session-name: stockai-provision-cluster-platform
       - name: Install and verify the shared Kubernetes platform through SSM
         run: |
+          set -euo pipefail
           descriptor=lifecycle/deployment.json
           uv run --frozen python -m scripts.infra.cluster_platform \
             --instance-id "$(jq -r .outputs.platform.control_plane_instance_id "$descriptor")" \

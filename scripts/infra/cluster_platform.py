@@ -93,7 +93,11 @@ kubectl apply --server-side --field-manager=stockai-platform -k deploy/kubernete
 kubectl apply --server-side --field-manager=stockai-platform -k deploy/kubernetes/cluster/metrics >/dev/null
 kubectl apply --server-side --field-manager=stockai-platform -k deploy/kubernetes/cluster/external-secrets >/dev/null
 kubectl wait --for=condition=Established crd/externalsecrets.external-secrets.io crd/secretstores.external-secrets.io --timeout=5m >/dev/null
+kubectl apply --server-side --field-manager=stockai-platform -f deploy/kubernetes/cluster/argocd/namespace.yaml >/dev/null
+kubectl apply --server-side --field-manager=stockai-platform --namespace=argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/v3.5.0/manifests/install.yaml >/dev/null
+kubectl wait --for=condition=Established crd/applications.argoproj.io --timeout=5m >/dev/null
 kubectl apply --server-side --field-manager=stockai-platform -k deploy/kubernetes/cluster/argocd >/dev/null
+kubectl -n argocd get application stockai-dev stockai-prod >/dev/null
 
 kubectl rollout status daemonset/ingress-nginx-controller -n ingress-nginx --timeout=10m >/dev/null
 kubectl rollout status deployment/ebs-csi-controller -n kube-system --timeout=10m >/dev/null

@@ -152,6 +152,7 @@ def test_t21b_lifecycle_workflows_are_manual_protected_and_keyless() -> None:
 
 
 def test_t21b_provision_uses_saved_plans_in_dependency_order() -> None:
+    workflow = _workflow("terraform-provision.yml")
     source = (WORKFLOWS / "terraform-provision.yml").read_text(encoding="utf-8")
 
     positions = [
@@ -173,6 +174,13 @@ def test_t21b_provision_uses_saved_plans_in_dependency_order() -> None:
     assert "scripts.infra.cluster_platform" in source
     assert "install" in source
     assert 'expected="provision ${DEPLOYMENT} in ${ACCOUNT}"' in source
+    platform_step = next(
+        step
+        for step in workflow["jobs"]["cluster-platform"]["steps"]
+        if step.get("name")
+        == "Install and verify the shared Kubernetes platform through SSM"
+    )
+    assert platform_step["run"].startswith("set -euo pipefail\n")
 
 
 def test_t21b_destroy_is_reverse_order_and_preserves_bootstrap() -> None:
