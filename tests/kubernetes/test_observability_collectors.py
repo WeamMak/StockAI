@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 from typing import Any, cast
@@ -12,6 +13,13 @@ import yaml  # type: ignore[import-untyped]
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 OVERLAYS_ROOT = PROJECT_ROOT / "deploy" / "kubernetes" / "overlays"
 ENVIRONMENTS = ("dev", "prod")
+DEPLOYMENT = json.loads(
+    (PROJECT_ROOT / "deploy" / "config" / "deployment.json").read_text(encoding="utf-8")
+)
+LOKI_BUCKETS = {
+    "replace-after-edge-terraform-apply",
+    DEPLOYMENT["generated"]["loki_bucket_name"],
+}
 OBSERVABILITY_DEPLOYMENTS = {
     "stockai-alertmanager",
     "stockai-blackbox-exporter",
@@ -141,7 +149,7 @@ def test_loki_is_s3_prefixed_and_locally_bounded(environment: str) -> None:
     config = _named(resources, "ConfigMap", "stockai-observability-config")["data"]
 
     assert env["LOKI_S3_PREFIX"] == f"{environment}/"
-    assert env["LOKI_S3_BUCKET"] == "replace-after-edge-terraform-apply"
+    assert env["LOKI_S3_BUCKET"] in LOKI_BUCKETS
     assert env["LOKI_RETENTION_PERIOD"] == ("336h" if environment == "dev" else "2160h")
     assert "object_prefix: ${LOKI_S3_PREFIX}" in config["loki.yaml"]
     assert "bucketnames: ${LOKI_S3_BUCKET}" in config["loki.yaml"]

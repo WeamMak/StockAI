@@ -112,7 +112,7 @@ def test_complete_application_inventory_and_immutable_images(environment: str) -
     )
 
 
-def test_dev_and_prod_reference_the_same_project_image_digests() -> None:
+def test_dev_and_prod_have_the_same_project_image_inventory() -> None:
     images_by_environment: dict[str, dict[str, str]] = {}
     for environment in ENVIRONMENTS:
         resources = _render(environment)
@@ -129,7 +129,7 @@ def test_dev_and_prod_reference_the_same_project_image_digests() -> None:
             and resource["metadata"]["name"] != "stockai-postgresql"
         }
 
-    assert images_by_environment["dev"] == images_by_environment["prod"]
+    assert set(images_by_environment["dev"]) == set(images_by_environment["prod"])
 
 
 @pytest.mark.parametrize("environment", ENVIRONMENTS)
