@@ -33,6 +33,8 @@ def create_manifest(
     source_tree: str,
     images: Mapping[str, str],
     provenance: Mapping[str, str],
+    application_identity: str,
+    build_inputs: Mapping[str, str],
     scout_status: str,
     scout_report_digest: str,
     dev_status: str,
@@ -46,6 +48,8 @@ def create_manifest(
         "source": {"commit": source_commit, "tree": source_tree},
         "images": dict(images),
         "provenance": dict(provenance),
+        "applicationIdentity": application_identity,
+        "buildInputs": dict(build_inputs),
         "scout": {
             "status": scout_status,
             "reportDigest": scout_report_digest,
@@ -116,7 +120,17 @@ def main() -> int:
         metavar="NAME=DIGEST",
         help=f"required once for each of: {', '.join(IMAGE_NAMES)}",
     )
-    parser.add_argument("--scout-status", choices=("passed", "failed"), required=True)
+    parser.add_argument("--application-identity", required=True)
+    parser.add_argument(
+        "--build-input",
+        action="append",
+        default=[],
+        metavar="NAME=DIGEST",
+        help=f"required once for each of: {', '.join(IMAGE_NAMES)}",
+    )
+    parser.add_argument(
+        "--scout-status", choices=("passed", "findings", "error"), required=True
+    )
     parser.add_argument("--scout-report-digest", required=True)
     parser.add_argument(
         "--dev-status", choices=("pending", "passed", "failed"), required=True
@@ -130,6 +144,8 @@ def main() -> int:
             source_tree=arguments.source_tree,
             images=_pairs(arguments.image, name="image"),
             provenance=_pairs(arguments.provenance, name="provenance"),
+            application_identity=arguments.application_identity,
+            build_inputs=_pairs(arguments.build_input, name="build-input"),
             scout_status=arguments.scout_status,
             scout_report_digest=arguments.scout_report_digest,
             dev_status=arguments.dev_status,

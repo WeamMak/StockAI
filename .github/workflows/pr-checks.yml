@@ -265,6 +265,7 @@ jobs:
 
       - name: Run Docker Scout
         id: scout
+        continue-on-error: true
         uses: docker/scout-action@v1
         with:
           command: cves
@@ -284,6 +285,7 @@ jobs:
 
       - name: Retain Scout report
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v6
         with:
           name: docker-scout-${{ matrix.name }}

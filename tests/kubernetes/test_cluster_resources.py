@@ -239,6 +239,17 @@ def test_argocd_is_declarative_and_controller_namespaces_are_isolated(
         _has_control_plane_placement(_pod_spec(item)) for item in argocd_workloads
     )
 
+    dev_application = _resource(resources, "Application", "stockai-dev", "argocd")
+    assert dev_application["spec"]["source"] == {
+        "repoURL": "https://github.com/WeamMak/StockAI.git",
+        "targetRevision": "dev",
+        "path": "deploy/kubernetes/overlays/dev",
+    }
+    assert dev_application["spec"]["syncPolicy"]["automated"] == {
+        "prune": True,
+        "selfHeal": True,
+    }
+
     workflow_root = PROJECT_ROOT / ".github" / "workflows"
     workflows = "\n".join(
         path.read_text(encoding="utf-8") for path in workflow_root.glob("*.y*ml")
