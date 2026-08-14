@@ -43,6 +43,11 @@ def _commands(
         "set -eu",
         "export KUBECONFIG=/etc/kubernetes/admin.conf",
         (
+            'server_ip="$(kubectl -n argocd get service argocd-server '
+            "-o jsonpath='{.spec.clusterIP}')\""
+        ),
+        'test -n "$server_ip"',
+        (
             'password="$(kubectl -n argocd get secret '
             "argocd-initial-admin-secret -o jsonpath='{.data.password}' "
             '| base64 --decode)"'
@@ -54,7 +59,7 @@ def _commands(
         ),
         (
             'token="$(curl --fail --silent --show-error --insecure '
-            "--request POST https://argocd-server.argocd.svc/api/v1/session "
+            '--request POST "https://$server_ip/api/v1/session" '
             "--header 'Content-Type: application/json' --data \"$payload\" "
             '| python3 -c \'import json,sys; print(json.load(sys.stdin)["token"])\')"'
         ),
@@ -63,7 +68,7 @@ def _commands(
         'while test "$(date +%s)" -lt "$deadline"; do',
         (
             '  result="$(curl --fail --silent --insecure '
-            f"https://argocd-server.argocd.svc/api/v1/applications/{application} "
+            f'"https://$server_ip/api/v1/applications/{application}" '
             '--header "Authorization: Bearer $token" | python3 -c '
             '\'import json,sys; d=json.load(sys.stdin); s=d["status"]; '
             'print("|".join((s["sync"]["revision"], '
@@ -72,12 +77,12 @@ def _commands(
         ),
         f'  if test "$result" = "{expected_state}"; then',
         '    printf "%s\\n" "$result"',
-        "    unset token result deadline",
+        "    unset token result deadline server_ip",
         "    exit 0",
         "  fi",
         "  sleep 5",
         "done",
-        "unset token result deadline",
+        "unset token result deadline server_ip",
         "exit 1",
     ]
 
