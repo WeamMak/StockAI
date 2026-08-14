@@ -270,8 +270,14 @@ def test_dev_workflow_leaves_reconciliation_to_bootstrapped_argocd() -> None:
 def test_main_pull_request_rechecks_exact_prepared_dev_promotion() -> None:
     job = _workflow("pr-checks.yml")["jobs"]["release"]
     source = yaml.safe_dump(job)
+    checkout = next(
+        step
+        for step in job["steps"]
+        if step.get("name") == "Check out the promotion branch with history"
+    )
 
     assert "base.ref == 'main'" in job["if"]
+    assert checkout["with"]["ref"] == "${{ github.head_ref }}"
     assert "make promote-dev" in source
     assert "make verify-release" in source
     assert "git diff --exit-code" in source
