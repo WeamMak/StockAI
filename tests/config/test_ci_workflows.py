@@ -287,7 +287,8 @@ def test_main_pull_request_rechecks_exact_prepared_dev_promotion() -> None:
     assert "base.ref == 'main'" in job["if"]
     assert checkout["with"]["ref"] == "${{ github.head_ref }}"
     assert "make promote-dev" in source
-    assert "make verify-release" in source
+    assert "git show origin/dev:deploy/releases/dev.json" in source
+    assert "--promoted-from /tmp/dev-release.json" in source
     assert "git diff --exit-code" in source
     for forbidden in ("docker build", "docker push", "git commit", "kubectl"):
         assert forbidden not in source.lower()
