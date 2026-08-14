@@ -1,12 +1,13 @@
 # AI Procurement Agent — Design Specification
 
-**Status:** Proposed T21B infrastructure-lifecycle and T22/T24 immutable
-promotion amendment; awaiting exact user and course-staff review
+**Status:** Proposed final MVP scope-freeze amendment; conceptual design
+approved by the user on 2026-08-14; exact written user and renewed
+course-staff approval pending
 
-**Date:** 2026-08-13
+**Date:** 2026-08-14
 
-**Implementation note:** Planning amendment only; it does not authorize T21B,
-T22, or T24 implementation
+**Implementation note:** Planning amendment only; it does not authorize T22 or
+later implementation
 
 **Approval record:** The previous specification was approved by the user and
 course staff on 2026-07-25. The company/category/product preference,
@@ -24,6 +25,24 @@ local feature-branch preparation of dev-validated prod digests, protected-main
 promotion, and report-only Docker Scout. The exact amended text remains subject
 to the approval gates below.
 
+On 2026-08-14 the user approved the planning design for a focused amendment
+that simplifies only the remaining work. The design builds all four project
+images for each relevant dev release, retains one immutable release identity
+and exact validation evidence, replaces preference-version administration with
+typed revisioned current profiles, limits manager decisions to approval or
+rejection, and removes duplicated operational acceptance work. This written
+amendment and its later synchronized plan still require exact user review and
+renewed course-staff approval before affected implementation resumes.
+
+Later on 2026-08-14 the user approved one final simplification: vendor
+comparison retains only price, delivery, reliability, and the supporting order
+history count; live HPA load evidence is representative through the Agent API;
+and a live prod ERP snapshot restore is conditional rather than an MVP gate.
+After this exact amendment is approved, the MVP scope is frozen. Further
+simplification requires a concrete implementation blocker, a documented spec
+and plan amendment, and the applicable approvals; shortening the plan or
+implementation convenience is not sufficient reason.
+
 ## 1. Document status and classification
 
 [Explicit course requirement] This specification is the first mandatory planning artifact. Its approval authorizes creation of `docs/plan.md`; it does not authorize implementation.
@@ -32,11 +51,11 @@ to the approval gates below.
 
 [Project decision] This document resolves the remaining design questions using the smallest architecture that satisfies the assignment and the constraints confirmed during brainstorming.
 
-[Explicit course requirement] Because the preference-management,
-infrastructure, and T10 Odoo-contract designs are material revisions, their
-earlier approvals do not authorize the newly revised work. This specification
-and the synchronized implementation plan must be reviewed and approved again
-before affected implementation resumes.
+[Explicit course requirement] Because the release, preference-management, and
+manager-decision designs are materially revised, their earlier approvals do not
+authorize the newly revised work. This specification and the synchronized
+implementation plan must be reviewed and approved again before affected
+implementation resumes.
 
 The required classification labels are:
 
@@ -99,7 +118,7 @@ The required classification labels are:
 
 [Project decision] The MVP targets small and medium-sized businesses that use self-hosted Odoo ERP. The primary user is a procurement officer; the approving user is a procurement manager.
 
-[Project decision] The agent runs a daily inventory scan, detects forecasted replenishment needs, compares current approved vendor offers using cost, delivery, reliability, quality, order constraints, payment terms, and evidence quality, creates one draft purchase order per product, and waits for manager approval before confirming the fictional order in Odoo.
+[Project decision] The agent runs a daily inventory scan, detects forecasted replenishment needs, compares current approved vendor offers using price, delivery, reliability, order-history count, and hard order constraints, creates one draft purchase order per product, and waits for manager approval before confirming the fictional order in Odoo.
 
 [Project decision] “Place the order” means changing a fictional Odoo request for quotation or draft purchase order to a confirmed purchase order. It does not send an order to a real supplier, transfer money, create legal obligations, or send email.
 
@@ -125,19 +144,19 @@ The required classification labels are:
 
 1. `[Project decision]` The officer opens Odoo inventory forecasting and reordering information.
 2. `[Project decision]` The officer checks open purchase orders to avoid duplicates.
-3. `[Project decision]` The officer compares valid vendor offers, lead times, MOQ, packaging, payment terms, and purchase history.
+3. `[Project decision]` The officer compares valid vendor offers, price, lead time, MOQ, packaging, on-time reliability, and supporting order-history count.
 4. `[Project decision]` The officer checks the category’s monthly budget.
 5. `[Project decision]` The officer calculates a valid order quantity and prepares a draft PO.
-6. `[Project decision]` The manager reviews the evidence and approves, rejects, or requests a change.
+6. `[Project decision]` The manager reviews the exact revision-bound evidence and either approves for confirmation or rejects for cancellation.
 7. `[Project decision]` An approved draft is confirmed in Odoo.
 
 ### 4.3 Why an AI agent is appropriate
 
 [Project decision] Deterministic software is responsible for arithmetic, inventory projection, eligibility, budget calculations, duplicate prevention, authorization, and state transitions.
 
-[Project decision] The LLM is responsible for context-dependent trade-offs among eligible offers, explaining why urgency may outweigh cost or why reliability and quality may outweigh a small saving, recognizing insufficient evidence, and interpreting a manager’s bounded change request.
+[Project decision] The LLM is responsible for context-dependent trade-offs among eligible offers, explaining why urgency or reliability may outweigh a small saving, and recognizing limited order history.
 
-[Project decision] A fixed weighted score was rejected because one permanent weighting cannot represent every combination of stockout urgency, reliability evidence, quality history, payment terms, and excess inventory.
+[Project decision] A fixed weighted score was rejected because one permanent weighting cannot represent every combination of stockout urgency, price, delivery, reliability evidence, and excess inventory.
 
 [Project decision] Validated company defaults and optional category/product overrides express stable business preferences without turning them into one fixed score. The LLM applies the effective priority order contextually, while deterministic code enforces any preference explicitly configured as a hard limit.
 
@@ -156,20 +175,20 @@ The required classification labels are:
 | BV-05 | `[Project decision]` | Make every recommendation show the selected offer, considered alternatives, evidence, policy checks, uncertainty, budget result, and order quantity calculation. |
 | BV-06 | `[Project decision]` | Ensure every eligible end-to-end demo interaction includes real MCP calls over Streamable HTTP. |
 | BV-07 | `[Project decision]` | Route unavailable, insufficient, invalid, or policy-conflicting cases to explicit human review without creating a draft. |
-| BV-08 | `[Project decision]` | Make every recommendation display and audit the exact company, category, or product preference version applied to the decision. |
+| BV-08 | `[Project decision]` | Make every recommendation display and audit the exact company, category, or product preference revision applied to the decision. |
 
 ## 5. MVP scope and exclusions
 
 ### 5.1 Included in the MVP
 
-- `[Project decision]` Self-hosted Odoo 19 Community with fictional company, inventory, suppliers, offers, budgets, purchase history, receipts, and returns.
+- `[Project decision]` Self-hosted Odoo 19 Community with fictional company, inventory, suppliers, offers, budgets, purchase history, and receipts.
 - `[Project decision]` Active stocked products that have an Odoo reordering rule and at least one current approved vendor offer.
 - `[Project decision]` Daily scheduled monitoring plus an authorized on-demand scan using the same HTTP workflow.
 - `[Project decision]` A configurable 14-day deterministic inventory-projection horizon.
 - `[Project decision]` Current approved vendor-offer comparison and contextual LLM reasoning.
 - `[Project decision]` One independent recommendation, approval, and PO per product.
-- `[Project decision]` Draft PO creation, revision, cancellation, and approval-gated confirmation.
-- `[Project decision]` Manager approve, reject, and request-change decisions for every order.
+- `[Project decision]` Draft PO creation, rejection-triggered cancellation, and approval-gated confirmation.
+- `[Project decision]` Manager approve and reject decisions for every order.
 - `[Project decision]` Explicit over-budget warning and manager budget-exception approval with justification.
 - `[Project decision]` One company recommendation-preference profile with optional category and product overrides, administered through structured Odoo fields and shown read-only with every recommendation.
 - `[Project decision]` React dashboard, FastAPI HTTP API, LangGraph workflow, and custom Procurement MCP server.
@@ -190,6 +209,7 @@ The required classification labels are:
 - `[Project decision]` Raw user-authored system prompts, arbitrary prompt fragments, and runtime prompt editing.
 - `[Project decision]` Multi-company tenancy, cross-company preference inheritance, and a general-purpose policy-builder UI.
 - `[Project decision]` A hard monetary ceiling or higher-authority escalation above the procurement manager.
+- `[Project decision]` Supplier-quality or return-rate scoring, average-lateness scoring, payment-term prioritization, and evidence-quality prioritization. The agent uses only price, delivery, reliability, and supporting order-history count for contextual comparison.
 - `[Project decision]` Production high availability or disaster recovery guarantees.
 - `[Project decision]` Video generation; the submission uses slides and a live demo.
 
@@ -208,6 +228,17 @@ The required classification labels are:
 
 [Project decision] The LangGraph workflow and Procurement MCP tool contract are intended to remain stable across ERP adapters, but each ERP will still require system-specific authentication, field mapping, capability validation, and tests.
 
+### 5.4 Frozen MVP boundary
+
+[Project decision] Once this final amendment receives exact user and renewed
+course-staff approval and the synchronized plan receives its required
+approvals, Sections 5.1 and 5.2 are the frozen MVP boundary. Implementation may
+not remove another capability merely to shorten the plan or reduce routine
+work. A further simplification is permitted only when implementation exposes a
+specific, evidenced blocker; the blocker and proposed minimum change must be
+recorded in both this specification and the plan and pass the applicable
+approval gates before implementation deviates.
+
 ## 6. Users, roles, persona, and authority
 
 ### 6.1 Human roles
@@ -215,8 +246,8 @@ The required classification labels are:
 | Role | Classification | Allowed actions |
 |---|---|---|
 | Procurement officer | `[Project decision]` | Sign in, trigger a scan, view cases and evidence, inspect exceptions, and view the audit trail. |
-| Procurement manager | `[Project decision]` | All officer read actions plus approve, approve a budget exception, reject, and request changes. |
-| Procurement configuration administrator | `[Project decision]` | Sign in to Odoo, manage monthly category budgets, create and activate versioned company/category/product recommendation preferences, and inspect their Odoo change history. This role alone grants no case-approval permission. |
+| Procurement manager | `[Project decision]` | All officer read actions plus approve, approve a budget exception, and reject. |
+| Procurement configuration administrator | `[Project decision]` | Sign in to Odoo, manage monthly category budgets, maintain the typed current company/category/product recommendation preferences, and inspect their Odoo-tracked changes. This role alone grants no case-approval permission. |
 | Kubernetes CronJob | `[Project decision]` | Start the daily scan through one internal, narrowly scoped HTTP credential. |
 | Odoo integration user | `[Project decision]` | Read required procurement records and perform only the PO operations exposed by the MCP allowlist. |
 
@@ -228,11 +259,11 @@ The required classification labels are:
 
 ### 6.3 Agent capabilities
 
-- `[Project decision]` Read inventory projection, reordering, open PO, approved offer, vendor performance, and category budget information through MCP.
+- `[Project decision]` Read inventory projection, reordering, open PO, approved offer, vendor reliability, and category budget information through MCP.
 - `[Project decision]` Compare safe vendor alternatives and explain contextual trade-offs.
-- `[Project decision]` Apply the validated effective recommendation-preference profile and identify its scope and version in the recommendation.
+- `[Project decision]` Apply the validated effective recommendation-preference profile and identify its scope and revision in the recommendation.
 - `[Project decision]` Calculate or consume deterministic valid quantities and costs from MCP.
-- `[Project decision]` Create, revise, or cancel a draft PO through MCP.
+- `[Project decision]` Create or cancel a draft PO through MCP.
 - `[Project decision]` Resume a checkpointed workflow after manager input.
 - `[Project decision]` Confirm a PO only after the MCP independently validates a matching approval record.
 
@@ -267,8 +298,6 @@ stateDiagram-v2
     Detected --> GatheringEvidence: replenishment required
     GatheringEvidence --> ManualReview: no valid offer / evidence or dependency failure
     GatheringEvidence --> PendingApproval: valid recommendation and draft PO
-    PendingApproval --> ChangeRequested: manager requests change
-    ChangeRequested --> GatheringEvidence: recompute and revalidate
     PendingApproval --> Rejected: manager rejects
     Rejected --> Cancelled: draft cancellation succeeds
     Rejected --> ReconciliationRequired: cancellation result is ambiguous
@@ -287,14 +316,14 @@ stateDiagram-v2
 
 | Decision | Classification | Behavior |
 |---|---|---|
-| Approve | `[Project decision]` | Bind approval to the exact case, vendor, quantity, amount, budget status, and PO revision; then resume the graph and request confirmation. |
+| Approve | `[Project decision]` | Immutably persist approval bound to the exact case, vendor, quantity, amount, budget status, evidence hash, and PO revision; then resume the graph and request confirmation. |
 | Approve budget exception | `[Project decision]` | Require an explicit exception flag and non-empty manager justification before confirmation. |
 | Reject | `[Project decision]` | Preserve the decision and evidence, cancel the Odoo draft through MCP, and close the case. |
-| Request changes | `[Project decision]` | Accept bounded structured fields plus a note, invalidate the prior recommendation, recompute all policies, update the same draft when safe, and return to approval. |
 
-[Project decision] Unsupported, unsafe, or ambiguous change instructions produce a human-review state rather than an unauthorized draft edit.
-
-[Project decision] A case-specific request may change supported inputs, such as quantity or need-by date, and therefore cause a different eligible offer to be recommended. It cannot edit the long-lived preference profile or override a hard deterministic or configured preference rule.
+[Project decision] The MVP exposes no manager request-change, draft-update, or
+reapproval workflow. The already implemented revision-aware Odoo draft-update
+primitive remains available to the integration boundary but is unused by the
+MVP product flow.
 
 ## 8. Deterministic procurement policy
 
@@ -347,19 +376,21 @@ stateDiagram-v2
 
 [Project decision] The LLM must repeat these values rather than recalculate them.
 
-### 8.5 Vendor-performance evidence
+### 8.5 Vendor-reliability evidence
 
-[Project decision] Vendor evidence is derived automatically from the previous 365 days of Odoo purchase orders, receipts, and returns.
+[Project decision] Vendor evidence is derived automatically from the previous 365 days of Odoo purchase orders and completed receipts.
 
 | Metric | Classification | Definition |
 |---|---|---|
 | On-time rate | `[Project decision]` | Completed receipts received on or before their scheduled receipt date divided by completed receipts. |
-| Average lateness | `[Project decision]` | Mean positive days late for late completed receipts. |
-| Return/defect proxy | `[Project decision]` | Quantity returned through linked return movements divided by quantity received. |
-| Evidence count | `[Project decision]` | Number of completed orders and receipts supporting the statistics. |
-| Evidence confidence | `[Project decision]` | “Insufficient” when fewer than three completed orders exist; insufficient history is not scored as either good or bad. |
+| Order-history count | `[Project decision]` | Number of completed orders supporting the on-time statistic. |
+| History status | `[Project decision]` | “Limited” when fewer than three completed orders exist; limited history is displayed and is not treated as either good or bad. |
 
-[Project decision] Current price, normalized order cost, lead time, payment terms, MOQ, packaging excess, historical on-time rate, return rate, and evidence confidence are provided to the LLM.
+[Project decision] Current price, normalized order cost, lead time, MOQ,
+packaging excess, historical on-time rate, order-history count, and derived
+limited-history status are provided to the LLM. Average lateness, return or
+quality proxies, payment terms, and a separate evidence-quality priority are
+not calculated, displayed, or used for MVP recommendations.
 
 ### 8.6 Budget policy
 
@@ -380,19 +411,29 @@ integration user cannot change them.
 
 [Project decision] Confirmed PO commitments determine existing committed spend. The MCP adds the proposed amount to calculate remaining funds and exact overage.
 
-[Project decision] Over-budget status does not make a vendor ineligible and does not create a hard ceiling. It changes the approval path to require an explicit manager exception and justification.
+[Project decision] Over-budget status remains eligible in the MVP and changes
+the approval path to require an explicit manager exception and justification.
+Only a separately specified deterministic hard policy could make such an offer
+ineligible; the LLM and manager cannot invent or bypass that policy.
 
 ### 8.7 Recommendation preference policy
 
-[Project decision] Recommendation preferences are structured business configuration, not user-authored prompts. The single-company MVP requires one active company profile and permits optional product-category and individual-product overrides.
+[Project decision] Recommendation preferences are structured business configuration, not user-authored prompts. The single-company MVP requires one current company profile and permits optional product-category and individual-product overrides.
 
 [Project decision] The effective profile resolves deterministically in this order:
 
-1. an active product profile, when present
-2. otherwise an active product-category profile, when present
-3. otherwise the required active company profile
+1. the current product profile, when present
+2. otherwise the current product-category profile, when present
+3. otherwise the required current company profile
 
-[Project decision] Each immutable profile version contains its scope, effective dates, change reason, ordered supported criteria (`delivery`, `reliability`, `quality`, `price`, `payment_terms`, and `evidence_quality`), maximum price-premium percentage, and premium enforcement mode (`advisory` or `hard`).
+[Project decision] Each scope has at most one current typed profile containing
+its scope, a server-managed monotonically increasing revision, ordered
+supported criteria (`price`, `delivery`, and `reliability`), maximum
+price-premium percentage, and
+premium enforcement mode (`advisory` or `hard`). Odoo tracks authorized changes
+for audit. The MVP has no effective dates, overlap rules, activation or
+immutable-version infrastructure, inheritance-preview UI, or separate
+profile-history administration.
 
 [Project decision] Price premium is measured against the normalized total cost of the cheapest offer that already satisfies all pre-existing hard eligibility rules:
 
@@ -402,11 +443,21 @@ integration user cannot change them.
 
 [Project decision] Existing eligibility, quantity, budget, approval, and safety rules always outrank recommendation preferences. Priority order guides contextual comparison and is not a deterministic weighted score or permission to invent data.
 
-[Project decision] MCP returns the resolved profile through a strict schema. The graph independently validates the scope, supported enums, bounded percentage, effective dates, and immutable version before converting it into a fixed machine-generated prompt section. No Odoo free text is inserted into the system prompt.
+[Project decision] MCP returns the resolved profile through a strict schema.
+The graph independently validates the scope, supported enums, bounded
+percentage, enforcement mode, record identity, and positive revision before
+converting it into a fixed machine-generated prompt section. No Odoo free text
+or audit text is inserted into the system prompt.
 
-[Project decision] The effective profile ID, scope, version, criteria, premium result, and enforcement mode are copied into the case evidence and evidence hash. An active case retains that snapshot through change requests and reapproval; a newly activated preference version applies only to later scans.
+[Project decision] The effective profile ID, scope, revision, criteria,
+premium result, and enforcement mode are copied into an immutable case snapshot
+and its evidence hash. Later preference edits affect only later scans and cannot
+alter an in-flight case.
 
-[Project decision] A missing, overlapping, expired, malformed, or unauthorized preference configuration enters manual review and creates no draft. The configuration administrator must correct it in Odoo; the agent must not guess a fallback profile.
+[Project decision] A missing required company profile, malformed profile,
+invalid revision, invalid scope, or unauthorized preference configuration
+enters manual review and creates no draft. The configuration administrator must
+correct it in Odoo; the agent must not guess a fallback profile.
 
 ## 9. Agent and LangGraph design
 
@@ -424,11 +475,11 @@ integration user cannot change them.
 | Discover candidates | `[Project decision]` | Call `list_replenishment_candidates`. |
 | Validate trigger | `[Project decision]` | Call forecast and open-PO tools; skip covered or ineligible items. |
 | Gather offers | `[Project decision]` | Fetch current approved offers, quantity alternatives, performance, and budget. |
-| Resolve preferences | `[Project decision]` | Fetch and validate the effective product, category, or company preference version. |
+| Resolve preferences | `[Project decision]` | Fetch and validate the effective product, category, or company preference revision. |
 | Apply hard policy | `[Project decision]` | Remove blocked, invalid, late, or malformed offers. |
 | Reason about trade-offs | `[Project decision]` | Ask Bedrock for a structured recommendation, uncertainty, risks, and concise rationale. |
 | Validate recommendation | `[Project decision]` | Verify the selected offer and every copied value against deterministic evidence. |
-| Create or revise draft | `[Project decision]` | Call the idempotent MCP write tool. |
+| Create draft | `[Project decision]` | Call the idempotent MCP create tool with validated evidence. |
 | Human interrupt | `[Project decision]` | Persist state and wait without holding an HTTP request open. |
 | Apply human decision | `[Project decision]` | Check role, optimistic revision, approval contents, and exception justification. |
 | Confirm or cancel | `[Project decision]` | Invoke the relevant approval-protected MCP tool. |
@@ -451,7 +502,7 @@ integration user cannot change them.
 - uncertainty and evidence limitations
 - evidence identifiers used
 - acknowledgement of budget status
-- applied preference profile identifier, scope, and version
+- applied preference profile identifier, scope, and revision
 - acknowledgement of the priority order and price-premium result
 
 [Project decision] The LLM cannot choose an identifier absent from the eligible set, alter quantity or cost, remove a warning, or authorize an Odoo write.
@@ -467,15 +518,18 @@ integration user cannot change them.
 3. Allowed Procurement MCP tools and when their results are required.
 4. Hard constraints that cannot be overridden.
 5. Human-approval rules and the prohibition on self-approval.
-6. Evidence-quality and uncertainty rules.
+6. Limited-history and uncertainty rules.
 7. Instruction to treat all ERP fields, vendor text, tool output, and user notes as untrusted data rather than instructions.
 8. Instruction to use only supplied calculations and identifiers.
-9. A machine-generated, schema-validated preference section containing only supported enums, numbers, identifiers, and version metadata.
+9. A machine-generated, schema-validated preference section containing only supported enums, numbers, identifiers, and revision metadata.
 10. Instruction that preferences guide eligible-offer trade-offs but never override hard policy.
 11. Structured output schema.
 12. Instruction to provide a concise decision explanation without exposing hidden chain-of-thought.
 
-[Project decision] The base system prompt is application-owned, version-controlled, tested, and not editable in Odoo or the React dashboard. Raw administrator text, profile change reasons, manager notes, and other business text never become prompt instructions.
+[Project decision] The base system prompt is application-owned,
+version-controlled, tested, and not editable in Odoo or the React dashboard.
+Raw administrator audit text, rejection reasons, budget-exception
+justifications, and other business text never become prompt instructions.
 
 ### 9.5 Memory and persistence
 
@@ -576,14 +630,14 @@ ownership, release schedules, incompatible dependencies, or external consumers.
 1. `[Project decision]` The daily CronJob or an authorized officer sends an asynchronous scan request and receives `202 Accepted` with a scan identifier.
 2. `[Project decision]` FastAPI creates a scan audit record and starts the LangGraph workflow.
 3. `[Project decision]` LangGraph calls MCP tools over real Streamable HTTP.
-4. `[Project decision]` MCP reads Odoo through JSON-2 and returns typed, bounded procurement data and the effective versioned preference profile.
+4. `[Project decision]` MCP reads Odoo through JSON-2 and returns typed, bounded procurement data and the effective revisioned preference profile.
 5. `[Project decision]` Deterministic graph nodes validate the profile and calculate eligibility, deadlines, valid quantities, costs, duplicate coverage, performance metrics, budget impact, and any hard premium exclusion.
 6. `[Project decision]` Bedrock applies the effective advisory priorities, selects or declines to select among the remaining eligible offers, and returns a structured explanation.
 7. `[Project decision]` The graph validates the response and asks MCP to create one idempotent draft PO.
 8. `[Project decision]` The graph checkpoints and interrupts for manager input.
 9. `[Project decision]` FastAPI records the manager’s authenticated decision and resumes the same graph thread.
 10. `[Project decision]` MCP independently validates the matching approval before confirming or canceling the Odoo PO.
-11. `[Project decision]` The UI polls the API for status, while metrics, sanitized logs, preference-version evidence, and audit records capture the interaction.
+11. `[Project decision]` The UI polls the API for status, while metrics, sanitized logs, preference-revision evidence, and audit records capture the interaction.
 
 ## 11. Procurement MCP server
 
@@ -610,12 +664,11 @@ ownership, release schedules, incompatible dependencies, or external consumers.
 | `list_replenishment_candidates` | `[Project decision]` | Horizon days, limit, optional cursor | Product IDs, names, category IDs, reorder minimum/maximum, current projected trigger, skip metadata, next cursor |
 | `get_inventory_forecast` | `[Project decision]` | Product ID, horizon days, as-of time | On-hand, dated incoming/outgoing movements, daily projection, trigger date, need-by date, data timestamp |
 | `find_open_purchase_orders` | `[Project decision]` | Product ID, horizon dates | Existing draft and confirmed PO lines, remaining quantities, expected receipts, coverage result |
-| `list_approved_vendor_offers` | `[Project decision]` | Product ID, order date, projection evidence | Eligible and rejected offers with reason; price/currency, normalized cost, lead time, arrival, MOQ, packaging multiple, valid quantity, resulting/excess inventory, payment terms |
-| `get_vendor_performance` | `[Project decision]` | Vendor ID, optional product ID, lookback days | Completed-order count, receipt count, on-time rate, average lateness, received and returned quantity, return rate, confidence |
+| `list_approved_vendor_offers` | `[Project decision]` | Product ID, order date, projection evidence | Eligible and rejected offers with reason; price/currency, normalized cost, lead time, arrival, MOQ, packaging multiple, valid quantity, and resulting/excess inventory |
+| `get_vendor_performance` | `[Project decision]` | Vendor ID, optional product ID, lookback days | Completed-order count, on-time rate, and limited-history status |
 | `get_category_budget_status` | `[Project decision]` | Category ID, period, proposed amount | Budget record, budgeted and committed amounts, remaining before/after, exact overage, currency |
-| `get_procurement_preferences` | `[Project decision]` | Company ID, category ID, product ID, as-of time | Effective profile ID, scope, version, ordered criteria, premium percentage/mode, effective dates, inheritance trace |
+| `get_procurement_preferences` | `[Project decision]` | Company ID, category ID, product ID | Effective profile ID, scope, revision, ordered criteria, premium percentage/mode, and precedence source |
 | `create_draft_purchase_order` | `[Project decision]` | Case ID, product ID, approved-offer ID, validated quantity, need-by date, evidence hash, idempotency key | PO ID, revision, Odoo state, totals, origin/reference, reconciliation metadata |
-| `update_draft_purchase_order` | `[Project decision]` | Case ID, PO ID, expected revision, new approved offer/quantity/date, evidence hash, idempotency key | Updated revision, state, totals, and reconciliation metadata |
 | `cancel_draft_purchase_order` | `[Project decision]` | Case ID, PO ID, expected revision, rejection record ID, idempotency key | Final Odoo state and audit reference |
 | `confirm_purchase_order` | `[Project decision]` | Case ID, PO ID, expected revision, approval record ID, idempotency key | Confirmed Odoo state, order identifier, confirmation time, idempotent prior result when applicable |
 
@@ -629,6 +682,10 @@ draft fields; cancellation and confirmation call `button_cancel` and
 `button_confirm`. No method assigns PO state directly. A mismatch raises a
 bounded conflict that the MCP adapter maps to `APPROVAL_STALE`; the method
 performs no action in that case.
+
+[Project decision] The existing `action_stockai_update_draft` Odoo primitive
+remains implemented and contract-tested, but the MVP MCP server does not expose
+an update-draft tool and the graph/API/UI do not provide a request-change path.
 
 ### 11.3 Authentication, permissions, and approval defense
 
@@ -646,6 +703,11 @@ performs no action in that case.
 - required budget-exception flag and justification
 
 [Project decision] The graph performs the same checks before the call, making MCP validation a defense-in-depth boundary rather than a prompt instruction.
+
+[Project decision] The authenticated manager approval is itself an immutable
+DynamoDB record. Confirmation independently revalidates that exact record
+against the current evidence hash and current Odoo PO revision immediately
+before the atomic Odoo confirmation call.
 
 ### 11.4 Validation and failure behavior
 
@@ -673,9 +735,9 @@ Accounting, and Analytic capabilities available in Odoo 19 Community.
 
 [Project decision] One small version-controlled `stockai_procurement` Odoo
 add-on provides the monthly category-budget model, the three atomic
-revision-bound PO methods, structured preference models, constraints, the
-Procurement configuration-administrator and integration groups, administration
-views, inheritance preview, and append-only preference version history. It
+revision-bound PO methods, structured revisioned current preference records,
+constraints, the Procurement configuration-administrator and integration
+groups, administration views, and Odoo change tracking. It
 contains no LLM, prompt editor, AWS client, supplier communication, payment
 operation, autonomous scheduling, or direct PO-state write.
 
@@ -715,11 +777,10 @@ worker operation has no Secrets Manager write permission.
 | Current approved offer | `[Project decision]` | Valid vendor-pricelist entry for an approved, unblocked vendor |
 | Delivery promise | `[Project decision]` | Vendor lead time and computed order-date arrival |
 | MOQ and packaging | `[Project decision]` | Vendor minimum quantity plus purchase packaging or UoM rounding |
-| Payment terms | `[Project decision]` | Vendor payment terms |
 | Reliability | `[Project decision]` | Scheduled versus completed receipts |
-| Quality proxy | `[Project decision]` | Linked receipt return movements |
+| Reliability history | `[Project decision]` | Completed purchase-order count supporting the on-time rate |
 | Monthly category budget | `[Project decision]` | Add-on model `stockai.procurement.budget`, uniquely scoped by company, product category, analytic account, and calendar month; confirmed PO-line commitments remain derived from Odoo |
-| Recommendation preference | `[Project decision]` | Custom add-on profile/version records scoped to company, product category, or product |
+| Recommendation preference | `[Project decision]` | One current custom add-on profile per company, product category, or product scope with a server-managed increasing revision |
 | Preference priority | `[Project decision]` | Ordered add-on child records restricted to the supported criterion enum |
 | Idempotency reference | `[Project decision]` | Stable procurement case ID in PO origin/reference plus DynamoDB record |
 
@@ -734,9 +795,9 @@ worker operation has no Secrets Manager write permission.
 - one happy-path product with multiple valid offers and a meaningful cost/reliability trade-off
 - one over-budget product requiring explicit exception approval
 - one no-valid-offer exception
-- historical on-time, late, receipt, and return records
+- sufficient completed-order and receipt history to demonstrate on-time reliability, plus one vendor with limited history
 - open POs that demonstrate duplicate prevention
-- a reliability-first company profile, a delivery-first critical category override, and a price-first product override with visible immutable versions
+- a reliability-first company profile, a delivery-first critical category override, and a price-first product override with visible revisions
 
 [Explicit course requirement] Odoo configuration and seed creation must be reproducible and must not depend on manual production console clicks.
 
@@ -772,7 +833,6 @@ worker operation has no Secrets Manager write permission.
 | `GET /api/v1/cases/{case_id}` | `[Project decision]` | Officer or manager | Evidence, alternatives, rationale, applied preference snapshot, draft, budget, revisions, and status |
 | `POST /api/v1/cases/{case_id}/approve` | `[Project decision]` | Manager | Approve exact current revision; require exception fields when over budget |
 | `POST /api/v1/cases/{case_id}/reject` | `[Project decision]` | Manager | Record reason and cancel draft |
-| `POST /api/v1/cases/{case_id}/request-changes` | `[Project decision]` | Manager | Record bounded change request and resume recomputation |
 | `GET /api/v1/cases/{case_id}/audit` | `[Project decision]` | Officer or manager | Immutable chronological audit events |
 
 ### 13.3 Errors
@@ -798,9 +858,9 @@ worker operation has no Secrets Manager write permission.
 | Sign in | `[Project decision]` | Redirect to Cognito managed login |
 | Overview | `[Project decision]` | Last scan, current health, pending approvals, exceptions, and manual scan action |
 | Scan detail | `[Project decision]` | Progress, processed/skipped/pending counts, duration, and safe errors |
-| Case queue | `[Project decision]` | Filter by pending approval, change requested, manual review, confirmed, rejected |
-| Recommendation detail | `[Project decision]` | Forecast timeline, need-by date, vendor comparison, evidence confidence, quantity, budget impact, applied preference source/version, premium comparison, LLM rationale, and Odoo draft link |
-| Manager decision panel | `[Project decision]` | Approve, explicit budget exception, reject, or request changes |
+| Case queue | `[Project decision]` | Filter by pending approval, manual review, confirmed, rejected, and cancelled |
+| Recommendation detail | `[Project decision]` | Forecast timeline, need-by date, vendor comparison, order-history count and limited-history status, quantity, budget impact, applied preference source/revision, premium comparison, LLM rationale, and Odoo draft link |
+| Manager decision panel | `[Project decision]` | Approve, explicit budget exception, or reject |
 | Audit timeline | `[Project decision]` | Actors, revisions, MCP operations, approval binding, and final outcome |
 
 [Project decision] Vendor, budget, contract, product, reorder, and user administration remain in Odoo or Cognito and are not duplicated in the dashboard.
@@ -819,21 +879,21 @@ edited through React, the agent, MCP write tools, or manager approval actions.
 - reorder the supported criteria using sequence controls
 - set a bounded maximum price-premium percentage
 - choose `advisory` or `hard` premium enforcement
-- set effective dates and a required change reason
-- create optional category or product overrides or explicitly inherit the parent scope
-- preview the currently effective profile and inheritance source
-- activate a new immutable version while retaining prior versions for audit
+- maintain the required company profile and optional category or product overrides
+- inspect the server-managed increasing revision and Odoo-tracked changes
 
-[Project decision] The React recommendation page is read-only for preference configuration. It shows the applied scope, ordered criteria, premium setting and result, enforcement mode, and immutable version so officers and managers can understand why the LLM favored one eligible offer.
+[Project decision] The React recommendation page is read-only for preference configuration. It shows the applied scope, ordered criteria, premium setting and result, enforcement mode, and snapshotted revision so officers and managers can understand why the LLM favored one eligible offer.
 
-[Project decision] Neither UI accepts raw system-prompt text. Managers may still submit bounded case-specific change fields and a note, but that note neither edits the preference profile nor becomes a system instruction.
+[Project decision] Neither UI accepts raw system-prompt text. Rejection and
+budget-exception justifications are bounded untrusted audit text and never edit
+the preference profile or become system instructions.
 
 ## 15. Data storage and retention
 
 | Store | Classification | Data | Retention and recovery |
 |---|---|---|---|
 | Odoo filestore EBS per env | `[Project decision]` | Fictional ERP attachments and filestore data | Terraform-created encrypted `gp3` volume, static CSI binding, `ReadWriteOnce`, and `Retain`; dev seed is the recovery fallback and prod receives tagged snapshots |
-| PostgreSQL EBS per env | `[Project decision]` | Fictional ERP records and versioned recommendation preferences | Terraform-created encrypted `gp3` volume, static CSI binding, `ReadWriteOnce`, and `Retain`; dev seed is the recovery fallback and prod receives tagged snapshots |
+| PostgreSQL EBS per env | `[Project decision]` | Fictional ERP records and revisioned recommendation preferences with Odoo change tracking | Terraform-created encrypted `gp3` volume, static CSI binding, `ReadWriteOnce`, and `Retain`; dev seed is the recovery fallback and prod receives tagged snapshots |
 | DynamoDB checkpoint table per env | `[Project decision]` | LangGraph state | Dev 30 days; prod 1 year; prod PITR enabled |
 | DynamoDB application table per env | `[Project decision]` | Cases, revisions, sessions, approvals, idempotency, and audit events | Sessions expire by TTL; dev business records 30 days; prod audit and decision records 1 year; prod PITR enabled |
 | S3 operational-log bucket | `[Project decision]` | Loki objects under separate dev/prod prefixes | Dev 14 days; prod 90 days through lifecycle rules |
@@ -978,7 +1038,13 @@ remain required controls.
 
 [Tutorial-supported approach] CPU HPAs apply to the three stateless project services: React/NGINX frontend, FastAPI Agent API, and Procurement MCP.
 
-[Project decision] Each HPA uses minimum one replica, maximum three replicas, and a 50% average CPU-utilization target. Resource/load tests must verify scale-up and scale-down for each service with normal one-worker capacity and again after an explicit worker-capacity increase.
+[Project decision] Each HPA uses minimum one replica, maximum three replicas,
+and a 50% average CPU-utilization target. Automated render and policy tests
+validate all three HPA definitions. One bounded live Agent API scenario proves
+pod scale-up and scale-down, records pending pods when one worker lacks
+capacity, changes the dev worker ASG from one to two workers through Terraform,
+verifies scheduling, and returns the ASG to one worker. Separate live load
+campaigns for the frontend and Procurement MCP are not MVP gates.
 
 [Project decision] Odoo, PostgreSQL, Prometheus, Grafana, Loki, and Alertmanager use one replica per environment.
 
@@ -1081,7 +1147,7 @@ observability images use pinned upstream digests without project rebuilds.
 1. `[Explicit course requirement]` Create every feature branch from the latest protected `main`.
 2. `[Explicit course requirement]` Implement only an approved `docs/plan.md` task on that feature branch.
 3. `[Explicit course requirement]` Merge the feature branch locally into the releasable `dev` branch and push `dev` directly.
-4. `[Explicit course requirement]` A `dev` push builds changed images, pushes immutable artifacts, runs Docker Scout, and updates the dev Kustomize desired digest.
+4. `[Project decision]` Every relevant non-bot `dev` push builds and publishes the complete four-image StockAI release, resolves immutable digests, runs report-only Docker Scout, creates the release manifest, and updates the dev Kustomize desired state. Docker layer caching may avoid redundant work; changed-image detection and prior-digest carry-forward are not part of the MVP.
 5. `[Explicit course requirement]` The dev Argo CD application tracks the `dev` revision and dev overlay; GitHub Actions does not run `kubectl`.
 6. `[Explicit course requirement]` Validate the release in the dev namespace.
 7. `[Explicit course requirement]` Update the original feature branch with the dev-validated immutable digest/provenance record, review and commit those changes, and open the feature branch pull request to `main`.
@@ -1091,7 +1157,35 @@ observability images use pinned upstream digests without project rebuilds.
 11. `[Explicit course requirement]` The prod Argo CD application tracks `main` and the prod overlay; GitHub Actions never deploys production directly.
 12. `[Explicit course requirement]` Hotfixes branch from `main` and are reconciled back into `dev`.
 
-[Project decision] GitHub Actions authenticates to AWS through OIDC and narrowly scoped roles rather than long-lived AWS access keys.
+[Project decision] GitHub Actions authenticates to AWS through OIDC roles rather than long-lived AWS access keys. The separately documented T21B permission model and protected apply gates remain unchanged.
+
+[Project decision] StockAI supports one AWS region. Existing region-neutral
+GitHub Terraform role and policy names are acceptable and require no region
+suffix or multi-region IAM design. OIDC remains the normal GitHub
+authentication mechanism. Human-readable plan/apply role labels and
+descriptions should describe their actual lock-record and protected-apply
+authority; this is documentation cleanup, not an architecture change.
+
+[Project decision] Each dev release has one deterministic
+`applicationContentDigest` calculated from the declared release-relevant source
+inputs shared by the four image builds. GitOps-generated release and overlay
+files are excluded so the desired-state bot commit cannot change application
+identity. The source commit is retained for traceability, but commit equality
+is not required for promotion because merge and bot commits may differ.
+
+[Project decision] A stable `releaseId` binds the immutable release core: the
+application-content digest, exact four-image digest map, per-image provenance,
+Scout result, source traceability, and creation metadata. Those fields cannot
+change after T22 creates the release. The manifest also has a canonical
+integrity digest and rejects missing, mutable, duplicate, or tampered fields.
+
+[Project decision] T23 may only append validation attempts and transition the
+validation status for that exact immutable release. Each attempt binds the
+stable release ID, exact four-image map, Argo revision, smoke-run identity,
+timestamp, result, and evidence digest. A failed attempt may be followed by an
+explicit later attempt for the same unchanged release; once a passed attempt is
+recorded, its evidence and passed status cannot be silently replaced or
+downgraded. Argo sync/health observation alone is not dev-validation evidence.
 
 [Project decision] Docker Scout runs at the required dev-push and main-PR
 points as report-only evidence. Vulnerability findings, scanner errors, and
@@ -1102,12 +1196,16 @@ Terraform/Kustomize validation remain blocking.
 
 [Project decision] `make promote-dev` is a local preparation command, not a
 deployment command. It requires a clean feature branch that is neither `dev`
-nor `main`, reads the validated release manifest from `origin/dev`, verifies
-that its recorded application/build inputs correspond to the feature content,
-copies all four exact Docker Hub digests and provenance into the prod overlay
-and release record, and runs release and Kustomize validation. It stops on a
-missing, stale, incomplete, mutable, or mismatched release and never commits,
-pushes, merges, modifies `dev`/`main`, calls AWS, or contacts Kubernetes.
+nor `main`, reads the validated release manifest from `origin/dev` without
+modifying that branch, verifies immutable release integrity and successful
+exact-release validation, compares its single application-content digest with
+the feature content, copies all four exact Docker Hub digests and provenance
+into the prod overlay and release record, and runs release and Kustomize
+validation. It stages and validates every prospective output before replacing
+local targets, so a validation failure leaves no partial mutation. It stops on
+a missing, stale, incomplete, mutable, mismatched, or tampered release and
+never commits, pushes, merges, modifies `dev`/`main`, rebuilds images, calls
+AWS, or contacts Kubernetes.
 
 [Project decision] Terraform pull-request jobs run formatting, validation, static checks, and plans. Applies require the appropriate protected environment and are path-filtered to infrastructure changes.
 
@@ -1217,7 +1315,10 @@ authority.
 
 [Project decision] Lambda may describe the terminating EC2 instance, send only the approved SSM document to the control plane, poll that command, heartbeat/complete lifecycle actions for only the two worker ASGs, and write only its pre-created log group and cleanup metric namespace. Where an AWS read/list API does not support resource scoping, event allowlisting and EC2/ASG/node identity checks provide the additional boundary. The function receives no worker instance profile or application permissions.
 
-[Project decision] GitHub OIDC roles distinguish read-only pull-request planning from protected apply/promotion.
+[Project decision] GitHub OIDC roles distinguish Terraform planning from
+protected apply/promotion. The plan role may perform the DynamoDB lock-record
+writes and deletes required by Terraform and must not be described as strictly
+read-only.
 
 [Assumption] Because this is a self-managed low-cost cluster without pod-level AWS identity, pods on one worker can potentially reach that worker’s role credentials. Environment-specific workers, hard scheduling, RBAC, NetworkPolicy, and narrow node roles reduce but do not eliminate this residual risk.
 
@@ -1237,16 +1338,28 @@ authority.
 
 [Project decision] External inputs have schema, size, range, enum, identifier, and optimistic-version validation.
 
-[Project decision] Free-text manager notes are length-limited, rendered safely, classified as untrusted, and cannot bypass structured policy.
+[Project decision] Free-text rejection reasons and budget-exception
+justifications are length-limited, rendered safely, classified as untrusted,
+and cannot bypass structured policy.
 
 [Project decision] Only the Odoo Procurement configuration administrator may
-manage category budgets or activate preference versions. Officers and managers
+manage category budgets or edit current preference records. Officers and managers
 receive read-only applied budget/preference evidence through FastAPI. The Odoo
 integration user receives budget/preference reads plus only the explicit
 revision-bound PO methods required by the MCP allowlist; it cannot administer
 budgets or preferences.
 
-[Project decision] Preference values are validated as enums, identifiers, dates, bounded decimals, and unique active scopes. They are serialized into model context from typed fields; raw Odoo text and configuration change reasons are never interpolated into the system prompt.
+[Project decision] Preference values are validated as enums, identifiers,
+bounded decimals, unique current scopes, and positive monotonically increasing
+revisions. They are serialized into model context from typed fields; raw Odoo
+audit text is never interpolated into the system prompt.
+
+[Project decision] Security acceptance live-rotates the Odoo integration key
+and one representative application/session credential. Automated tests and the
+runbook verify the same delivery/reload mechanism for remaining secret classes;
+the MVP does not repeat equivalent live rotations solely to increase evidence
+volume. T32 also records and explicitly accepts or remediates the bounded T18C
+`--kubelet-insecure-tls` server-identity risk.
 
 [Project decision] Containers run non-root, drop capabilities, use read-only root filesystems, and use seccomp where their upstream images support it. Required writable paths use explicit volumes.
 
@@ -1358,15 +1471,15 @@ budgets or preferences.
 | Quantity policy | `[Project decision]` | Max target, vendor arrival projection, MOQ, packaging rounding, excess inventory |
 | Duplicate policy | `[Project decision]` | Full coverage, partial coverage, drafts, pending cases, concurrent creation |
 | Offer policy | `[Project decision]` | Approved/blocked tags, validity, lead time, malformed price/currency, no-valid-offer |
-| Vendor performance | `[Project decision]` | On-time, lateness, return rate, 365-day window, insufficient evidence |
+| Vendor reliability | `[Project decision]` | Completed-order count, on-time rate, 365-day window, and limited history |
 | Budget policy | `[Project decision]` | Remaining amount, exact overage, monthly boundary, exception justification |
-| Preference policy | `[Project decision]` | Product/category/company precedence, effective dates, immutable versions, advisory/hard premium behavior, cheapest-eligible baseline, malformed/overlapping configuration |
-| LangGraph routing | `[Project decision]` | Skip, recommend, fallback, interrupt, approve, reject, change, reconcile |
+| Preference policy | `[Project decision]` | Product/category/company precedence, monotonic revisions, immutable case snapshots, advisory/hard premium behavior, cheapest-eligible baseline, malformed current configuration |
+| LangGraph routing | `[Project decision]` | Skip, recommend, fallback, interrupt, approve, reject, cancel, confirm, reconcile |
 | LLM boundary | `[Project decision]` | Mocked valid/invalid schema, ineligible vendor, changed arithmetic, applied-profile acknowledgement, injection-like text, retry/fallback |
 | Approval safety | `[Project decision]` | Wrong role, stale revision, altered amount, missing exception, expired approval, replay |
 | MCP tools | `[Explicit course requirement]` | Each tool in isolation, schema validation, Odoo errors, idempotency, approval revalidation |
 | API and auth | `[Project decision]` | HTTP status/errors, RBAC, session expiry, CSRF, optimistic concurrency, idempotency |
-| React and Odoo UI | `[Project decision]` | Role-specific actions, read-only applied-preference evidence, preference inheritance/versioning, budget warning, error/manual-review states |
+| React and Odoo UI | `[Project decision]` | Role-specific actions, typed current-preference administration, read-only applied revision, budget warning, error/manual-review states |
 | Worker cleanup Lambda | `[Project decision]` | Valid/invalid ASG events, environment/node identity, clean/forced/failed SSM outcomes, heartbeats, timeouts, duplicate events, already-absent nodes, and guaranteed bounded lifecycle completion |
 
 [Explicit course requirement] LLM, Odoo, external APIs, and AWS clients are mocked in unit tests.
@@ -1387,7 +1500,6 @@ budgets or preferences.
 - ambiguous create/confirm reconciliation
 - stale approval rejection
 - duplicate concurrent scan/case/write prevention
-- change request causing recomputation and reapproval
 - company/category/product preference resolution over real MCP transport
 - advisory premium explanation, hard premium exclusion, malformed profile manual review, and raw-text prompt-injection resistance
 
@@ -1415,11 +1527,46 @@ budgets or preferences.
 
 [Project decision] Automated checks cover Python formatting/lint/type/tests, React lint/type/tests/build, Lambda packaging/unit tests, Docker builds, report-only Docker Scout on dev pushes and main pull requests, Terraform formatting/validation/static checks/plans, Kustomize rendering, Kubernetes schema validation, and Argo CD desired-state smoke checks.
 
-[Project decision] Resource tests verify that each environment fits one `t3.medium` worker under the seeded load and that the frontend, Agent API, and MCP HPAs each scale from one toward three replicas at 50% average CPU and scale down after load. A test first records pending pods at insufficient node capacity, then changes one dev ASG desired-capacity variable through Terraform and verifies scheduling on the joined replacement-safe worker; this is manual node capacity, not automatic node scaling.
+[Project decision] Release tests cover the single application-content digest,
+all-four-image immutable build contract, stable release identity, immutable
+release-core fields, append-only exact-release validation attempts, locked
+passed evidence, bot-loop guards, tamper rejection, transactional local
+promotion preparation, and exact four-digest dev-to-prod equivalence.
+
+[Project decision] Resource tests verify that each environment fits one
+`t3.medium` worker under the seeded load and automatically validate the
+frontend, Agent API, and MCP HPA definitions. One bounded live Agent API test
+scales from one replica toward three at 50% average CPU and back down. It first
+records pending pods at insufficient node capacity, then changes the dev ASG
+desired capacity from one to two through Terraform, verifies scheduling on the
+joined replacement-safe worker, and returns desired capacity to one; this is
+manual node capacity, not automatic node scaling.
 
 [Project decision] Infrastructure smoke tests verify Route 53 alias resolution, HTTP-to-HTTPS redirect, the ACM certificate and hostname, ASG-maintained ALB target health, host routing through NGINX, Odoo/PostgreSQL/Prometheus data survival across pod restart, and complete Grafana reconstruction from Git-managed provisioning after pod deletion.
 
 [Project decision] A controlled dev termination test records data, terminates the dev worker through its ASG, and verifies lifecycle heartbeats, a `clean` cleanup result, disappearance of the old Node, automatic replacement and kubeadm join, correct dev labels/taints and IAM role, retained EBS reattachment, workload readiness, and restored ALB health. Separate fault-injection tests cover SSM/control-plane unavailability and confirm bounded fail-open completion plus an actionable alert.
+
+[Project decision] Release-candidate resilience acceptance is representative
+rather than exhaustive: one active read/reasoning interruption, one persisted
+or write-sensitive interruption, the representative Agent API HPA plus
+manual-capacity scenario, and one
+bounded scale-to-zero/control-plane-stop/restart drill. Detailed retry,
+reconciliation, graph-state, and lifecycle outcomes remain automated. The
+worker-replacement and retained-volume drill above is referenced rather than
+rerun in a later acceptance task.
+
+[Project decision] Terraform-managed prod Odoo/PostgreSQL snapshot policy,
+tagging, retention, permissions, and a snapshot-restore runbook remain required
+and receive automated configuration validation. A live restore may be
+performed when usable snapshots, access, time, and cost make it practical, but
+it is not an MVP completion gate and must never be claimed unless actually
+performed. The separate retained-volume worker-replacement drill remains the
+required live storage-recovery evidence.
+
+[Project decision] All alert definitions are validated automatically. Live
+acceptance fires one representative application/dependency alert, one
+capacity/infrastructure alert, and one worker-lifecycle alert; earlier valid
+evidence is reused rather than recreating every failure condition.
 
 ## 23. Cost and quota constraints
 
@@ -1483,9 +1630,9 @@ when the manual threshold is reached.
 | Challenge | Classification | Resolution |
 |---|---|---|
 | The original idea is too broad for one graded MVP. | `[Project decision]` | Restrict MVP to Odoo stock replenishment; preserve other integrations as gated post-MVP work. |
-| A deterministic score could make the “agent” superficial. | `[Project decision]` | Keep safety and arithmetic deterministic but use the LLM for contextual trade-offs, uncertainty, explanation, and bounded change interpretation. |
-| Letting each company edit the system prompt would create unsafe, untestable behavior. | `[Project decision]` | Keep one application-owned prompt and inject only validated structured preference enums, numbers, scope, and version metadata. |
-| Stable company priorities may differ by category or item. | `[Project decision]` | Resolve an immutable product override first, then category, then the required company default; snapshot the result on each case. |
+| A deterministic score could make the “agent” superficial. | `[Project decision]` | Keep safety and arithmetic deterministic but use the LLM for contextual trade-offs, uncertainty, and explanation. |
+| Letting each company edit the system prompt would create unsafe, untestable behavior. | `[Project decision]` | Keep one application-owned prompt and inject only validated structured preference enums, numbers, scope, and revision metadata. |
+| Stable company priorities may differ by category or item. | `[Project decision]` | Resolve the current product override first, then category, then the required company default; snapshot its exact revision on each case. |
 | A price-premium preference can be ambiguous. | `[Project decision]` | Compare normalized total cost with the cheapest otherwise-eligible offer and distinguish advisory guidance from a deterministic hard cap. |
 | LLM arithmetic or authorization is unsafe. | `[Project decision]` | Validate all numbers and permissions outside the LLM; MCP independently rechecks approval. |
 | “Forecast” could falsely imply predictive ML. | `[Project decision]` | Define it as a 14-day projection from known Odoo stock movements only. |
@@ -1498,7 +1645,7 @@ when the manual threshold is reached.
 | Two full observability stacks stress 4 GiB workers. | `[Project decision]` | Use short metrics retention, S3-backed Loki objects, one replica, shared lightweight cluster collectors, and no unnecessary exporters. |
 | Replacement of a root-disk worker must not destroy ERP data. | `[Project decision]` | Put Odoo filestore, PostgreSQL, and Prometheus on dedicated retained EBS volumes in the environment ASG's Availability Zone and snapshot the tagged prod ERP volumes. |
 | Grafana manual UI changes would disappear after restart. | `[Project decision]` | Treat Git-managed provisioning as the only supported dashboard/data-source/alert configuration and verify reconstruction in tests. |
-| HPA does not add EC2 capacity. | `[Project decision]` | Keep HPA, alert on pending pods, and change ASG desired capacity explicitly through Terraform in Phase 1; consider Cluster Autoscaler only as a separately reviewed post-MVP phase. |
+| HPA does not add EC2 capacity. | `[Project decision]` | Keep and automatically validate all three HPAs, use one representative Agent API live scale and pending-pod drill, and change ASG desired capacity explicitly through Terraform in Phase 1; consider Cluster Autoscaler only as a separately reviewed post-MVP phase. |
 | ASG termination can leave a stale Kubernetes Node or interrupt stateful workloads. | `[Project decision]` | Use a lifecycle hook, EventBridge, an idempotent cleanup Lambda, SSM drain through the control plane, heartbeats, retained EBS, bounded fail-open behavior, alerts, and a tested recovery runbook. |
 | A non-expiring kubeadm token increases bootstrap exposure. | `[Project decision]` | Store one encrypted join command in SSM and rotate its finite 24-hour token every 12 hours; workers validate it and have only exact-parameter read access. |
 | Public subnets expand exposure. | `[Project decision]` | Put one ALB in front of the workers, restrict the ingress NodePort to its security group, and retain TLS, auth, host firewall, RBAC, and NetworkPolicy. |
@@ -1515,7 +1662,7 @@ when the manual threshold is reached.
 |---|---|---|---|---|
 | Narrow Odoo replenishment MVP | `[Project decision]` | CR-02, CR-14 | Broad AI operator; recommendation only | Clear value and demonstrable end-to-end action |
 | Hybrid deterministic/LLM policy | `[Project decision]` | CR-02, CR-03, CR-15 | Fixed weighted score; LLM-only | Genuine reasoning without surrendering arithmetic or safety |
-| Structured versioned preferences in Odoo | `[Project decision]` | CR-02, CR-04, CR-05, CR-15 | Raw prompt editor; preferences in DynamoDB/React; repeated case notes | Reuses the procurement system of record, supports product/category/company inheritance, remains typed and auditable, and keeps prompt ownership in code |
+| Structured revisioned current preferences in Odoo | `[Project decision]` | CR-02, CR-04, CR-05, CR-15 | Immutable version/effective-date platform; raw prompt editor; preferences in DynamoDB/React | Reuses the procurement system of record, preserves product/category/company precedence, remains typed and auditable, snapshots in-flight cases, and keeps prompt ownership in code without unnecessary policy-history infrastructure |
 | LangGraph | `[Project decision]` | CR-03, CR-05 | Simple function pipeline; generic tool loop | Persistent state, branches, interrupts, and resumption |
 | Custom Procurement MCP | `[Project decision]` | CR-06, CR-15 | Direct Odoo calls from graph; generic DB MCP | Stable domain boundary, validation, least authority, future adapters |
 | Streamable HTTP | `[Tutorial-supported approach]` | CR-06, CR-13 | stdio | Real network interaction and required integration-test transport |
@@ -1527,7 +1674,7 @@ when the manual threshold is reached.
 | DynamoDB persistence | `[Tutorial-supported approach]` | CR-05, CR-16 | PostgreSQL checkpointing; memory only | Course-supported AWS checkpointer and safe human waits |
 | Single cluster, dev/prod namespaces | `[Explicit course requirement]` | CR-07, CR-08 | Separate clusters; EKS | Meets requirement within quota and cost |
 | Separate environment worker ASGs, normally desired one | `[Tutorial-supported approach]` | CR-07, CR-08, CR-09, CR-10, CR-16 | Fixed workers; one shared ASG; Cluster Autoscaler immediately | Preserves environment IAM/scheduling isolation, replaces failed instances, and permits explicit capacity changes without adding real node autoscaling to the MVP |
-| HPA plus Terraform-managed ASG capacity in Phase 1 | `[Project decision]` | CR-09, CR-10, CR-12, CR-16 | Remove HPA; add Cluster Autoscaler now | Keeps the required pod autoscaling, exposes pending capacity honestly, and limits initial operational complexity; Cluster Autoscaler remains a reviewed post-MVP option |
+| HPA plus Terraform-managed ASG capacity in Phase 1 | `[Project decision]` | CR-09, CR-10, CR-12, CR-16 | Remove HPA; add Cluster Autoscaler now | Automatically validates all three required pod-autoscaling definitions while one representative Agent API live drill exposes pending capacity honestly and limits duplicated acceptance work; Cluster Autoscaler remains a reviewed post-MVP option |
 | EventBridge/Lambda/SSM termination cleanup | `[Project decision]` | CR-05, CR-07, CR-10, CR-12, CR-15, CR-16 | Manual `kubectl delete node`; lifecycle hook without cleanup; Lambda with kubeconfig | Automates bounded drain and stale-node removal without distributing cluster credentials to Lambda, while fail-open completion prevents stuck ASG termination |
 | ALB and ACM before NGINX Ingress | `[Tutorial-supported approach]` | CR-04, CR-10, CR-15, CR-16 | Direct public NodePort/EIP with cert-manager; NLB | Centralizes public HTTPS and health checks while keeping host routing inside Kubernetes |
 | Dedicated retained EBS for Odoo/PostgreSQL | `[Project decision]` | CR-09, CR-10, CR-16 | Worker-root local PV; EFS; RDS | Survives ASG worker replacement while retaining a small, Terraform-managed, single-AZ architecture |
@@ -1536,7 +1683,9 @@ when the manual threshold is reached.
 | Separate observability stacks | `[Project decision]` | CR-08, CR-12 | Shared monitoring; CloudWatch-only monitoring | User-selected environment isolation and live demonstration; native CloudWatch supplies only ALB/ASG/Lambda operational metrics and cleanup logs |
 | Loki with S3 object storage | `[Project decision]` | CR-12, CR-16 | CloudWatch Logs; direct raw S3 files | Queryable logs while satisfying S3 retention requirement |
 | Kustomize | `[Project decision]` | CR-08, CR-11 | Duplicated YAML; Helm | Small shared base with explicit environment differences |
+| Complete four-image release with one content identity and append-only validation evidence | `[Project decision]` | CR-08, CR-11, CR-13, CR-15 | Changed-image detection and digest carry-forward; digest-only manifest; mutable validation flag | Removes mixed-release complexity while preserving deterministic source equivalence, immutable artifacts, exact-release validation, and same-digest promotion |
 | GitHub Actions plus Argo CD | `[Explicit course requirement]` | CR-11 | Direct `kubectl`; manual deploy | Required GitOps source of truth and promotion |
+| Approve-or-reject manager lifecycle | `[Project decision]` | CR-02, CR-05, CR-15 | Full request-change/update/reapproval workflow; autonomous confirmation | Preserves the material human safety boundary, immutable approval, rejection cancellation, and reconciliation without building a low-value workflow engine |
 | GPT-OSS 20B only | `[Project decision]` | CR-03, CR-16 | Amazon Nova; model fallback | User-selected course-approved low-cost model with predictable behavior |
 | Public subnets with one ALB and no NAT | `[Project decision]` | CR-04, CR-07, CR-15, CR-16 | Direct worker exposure; private subnets with NAT | Provides managed HTTPS ingress while avoiding NAT cost in the small course environment |
 
@@ -1546,11 +1695,10 @@ when the manual threshold is reached.
 |---|---|---|
 | Fictional data does not prove real production ROI. | `[Assumption]` | Measure the scripted baseline and clearly present results as demo evidence. |
 | LLM output is nondeterministic. | `[Project decision]` | Structured output, low-variance configuration, deterministic validation, manual fallback, no fallback model. |
-| Preference changes could silently alter an in-flight recommendation. | `[Project decision]` | Snapshot the immutable effective profile and include its version in the evidence hash; new versions apply only to later scans. |
-| An administrator could configure an extreme or conflicting preference. | `[Project decision]` | Bound fields, enforce one effective profile per scope/time, separate configuration from approval, and route invalid resolution to manual review. |
+| Preference changes could silently alter an in-flight recommendation. | `[Project decision]` | Snapshot the exact effective record and revision in the evidence hash; later edits apply only to later scans. |
+| An administrator could configure an extreme or conflicting preference. | `[Project decision]` | Bound fields, enforce one current profile per scope, separate configuration from approval, and route invalid resolution to manual review. |
 | A custom Odoo add-on increases upgrade and operational work. | `[Project decision]` | Keep one narrow add-on for typed budgets, revision-bound PO methods, preferences, views, and access control; pin the base digest and contract-test every extension before promotion. |
-| Odoo data may be incomplete or inconsistent. | `[Project decision]` | Evidence confidence, strict eligibility, typed errors, and human review. |
-| Return movements are only a proxy for product quality. | `[Project decision]` | Label the metric accurately and show evidence counts. |
+| Odoo reliability history may be incomplete or inconsistent. | `[Project decision]` | Show the completed-order count and limited-history status, retain strict eligibility and typed errors, and route unresolved cases to human review. |
 | Normalized order cost omits unknown freight, duties, and insurance. | `[Project decision]` | Label it accurately and add landed-cost sources only in a later accounting/supplier integration. |
 | The 14-day projection omits unconfirmed future demand. | `[Project decision]` | Do not call it predictive demand forecasting; surface data timestamp and horizon. |
 | One product per PO may create too many drafts. | `[Project decision]` | Accept for audit clarity; consolidate post-MVP. |
@@ -1558,7 +1706,7 @@ when the manual threshold is reached.
 | Odoo/PostgreSQL/Prometheus volumes are AZ-bound and single-writer. | `[Project decision]` | Keep each environment ASG in the volumes' Availability Zone, use static CSI binding and `Retain`, snapshot tagged prod ERP volumes, and make no multi-AZ HA claim. |
 | Grafana runtime/UI-only changes are ephemeral. | `[Project decision]` | Provision all supported configuration from Git and test pod-deletion reconstruction. |
 | Public EC2 networking is less isolated than private subnets. | `[Project decision]` | Expose applications only through the ALB; use source-restricted worker security groups, TLS, auth, firewall, patching, and NetworkPolicy. |
-| HPA cannot add node capacity in Phase 1. | `[Project decision]` | Use fixed min/max pod bounds, capacity/load tests, pending-pod alerts, and Terraform-managed desired capacity; require a spec/plan revision before adding Cluster Autoscaler. |
+| HPA cannot add node capacity in Phase 1. | `[Project decision]` | Use fixed min/max pod bounds, automatic validation for all HPAs, one representative Agent API capacity/load drill, pending-pod alerts, and Terraform-managed desired capacity; require a spec/plan revision before adding Cluster Autoscaler. |
 | ASG replacement can register an EC2 instance that never joins Kubernetes. | `[Project decision]` | Finite token rotation, worker join retries, ASG-versus-Ready-node monitoring, ALB health checks, and a tested bootstrap runbook. |
 | EventBridge delivery, SSM, or the control plane can fail during termination. | `[Project decision]` | Lifecycle heartbeats, idempotency, bounded fail-open `CONTINUE`, forced/failed metrics and alarms, and a verified stale-node/EBS-detach runbook. |
 | Node-role credentials are shared by pods on that node. | `[Assumption]` | Separate workers/roles and minimal normal policies; attach exact-secret write only for a protected, monitored bootstrap/rotation window, detach it afterward, and document the finite residual exposure. |
@@ -1603,3 +1751,21 @@ project add-on for budgets and atomic PO actions, and a one-time Odoo ORM Job
 for the initial integration identity and key. The user approved this exact
 specification and synchronized plan, confirmed course-staff approval, and
 explicitly authorized T10 implementation to resume on the same date.
+
+[Project decision] On 2026-08-14 the user approved the planning design and then
+the exact written specification amendment for the focused remaining-MVP
+simplification, including the Type B preference and manager-workflow
+reductions. Renewed course-staff approval through a pull request is now
+complete as confirmed by the user on 2026-08-14. The synchronized
+`docs/plan.md` amendment may now be written and reviewed. No T22-or-later
+implementation is authorized until that plan receives exact user and renewed
+course-staff approval and the user explicitly authorizes implementation.
+
+[Project decision] Later on 2026-08-14 the user conceptually approved the final
+MVP simplification and scope-freeze design recorded in this amendment. This
+exact written specification now requires user review followed by renewed
+course-staff approval. Only then may `docs/plan.md` be synchronized. After both
+documents pass their gates, further scope reduction requires a concrete,
+documented implementation blocker and the applicable amendment approvals; a
+desire for a shorter plan is not sufficient. No T22-or-later implementation is
+authorized by this conceptual approval or by this written amendment.
