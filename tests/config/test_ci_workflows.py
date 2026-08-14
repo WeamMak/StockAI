@@ -152,6 +152,7 @@ def test_t21b_lifecycle_workflows_are_manual_protected_and_keyless() -> None:
 
 
 def test_t21b_provision_uses_saved_plans_in_dependency_order() -> None:
+    workflow = _workflow("terraform-provision.yml")
     source = (WORKFLOWS / "terraform-provision.yml").read_text(encoding="utf-8")
 
     positions = [
@@ -173,6 +174,13 @@ def test_t21b_provision_uses_saved_plans_in_dependency_order() -> None:
     assert "scripts.infra.cluster_platform" in source
     assert "install" in source
     assert 'expected="provision ${DEPLOYMENT} in ${ACCOUNT}"' in source
+    platform_step = next(
+        step
+        for step in workflow["jobs"]["cluster-platform"]["steps"]
+        if step.get("name")
+        == "Install and verify the shared Kubernetes platform through SSM"
+    )
+    assert platform_step["run"].startswith("set -euo pipefail\n")
 
 
 def test_t21b_destroy_is_reverse_order_and_preserves_bootstrap() -> None:
@@ -279,7 +287,8 @@ def test_main_pull_request_rechecks_exact_prepared_dev_promotion() -> None:
     assert "base.ref == 'main'" in job["if"]
     assert checkout["with"]["ref"] == "${{ github.head_ref }}"
     assert "make promote-dev" in source
-    assert "make verify-release" in source
+    assert "git show origin/dev:deploy/releases/dev.json" in source
+    assert "--promoted-from /tmp/dev-release.json" in source
     assert "git diff --exit-code" in source
     for forbidden in ("docker build", "docker push", "git commit", "kubectl"):
         assert forbidden not in source.lower()
@@ -293,6 +302,7 @@ def test_main_promotion_verifies_observes_and_smokes_without_rebuild() -> None:
     assert workflow["permissions"] == {"contents": "read", "id-token": "write"}
     assert workflow["jobs"]["promote"]["environment"] == "prod"
     assert "--promoted-from" in source
+    assert "+refs/heads/dev:refs/remotes/origin/dev" in source
     assert "scripts.release.observe_argocd" in source
     assert "make smoke-prod" in source
     assert "AWS_TERRAFORM_APPLY_ROLE_ARN" in source

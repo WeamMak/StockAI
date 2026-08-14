@@ -50,7 +50,8 @@ jobs:
       - name: Verify exact dev release and rendered desired state
         run: |
           set -euo pipefail
-          git fetch --quiet origin dev
+          git fetch --quiet origin \
+            +refs/heads/dev:refs/remotes/origin/dev
           git show origin/dev:deploy/releases/dev.json > /tmp/dev-release.json
           uv run --frozen python -m scripts.release.verify_manifest \
             deploy/releases/prod.json \

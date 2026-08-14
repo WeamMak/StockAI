@@ -46,6 +46,28 @@ def test_install_script_is_pinned_idempotent_and_applies_only_cluster_bootstrap(
     assert script.index("crd/secretstores.external-secrets.io") < script.index(
         "deploy/kubernetes/cluster/argocd"
     )
+    argo_namespace = "deploy/kubernetes/cluster/argocd/namespace.yaml"
+    argo_upstream = (
+        "https://raw.githubusercontent.com/argoproj/argo-cd/"
+        "v3.5.0/manifests/install.yaml"
+    )
+    argo_crd_wait = (
+        "kubectl wait --for=condition=Established "
+        "crd/applications.argoproj.io --timeout=5m"
+    )
+    argo_applications = "kubectl -n argocd get application stockai-dev stockai-prod"
+    assert argo_namespace in script
+    assert argo_upstream in script
+    assert argo_crd_wait in script
+    assert argo_applications in script
+    assert script.index(argo_namespace) < script.index(argo_upstream)
+    assert script.index(argo_upstream) < script.index(argo_crd_wait)
+    assert script.index(argo_crd_wait) < script.rindex(
+        "deploy/kubernetes/cluster/argocd"
+    )
+    assert script.rindex("deploy/kubernetes/cluster/argocd") < script.index(
+        argo_applications
+    )
     assert "kubectl rollout status" in script
     assert "deploy/kubernetes/cluster/network" not in script
     assert "deploy/kubernetes/overlays/dev" not in script

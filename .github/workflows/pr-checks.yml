@@ -229,9 +229,11 @@ jobs:
           KUSTOMIZE: kustomize build
         run: |
           set -euo pipefail
-          git fetch --quiet origin dev
           make promote-dev
-          make verify-release
+          git show origin/dev:deploy/releases/dev.json > /tmp/dev-release.json
+          uv run --frozen python -m scripts.release.verify_manifest \
+            deploy/releases/prod.json \
+            --promoted-from /tmp/dev-release.json
           git diff --exit-code
 
       - name: Publish release summary

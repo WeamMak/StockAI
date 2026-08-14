@@ -20,6 +20,7 @@ from .verify_manifest import ManifestError, load_manifest, verify_manifest
 PROD_OVERLAY = Path("deploy/kubernetes/overlays/prod/kustomization.yaml")
 PROD_RELEASE = Path("deploy/releases/prod.json")
 DEV_RELEASE = "deploy/releases/dev.json"
+ORIGIN_DEV_REFSPEC = "+refs/heads/dev:refs/remotes/origin/dev"
 
 
 class PromotionError(ValueError):
@@ -247,7 +248,7 @@ def promote(root: Path, *, fetch: bool = True) -> bool:
     if dirty - allowed:
         raise PromotionError("promotion requires a clean feature branch")
     if fetch:
-        _git(root, ["fetch", "--quiet", "origin", "dev"])
+        _git(root, ["fetch", "--quiet", "origin", ORIGIN_DEV_REFSPEC])
     candidate = _load_origin_dev(root)
     return prepare_promotion(
         candidate,
