@@ -12,12 +12,29 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: stockai-dev
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      name: stockai-frontend
+      jsonPointers:
+        - /spec/replicas
+    - group: apps
+      kind: Deployment
+      name: stockai-agent-api
+      jsonPointers:
+        - /spec/replicas
+    - group: apps
+      kind: Deployment
+      name: stockai-procurement-mcp
+      jsonPointers:
+        - /spec/replicas
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
     syncOptions:
       - CreateNamespace=false
+      - RespectIgnoreDifferences=true
     retry:
       limit: 3
       backoff:
