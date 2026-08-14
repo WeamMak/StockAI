@@ -49,6 +49,7 @@ def test_backend_images_use_only_their_fixed_process_entrypoints() -> None:
 
     assert configuration["project"]["scripts"] == {
         "stockai-api": "procurement.bootstrap.api:run",
+        "stockai-cognito-bootstrap": "procurement.bootstrap.cognito:run",
         "stockai-mcp": "procurement.bootstrap.mcp:run",
     }
     assert 'ENTRYPOINT ["stockai-api"]' in _runtime_stage(_dockerfile("api"))

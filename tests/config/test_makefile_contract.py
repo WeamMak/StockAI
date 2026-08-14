@@ -37,9 +37,31 @@ def test_promote_dev_is_a_local_preparation_command() -> None:
     assert "scripts.release.promote_dev" in recipe
     for forbidden in ("commit", "push", "merge", "aws ", "terraform", "apply"):
         assert forbidden not in recipe.lower()
-    for forbidden in ("boto3", "kubectl", "terraform"):
+    for forbidden in (
+        "boto3",
+        "terraform",
+        "kubectl apply",
+        "kubectl create",
+        "kubectl patch",
+        "kubectl set",
+    ):
         assert forbidden not in source.lower()
 
 
 def test_smoke_dev_runs_only_the_bounded_t23_script() -> None:
     assert "bash scripts/smoke/dev.sh" in _recipe("smoke-dev")
+
+
+def test_smoke_prod_runs_only_the_bounded_t24_script() -> None:
+    assert "bash scripts/smoke/prod.sh" in _recipe("smoke-prod")
+    source = (PROJECT_ROOT / "scripts/smoke/prod.sh").read_text(encoding="utf-8")
+
+    assert "tests/smoke/test_prod_skeleton.py" in source
+    assert "STOCKAI_PROD_SESSION_TOKEN" in source
+    assert "scripts.release.record_validation" not in source
+
+
+def test_verify_release_requires_exact_prod_promotion_when_prod_exists() -> None:
+    recipe = _recipe("verify-release")
+
+    assert "--promoted-from deploy/releases/dev.json" in recipe

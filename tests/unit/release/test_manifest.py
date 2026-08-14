@@ -7,11 +7,13 @@ from pathlib import Path
 
 import pytest
 from scripts.release.create_manifest import create_manifest, write_manifest
+from scripts.release.record_validation import record_validation
 from scripts.release.verify_manifest import (
     ManifestError,
     calculate_integrity,
     calculate_release_id,
     verify_manifest,
+    verify_promotion,
 )
 
 SOURCE_COMMIT = "1" * 40
@@ -154,3 +156,38 @@ def test_release_id_rejects_core_tampering_even_with_new_document_integrity() ->
 
     with pytest.raises(ManifestError, match="releaseId"):
         verify_manifest(manifest)
+
+
+def _passed_manifest(*, created_at: str, argo_revision: str) -> dict[str, object]:
+    manifest = _manifest()
+    manifest["createdAt"] = created_at
+    manifest["releaseId"] = calculate_release_id(manifest)
+    integrity = manifest["integrity"]
+    assert isinstance(integrity, dict)
+    integrity["digest"] = calculate_integrity(manifest)
+    return record_validation(
+        manifest,
+        release_id=str(manifest["releaseId"]),
+        images=IMAGE_DIGESTS,
+        argo_revision=argo_revision,
+        smoke_run_id=f"dev-smoke-{argo_revision[:8]}",
+        timestamp="2026-08-12T10:35:00Z",
+        result="passed",
+        evidence_digest=f"sha256:{'4' * 64}",
+    )
+
+
+def test_prod_promotion_must_equal_the_complete_passed_dev_release() -> None:
+    dev = _passed_manifest(created_at="2026-08-12T10:30:00Z", argo_revision="a" * 40)
+    other = _passed_manifest(created_at="2026-08-12T10:31:00Z", argo_revision="b" * 40)
+
+    assert verify_promotion(dev, dev.copy()) == dev
+    with pytest.raises(ManifestError, match="exact passed dev release"):
+        verify_promotion(dev, other)
+
+
+def test_prod_promotion_rejects_a_pending_dev_source() -> None:
+    pending = _manifest()
+
+    with pytest.raises(ManifestError, match="passed dev validation"):
+        verify_promotion(pending, pending.copy())

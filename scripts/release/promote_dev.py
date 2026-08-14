@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -22,6 +24,40 @@ DEV_RELEASE = "deploy/releases/dev.json"
 
 class PromotionError(ValueError):
     """A safe local-promotion failure."""
+
+
+def verify_validation_history(
+    manifests: Sequence[Mapping[str, object]],
+) -> dict[str, object]:
+    """Verify one release's Git history only appends validation evidence."""
+
+    if not manifests:
+        raise PromotionError("candidate validation history is missing")
+    try:
+        verified = [verify_manifest(manifest) for manifest in manifests]
+    except ManifestError as error:
+        raise PromotionError(str(error)) from error
+    release_id = verified[0]["releaseId"]
+    if any(manifest["releaseId"] != release_id for manifest in verified):
+        raise PromotionError("candidate validation history changed release ID")
+    for previous, current in zip(verified, verified[1:], strict=False):
+        previous_validation = previous["devValidation"]
+        current_validation = current["devValidation"]
+        if not isinstance(previous_validation, Mapping) or not isinstance(
+            current_validation, Mapping
+        ):
+            raise PromotionError("candidate validation history is invalid")
+        previous_attempts = previous_validation["attempts"]
+        current_attempts = current_validation["attempts"]
+        if not isinstance(previous_attempts, list) or not isinstance(
+            current_attempts, list
+        ):
+            raise PromotionError("candidate validation history is invalid")
+        if current_attempts[: len(previous_attempts)] != previous_attempts:
+            raise PromotionError("candidate validation history is not append-only")
+        if previous_validation["status"] == "passed" and current != previous:
+            raise PromotionError("passed validation history is not append-only")
+    return verified[-1]
 
 
 def _stage(path: Path, content: str) -> Path:
@@ -49,6 +85,24 @@ def _default_validate(overlay: Path, release: Path) -> None:
         raise PromotionError(
             "staged prod overlay does not contain the candidate digests"
         )
+    workspace = overlay.parents[4]
+    command = shlex.split(os.environ.get("KUSTOMIZE", "kubectl kustomize"))
+    if command not in (["kubectl", "kustomize"], ["kustomize", "build"]):
+        raise PromotionError("KUSTOMIZE command is not allowlisted")
+    for environment in ("dev", "prod"):
+        path = workspace / "deploy/kubernetes/overlays" / environment
+        try:
+            result = subprocess.run(
+                [*command, str(path)],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+        except (OSError, subprocess.SubprocessError) as error:
+            raise PromotionError("Kustomize validation could not run") from error
+        if result.returncode != 0:
+            raise PromotionError(f"{environment} Kustomize validation failed")
 
 
 def prepare_promotion(
@@ -57,7 +111,7 @@ def prepare_promotion(
     root: Path,
     prod_overlay: Path,
     prod_release: Path,
-    validate: Callable[[Path, Path], None] = _default_validate,
+    validate: Callable[[Path, Path], None] | None = None,
 ) -> bool:
     """Validate and transactionally prepare prod files without staging them."""
 
@@ -88,11 +142,35 @@ def prepare_promotion(
 
     staged: list[Path] = []
     try:
+        validator = validate
+        if validator is None:
+            with tempfile.TemporaryDirectory(
+                dir=root, prefix=".stockai-promotion-"
+            ) as directory:
+                workspace = Path(directory)
+                shutil.copytree(
+                    root / "deploy/kubernetes",
+                    workspace / "deploy/kubernetes",
+                )
+                candidate_overlay = workspace / PROD_OVERLAY
+                candidate_release = workspace / PROD_RELEASE
+                candidate_release.parent.mkdir(parents=True, exist_ok=True)
+                candidate_overlay.write_text(rendered_overlay, encoding="utf-8")
+                candidate_release.write_text(rendered_release, encoding="utf-8")
+                _default_validate(candidate_overlay, candidate_release)
+        else:
+            validation_overlay = _stage(prod_overlay, rendered_overlay)
+            validation_release = _stage(prod_release, rendered_release)
+            staged.extend((validation_overlay, validation_release))
+            validator(validation_overlay, validation_release)
+            for path in staged:
+                path.unlink(missing_ok=True)
+            staged.clear()
+
         staged = [
             _stage(prod_overlay, rendered_overlay),
             _stage(prod_release, rendered_release),
         ]
-        validate(staged[0], staged[1])
         release_matches = (
             prod_release.exists()
             and prod_release.read_text(encoding="utf-8") == rendered_release
@@ -123,8 +201,7 @@ def _git(root: Path, arguments: Sequence[str]) -> str:
     return result.stdout
 
 
-def _load_origin_dev(root: Path) -> dict[str, object]:
-    raw = _git(root, ["show", f"origin/dev:{DEV_RELEASE}"])
+def _load_raw_manifest(raw: str) -> dict[str, object]:
     descriptor, name = tempfile.mkstemp(prefix="stockai-dev-release-", suffix=".json")
     path = Path(name)
     try:
@@ -133,6 +210,23 @@ def _load_origin_dev(root: Path) -> dict[str, object]:
         return load_manifest(path)
     finally:
         path.unlink(missing_ok=True)
+
+
+def _load_origin_dev(root: Path) -> dict[str, object]:
+    commits = _git(
+        root, ["log", "--format=%H", "origin/dev", "--", DEV_RELEASE]
+    ).splitlines()
+    if not commits:
+        raise PromotionError("origin/dev release history is missing")
+    current = _load_raw_manifest(_git(root, ["show", f"origin/dev:{DEV_RELEASE}"]))
+    lineage: list[dict[str, object]] = []
+    for commit in commits:
+        manifest = _load_raw_manifest(_git(root, ["show", f"{commit}:{DEV_RELEASE}"]))
+        if manifest["releaseId"] != current["releaseId"]:
+            break
+        lineage.append(manifest)
+    lineage.reverse()
+    return verify_validation_history(lineage)
 
 
 def promote(root: Path, *, fetch: bool = True) -> bool:

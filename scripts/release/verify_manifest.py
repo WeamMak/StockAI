@@ -230,6 +230,19 @@ def verify_manifest(manifest: object) -> dict[str, object]:
     return dict(document)
 
 
+def verify_promotion(dev_manifest: object, prod_manifest: object) -> dict[str, object]:
+    """Require prod to contain the complete exact passed dev release object."""
+
+    dev = verify_manifest(dev_manifest)
+    validation = dev["devValidation"]
+    if not isinstance(validation, Mapping) or validation.get("status") != "passed":
+        raise ManifestError("source release must have passed dev validation")
+    prod = verify_manifest(prod_manifest)
+    if prod != dev:
+        raise ManifestError("prod must contain the exact passed dev release")
+    return prod
+
+
 def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     document: dict[str, Any] = {}
     for key, value in pairs:
@@ -258,9 +271,16 @@ def load_manifest(path: Path) -> dict[str, object]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("manifest", type=Path)
+    parser.add_argument(
+        "--promoted-from",
+        type=Path,
+        help="require this manifest to equal the complete passed dev release",
+    )
     arguments = parser.parse_args()
     try:
-        load_manifest(arguments.manifest)
+        manifest = load_manifest(arguments.manifest)
+        if arguments.promoted_from is not None:
+            verify_promotion(load_manifest(arguments.promoted_from), manifest)
     except ManifestError as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
