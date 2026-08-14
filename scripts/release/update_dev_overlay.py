@@ -30,7 +30,7 @@ def _render_overlay(source: str, images: Mapping[str, object]) -> str:
         if len(blocks) != 1:
             raise DesiredStateError(f"stockai/{name} digest must occur exactly once")
         block = blocks[0].group(0)
-        expected_repository = f"newName: docker.io/weammak/stockai-{name}"
+        expected_repository = f"newName: docker.io/weammakhoul/stockai-{name}"
         if block.count(expected_repository) != 1:
             raise DesiredStateError(f"stockai/{name} repository is not approved")
         digest_pattern = re.compile(r"(?m)(^\s+digest: )sha256:[0-9a-f]{64}(?=\s*$)")

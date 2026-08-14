@@ -107,11 +107,11 @@ jobs:
           context: .
           file: ${{ matrix.dockerfile }}
           push: true
-          tags: docker.io/weammak/stockai-${{ matrix.name }}:dev-${{ github.sha }}
+          tags: docker.io/weammakhoul/stockai-${{ matrix.name }}:dev-${{ github.sha }}
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
           provenance: mode=max
-          sbom: true
+          sbom: ${{ matrix.name != 'odoo' }}
 
       - name: Save build provenance metadata
         env:
@@ -128,7 +128,7 @@ jobs:
           command: cves
           dockerhub-user: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
-          image: docker.io/weammak/stockai-${{ matrix.name }}@${{ steps.build.outputs.digest }}
+          image: docker.io/weammakhoul/stockai-${{ matrix.name }}@${{ steps.build.outputs.digest }}
           only-severities: critical,high
           exit-code: false
           sarif-file: reports/scout/${{ matrix.name }}/report.sarif

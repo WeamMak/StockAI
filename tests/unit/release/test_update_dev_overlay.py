@@ -32,16 +32,16 @@ def _manifest() -> dict[str, object]:
 def _overlay() -> str:
     return """images:
   - name: stockai/frontend
-    newName: docker.io/weammak/stockai-frontend
+    newName: docker.io/weammakhoul/stockai-frontend
     digest: sha256:{frontend}
   - name: stockai/api
-    newName: docker.io/weammak/stockai-api
+    newName: docker.io/weammakhoul/stockai-api
     digest: sha256:{api}
   - name: stockai/mcp
-    newName: docker.io/weammak/stockai-mcp
+    newName: docker.io/weammakhoul/stockai-mcp
     digest: sha256:{mcp}
   - name: stockai/odoo
-    newName: docker.io/weammak/stockai-odoo
+    newName: docker.io/weammakhoul/stockai-odoo
     digest: sha256:{odoo}
 """.format(frontend="1" * 64, api="2" * 64, mcp="3" * 64, odoo="4" * 64)
 
