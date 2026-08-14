@@ -30,10 +30,10 @@ images:
     digest: sha256:146f1eeb5c2b3932f1761dbdae61bc877903b7b24acf9411f81aa8d5c512567a
   - name: stockai/api
     newName: docker.io/weammakhoul/stockai-api
-    digest: sha256:26544391e6da555c1b58177ef40308f27e59896a94147fc7ec50962ee101ecab
+    digest: sha256:ee2ae506290281bb90273074a759a9a22e017ebd4e18abb6a869a7c048b94bc3
   - name: stockai/mcp
     newName: docker.io/weammakhoul/stockai-mcp
-    digest: sha256:012a762616fee3fca302bc5b6d468510ec8195ea8c9154f452ba427c225d255a
+    digest: sha256:67542f5469bec64dad5903acecca62d26ecbc803b177d9a0d7c746652c1b016c
   - name: stockai/odoo
     newName: docker.io/weammakhoul/stockai-odoo
     digest: sha256:c57eff644e878118acdc7c5a7f6176b416c607813e46f29aeab7bdeeed702d05
