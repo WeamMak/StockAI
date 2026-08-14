@@ -322,6 +322,22 @@ async def test_one_gpt_oss_leading_quote_is_normalized_before_validation() -> No
     assert len(client.requests) == 1
 
 
+@pytest.mark.anyio
+async def test_gpt_oss_extra_object_prefix_is_normalized_before_validation() -> None:
+    live_text = (
+        '{"{ "budget_acknowledgement":"not_evaluated", '
+        '"decision":"recommend", "product_id":"product-101", '
+        '"rationale":"Only eligible candidate; budget not evaluated." '
+        '\t,"risk_flags":[] }\n'
+    )
+    client = FakeBedrockRuntimeClient(_response(live_text), _response(live_text))
+
+    recommendation = await _adapter(client).recommend(_request())
+
+    assert recommendation.product_id == "product-101"
+    assert len(client.requests) == 1
+
+
 @pytest.mark.parametrize(
     "invalid_text",
     (
