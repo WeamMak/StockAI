@@ -7,7 +7,9 @@
 - Implementation authorization: explicitly provided by the user on 2026-08-02.
 - Active task: T22 immutable dev delivery is implemented and live dev
   reconciliation is in progress. The EBS and External Secrets repairs are
-  applied; the corrected finite Odoo bootstrap Job still needs live completion.
+  applied, the corrected Odoo bootstrap completed, and its temporary IAM write
+  policy was detached. The Fluent Bit Pod Security repair still needs live
+  reconciliation.
 
 ## Task status
 
@@ -70,6 +72,22 @@ validation reported 78 valid, 0 invalid, 0 errors, and 7 intentionally skipped
 External Secrets resources for each 85-resource overlay. Live acceptance still
 requires the corrected Job to complete, the Odoo API key to synchronize, MCP
 to become ready, and the temporary IAM policy to be detached.
+
+Live acceptance then confirmed the corrected bootstrap Job completed in 10
+seconds, all six ExternalSecrets synchronized, MCP rolled out `1/1 Running`,
+and Terraform removed exactly the temporary IAM attachment and policy with `0`
+additions, `0` changes, and `2` destructions. Argo remained `Progressing`
+because Pod Security Admission rejected Fluent Bit's required read-only
+`/var/log` host mount: the dedicated log namespace enforced `baseline`, which
+forbids every `hostPath`. The minimal repair changes only the dedicated
+`stockai-logs-*` namespace to `enforce=privileged`; its audit and warning levels
+remain `baseline`, the application namespace remains `restricted`, and the
+collector retains its non-root, read-only, capability-dropped security context.
+The red-green environment cases, all 16 collector tests, and the complete 55
+Kubernetes tests passed. Strict Kubeconform validation again reported 78 valid,
+0 invalid, 0 errors, and 7 intentionally skipped External Secrets resources per
+85-resource overlay. Live acceptance still requires Fluent Bit to become Ready
+and Argo to report `Synced` and `Healthy`.
 
 ## Evidence policy
 

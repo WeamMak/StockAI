@@ -6,7 +6,7 @@ metadata:
     app.kubernetes.io/part-of: stockai
     pod-security.kubernetes.io/audit: baseline
     pod-security.kubernetes.io/audit-version: v1.35
-    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/enforce: privileged
     pod-security.kubernetes.io/enforce-version: v1.35
     pod-security.kubernetes.io/warn: baseline
     pod-security.kubernetes.io/warn-version: v1.35

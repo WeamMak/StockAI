@@ -249,6 +249,14 @@ def test_fluent_bit_is_namespace_filtered_without_weakening_application_pss(
     assert config["metadata"]["namespace"] == f"stockai-logs-{environment}"
     assert (
         log_namespace["metadata"]["labels"]["pod-security.kubernetes.io/enforce"]
+        == "privileged"
+    )
+    assert (
+        log_namespace["metadata"]["labels"]["pod-security.kubernetes.io/audit"]
+        == "baseline"
+    )
+    assert (
+        log_namespace["metadata"]["labels"]["pod-security.kubernetes.io/warn"]
         == "baseline"
     )
     app_namespace = _named(resources, "Namespace", environment)
