@@ -192,7 +192,7 @@ spec:
             matchExpressions:
               - key: app.kubernetes.io/name
                 operator: In
-                values: [stockai-odoo, stockai-odoo-bootstrap]
+                values: [stockai-odoo, stockai-odoo-bootstrap, stockai-odoo-seed]
       ports:
         - protocol: TCP
           port: 5432

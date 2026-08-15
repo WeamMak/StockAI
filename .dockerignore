@@ -19,4 +19,8 @@ frontend/dist
 tests
 docs
 reports
-scripts
+scripts/*
+!scripts/odoo/
+scripts/odoo/*
+!scripts/odoo/seed.py
+!scripts/odoo/verify_seed.py
