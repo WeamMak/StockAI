@@ -105,7 +105,7 @@ export function InventoryChart({
         </text>
       </svg>
       <div className="chart-legend" aria-hidden="true">
-        <span><i className="legend-line legend-line--projection" />Projected inventory</span>
+        <span><i className="legend-line legend-line--projection" />Projected inventory after existing coverage</span>
         <span><i className="legend-line legend-line--threshold" />Reorder minimum {formatNumber(reorderMinimum)}</span>
       </div>
     </div>

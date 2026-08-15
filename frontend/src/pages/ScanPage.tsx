@@ -131,18 +131,21 @@ function RecommendationSummary({ scan }: { scan: Scan }) {
         <section aria-label="Decision highlights">
         <dl className="decision-grid">
           <div className="decision-card decision-card--coverage">
-            <dt><span className="summary-icon summary-icon--green"><Icon name="coverage" /></span>Coverage</dt>
+            <dt><span className="summary-icon summary-icon--green"><Icon name="coverage" /></span>Existing coverage</dt>
             <dd>
               {evidence.coverage.status.charAt(0).toUpperCase() +
                 evidence.coverage.status.slice(1)}
-              <small>{formatQuantity(evidence.coverage.covered_quantity)} covered</small>
+              <small>{formatQuantity(evidence.coverage.covered_quantity)} from existing sources</small>
             </dd>
           </div>
           <div className="decision-card decision-card--shortage">
-            <dt><span className="summary-icon summary-icon--amber"><Icon name="shortage" /></span>Shortage</dt>
+            <dt><span className="summary-icon summary-icon--amber"><Icon name="shortage" /></span>Uncovered target gap</dt>
             <dd title={evidence.coverage.residual_quantity}>
               {formatQuantity(evidence.coverage.residual_quantity)}
-              <small>Need by {formatDate(evidence.shortage.need_by_date)}</small>
+              <small>
+                At {formatDate(evidence.shortage.need_by_date)} stockout · target{" "}
+                {formatQuantity(evidence.shortage.reorder_maximum)}
+              </small>
             </dd>
           </div>
           <div className="decision-card decision-card--offer">
