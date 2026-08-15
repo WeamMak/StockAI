@@ -201,8 +201,12 @@ describe("ScanPage", () => {
     const highlights = await screen.findByRole("region", {
       name: "Decision highlights",
     });
-    expect(highlights).toHaveTextContent("CoveragePartial");
-    expect(highlights).toHaveTextContent("Shortage35 units");
+    expect(highlights).toHaveTextContent(
+      "Existing coveragePartial5 units from existing sources",
+    );
+    expect(highlights).toHaveTextContent(
+      "Uncovered target gap35 unitsAt Aug 12, 2026 stockout · target 40 units",
+    );
     expect(highlights).toHaveTextContent("Offer$437.50");
     expect(highlights).toHaveTextContent("Only eligible offer");
     expect(highlights).toHaveTextContent("RecommendationApproval ready");
@@ -268,6 +272,9 @@ describe("ScanPage", () => {
       await screen.findByRole("img", {
         name: "Inventory projection from Aug 5, 2026 to Aug 19, 2026",
       }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Projected inventory after existing coverage"),
     ).toBeInTheDocument();
     expect(screen.getByText("Only eligible offer")).toBeInTheDocument();
     expect(screen.getByText("Fictional Approved Supplies")).toBeInTheDocument();
