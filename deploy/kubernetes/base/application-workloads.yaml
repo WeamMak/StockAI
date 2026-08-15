@@ -506,6 +506,8 @@ metadata:
     app.kubernetes.io/name: stockai-odoo-bootstrap
     app.kubernetes.io/component: automation
     app.kubernetes.io/part-of: stockai
+  annotations:
+    argocd.argoproj.io/sync-options: Force=true,Replace=true
 spec:
   activeDeadlineSeconds: 300
   backoffLimit: 6
@@ -573,6 +575,101 @@ spec:
                 configMapKeyRef:
                   name: stockai-environment
                   key: STOCKAI_ODOO_BOOTSTRAP_SECRET_ARN
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 100
+            runAsGroup: 101
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: stockai-odoo-seed
+  labels:
+    app.kubernetes.io/name: stockai-odoo-seed
+    app.kubernetes.io/component: automation
+    app.kubernetes.io/part-of: stockai
+  annotations:
+    argocd.argoproj.io/sync-options: Force=true,Replace=true
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  activeDeadlineSeconds: 300
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: stockai-odoo-seed
+        app.kubernetes.io/component: automation
+        app.kubernetes.io/part-of: stockai
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: stockai-automation
+      automountServiceAccountToken: false
+      nodeSelector:
+        stockai.io/environment: stockai
+      tolerations:
+        - key: stockai.io/environment
+          operator: Equal
+          value: stockai
+          effect: NoSchedule
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: seed
+          image: stockai/odoo
+          imagePullPolicy: IfNotPresent
+          command: [bash, -lc]
+          args:
+            - |
+              set -euo pipefail
+              odoo shell --no-http --database="$PROCUREMENT_ODOO_DATABASE" \
+                --db_host="$HOST" --db_port="$PORT" --db_user="$USER" \
+                --db_password="$PASSWORD" --log-level=error \
+                < /opt/stockai/seed.py
+              exec odoo shell --no-http --database="$PROCUREMENT_ODOO_DATABASE" \
+                --db_host="$HOST" --db_port="$PORT" --db_user="$USER" \
+                --db_password="$PASSWORD" --log-level=error \
+                < /opt/stockai/verify_seed.py
+          env:
+            - name: HOST
+              value: postgresql
+            - name: PORT
+              value: "5432"
+            - name: USER
+              value: odoo
+            - name: PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: odoo-database-password
+                  key: value
+            - name: PROCUREMENT_ODOO_DATABASE
+              valueFrom:
+                configMapKeyRef:
+                  name: stockai-environment
+                  key: PROCUREMENT_ODOO_DATABASE
+            - name: STOCKAI_ODOO_SEED_ENVIRONMENT
+              valueFrom:
+                configMapKeyRef:
+                  name: stockai-environment
+                  key: STOCKAI_ODOO_SEED_ENVIRONMENT
           resources:
             requests:
               cpu: 100m

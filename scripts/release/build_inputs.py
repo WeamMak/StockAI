@@ -50,11 +50,14 @@ _INPUTS: dict[str, tuple[str, ...]] = {
         "src",
     ),
     "odoo": (
+        ".dockerignore",
         "docker/odoo.Dockerfile",
         "docker/odoo-requirements.txt",
         "compose.odoo.yaml",
         "odoo/addons/stockai_procurement",
         "odoo/bootstrap",
+        "scripts/odoo/seed.py",
+        "scripts/odoo/verify_seed.py",
     ),
 }
 
