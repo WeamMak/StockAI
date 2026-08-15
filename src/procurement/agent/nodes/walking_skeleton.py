@@ -14,6 +14,7 @@ from procurement.agent.state import (
 )
 from procurement.domain.errors import ErrorCode
 from procurement.domain.policy.evidence import ProcurementEvidence
+from procurement.domain.policy.preferences import apply_preferences
 from procurement.observability.logging import log_event
 from procurement.observability.metrics import AgentMetrics
 from procurement.ports.llm import (
@@ -38,6 +39,7 @@ class WalkingSkeletonNodes:
     llm: StructuredLlmPort
     metrics: AgentMetrics
     logger: logging.Logger
+    company_id: str
 
     async def discover_candidates(self, state: ScanState) -> dict[str, object]:
         """Call the MCP port and retain only validated candidate data."""
@@ -219,6 +221,12 @@ class WalkingSkeletonNodes:
                 RecommendationRequest(
                     environment=state["environment"],
                     candidates=state["candidates"],
+                    preferences=tuple(
+                        item.preferences
+                        for item in state["evidence"]
+                        if item.skip_reason_code is None
+                        and item.preferences is not None
+                    ),
                 )
             )
         except LlmUnavailableError:
@@ -305,6 +313,84 @@ class WalkingSkeletonNodes:
                 ),
             ),
         }
+
+    async def resolve_preferences(self, state: ScanState) -> dict[str, object]:
+        """Resolve and enforce one immutable typed profile per eligible record."""
+
+        if "result" in state:
+            return {}
+        started_at = perf_counter()
+        try:
+            resolved: list[ProcurementEvidence] = []
+            for evidence in state["evidence"]:
+                if evidence.skip_reason_code is not None:
+                    resolved.append(evidence)
+                    continue
+                profile = await self.mcp.get_procurement_preferences(
+                    environment=state["environment"],
+                    company_id=self.company_id,
+                    category_id=evidence.category_id,
+                    product_id=evidence.product_id,
+                )
+                applied = apply_preferences(evidence, profile)
+                if applied.preferences is None:  # pragma: no cover - domain invariant
+                    raise ValueError("preference application produced no snapshot")
+                for result in applied.preferences.offer_results:
+                    self.metrics.record_preference_outcome(
+                        scope=profile.scope.value,
+                        mode=profile.enforcement_mode.value,
+                        outcome=result.outcome,
+                    )
+                resolved.append(applied)
+        except McpReadError as error:
+            is_timeout = isinstance(error, McpTimeoutError)
+            error_code = (
+                ErrorCode.MCP_TIMEOUT if is_timeout else ErrorCode.PREFERENCE_INVALID
+            )
+            self._record_mcp_completion(
+                state=state,
+                started_at=started_at,
+                status="error",
+                error_code=error_code,
+                retry_count=error.retry_count,
+                tool_name="get_procurement_preferences",
+            )
+            if is_timeout:
+                self.metrics.record_mcp_timeout(tool="get_procurement_preferences")
+            return {
+                "result": UnresolvedResult(
+                    error_code=error_code,
+                    message=(
+                        error.safe_message
+                        if is_timeout
+                        else "The procurement preferences require configuration review."
+                    ),
+                    retryable=is_timeout,
+                    retry_count=error.retry_count,
+                )
+            }
+        except (AttributeError, TypeError, ValueError):
+            self._record_mcp_completion(
+                state=state,
+                started_at=started_at,
+                status="error",
+                error_code=ErrorCode.PREFERENCE_INVALID,
+                tool_name="get_procurement_preferences",
+            )
+            return {
+                "result": UnresolvedResult(
+                    error_code=ErrorCode.PREFERENCE_INVALID,
+                    message="The procurement preferences require configuration review.",
+                    retryable=False,
+                )
+            }
+        self._record_mcp_completion(
+            state=state,
+            started_at=started_at,
+            status="success",
+            tool_name="get_procurement_preferences",
+        )
+        return {"evidence": tuple(resolved)}
 
     def _record_mcp_completion(
         self,

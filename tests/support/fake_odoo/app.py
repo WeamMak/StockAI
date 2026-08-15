@@ -15,9 +15,9 @@ from typing import Literal, cast
 from fastapi import FastAPI, Response
 from pydantic import BaseModel, ConfigDict, Field
 
-from procurement.bootstrap.mcp import _fictional_evidence
+from procurement.bootstrap.mcp import _fictional_evidence, _fictional_preference
 from procurement.domain.identifiers import Environment
-from procurement.ports.erp import ProcurementEvidenceQuery
+from procurement.ports.erp import ProcurementEvidenceQuery, ProcurementPreferenceQuery
 
 Scenario = Literal["success", "no_valid_response", "malformed", "timeout"]
 _SUPPORTED_SCENARIOS = frozenset(
@@ -74,6 +74,15 @@ class EvidenceQuery(BaseModel):
     environment: Literal["dev", "prod"]
     product_id: str = Field(min_length=1, max_length=128)
     horizon_days: Literal[14]
+
+
+class PreferenceQuery(BaseModel):
+    model_config = _STRICT_CONFIG
+
+    environment: Literal["dev", "prod"]
+    company_id: str = Field(min_length=1, max_length=128)
+    category_id: str = Field(min_length=1, max_length=128)
+    product_id: str = Field(min_length=1, max_length=128)
 
 
 def _scenario() -> Scenario:
@@ -159,3 +168,22 @@ async def get_procurement_evidence(
         payload["skip_reason_code"] = "NO_VALID_OFFER"
         return payload
     return evidence.to_dict()
+
+
+@app.post("/test/procurement-preferences", response_model=None)
+async def get_procurement_preferences(
+    query: PreferenceQuery,
+) -> dict[str, object] | Response:
+    scenario = _scenario()
+    if scenario == "timeout":
+        await asyncio.sleep(_timeout_seconds())
+    if scenario == "malformed":
+        return Response(content='{"profile_id":', media_type="application/json")
+    return _fictional_preference(
+        ProcurementPreferenceQuery(
+            environment=Environment(query.environment),
+            company_id=query.company_id,
+            category_id=query.category_id,
+            product_id=query.product_id,
+        )
+    ).to_dict()

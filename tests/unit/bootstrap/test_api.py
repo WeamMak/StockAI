@@ -49,7 +49,11 @@ from procurement.bootstrap.api import (  # noqa: E402
 from procurement.bootstrap.mcp import LocalFictionalErp  # noqa: E402
 from procurement.domain.identifiers import Environment  # noqa: E402
 from procurement.domain.policy.evidence import ProcurementEvidence  # noqa: E402
-from procurement.ports.erp import ProcurementEvidenceQuery  # noqa: E402
+from procurement.domain.policy.preferences import ProcurementPreference  # noqa: E402
+from procurement.ports.erp import (  # noqa: E402
+    ProcurementEvidenceQuery,
+    ProcurementPreferenceQuery,
+)
 from procurement.ports.mcp import (  # noqa: E402
     CandidatePage,
     ReplenishmentCandidate,
@@ -137,6 +141,24 @@ async def _procurement_evidence(
     )
 
 
+async def _procurement_preferences(
+    _self: StreamableHttpProcurementMcp,
+    *,
+    environment: Environment,
+    company_id: str,
+    category_id: str,
+    product_id: str,
+) -> ProcurementPreference:
+    return await LocalFictionalErp(mode="success").get_procurement_preferences(
+        ProcurementPreferenceQuery(
+            environment=environment,
+            company_id=company_id,
+            category_id=category_id,
+            product_id=product_id,
+        )
+    )
+
+
 def _patch_mcp(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         StreamableHttpProcurementMcp,
@@ -147,6 +169,11 @@ def _patch_mcp(monkeypatch: pytest.MonkeyPatch) -> None:
         StreamableHttpProcurementMcp,
         "get_procurement_evidence",
         _procurement_evidence,
+    )
+    monkeypatch.setattr(
+        StreamableHttpProcurementMcp,
+        "get_procurement_preferences",
+        _procurement_preferences,
     )
 
 
@@ -387,6 +414,15 @@ async def test_bedrock_mode_runs_api_graph_schema_and_metrics_with_mocked_aws(
     result = cast(dict[str, object], finished["result"])
     assert result["product_id"] == "product-101"
     assert result["read_only"] is True
+    evidence = cast(list[dict[str, object]], finished["evidence"])
+    preferences = cast(dict[str, object], evidence[0]["preferences"])
+    assert preferences["scope"] == "company"
+    assert preferences["revision"] == 1
+    assert preferences["ordered_criteria"] == [
+        "reliability",
+        "delivery",
+        "price",
+    ]
     assert len(provider.requests) == 1
     request = provider.requests[0]
     assert request["modelId"] == APPROVED_MODEL_ID

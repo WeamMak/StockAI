@@ -17,9 +17,12 @@ from procurement.adapters.odoo.client import (
     OdooReadTimeoutError,
     create_odoo_metrics,
 )
+from procurement.domain.identifiers import Environment
+from procurement.domain.policy.preferences import PreferenceScope
 from procurement.observability.logging import configure_json_logging
 from procurement.ports.erp import (
     ErpUnavailableError,
+    ProcurementPreferenceQuery,
     ReplenishmentCandidatesQuery,
 )
 
@@ -305,3 +308,70 @@ async def test_real_adapter_maps_candidates_and_emits_bounded_odoo_signals() -> 
     logs = stream.getvalue()
     assert logs.count('"event":"odoo_call_completed"') == 2
     assert "private-odoo-key" not in logs
+
+
+@pytest.mark.anyio
+async def test_real_adapter_resolves_typed_product_preference() -> None:
+    responses = iter(
+        (
+            [
+                {
+                    "id": 3,
+                    "company_id": [7, "Fictional Dev Company"],
+                    "scope": "product",
+                    "product_category_id": False,
+                    "product_id": [31, "Component"],
+                    "revision": 6,
+                    "max_price_premium_percent": 10.0,
+                    "enforcement_mode": "advisory",
+                    "active": True,
+                    "priority_ids": [31, 32, 33],
+                }
+            ],
+            [
+                {
+                    "id": 31,
+                    "preference_id": [3, "Preference"],
+                    "sequence": 10,
+                    "criterion": "price",
+                },
+                {
+                    "id": 32,
+                    "preference_id": [3, "Preference"],
+                    "sequence": 20,
+                    "criterion": "reliability",
+                },
+                {
+                    "id": 33,
+                    "preference_id": [3, "Preference"],
+                    "sequence": 30,
+                    "criterion": "delivery",
+                },
+            ],
+        )
+    )
+
+    def respond(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=next(responses))
+
+    adapter = OdooErpAdapter(
+        client=OdooJson2Client(
+            base_url="https://odoo.example.invalid",
+            database="stockai_dev",
+            api_key="private-odoo-key",
+            transport=httpx.MockTransport(respond),
+        ),
+        company_id=7,
+    )
+
+    profile = await adapter.get_procurement_preferences(
+        ProcurementPreferenceQuery(Environment.DEV, "7", "41", "31")
+    )
+
+    assert profile.scope is PreferenceScope.PRODUCT
+    assert profile.revision == 6
+    assert [criterion.value for criterion in profile.ordered_criteria] == [
+        "price",
+        "reliability",
+        "delivery",
+    ]

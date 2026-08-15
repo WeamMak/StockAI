@@ -8,6 +8,7 @@ from enum import StrEnum
 from typing import Protocol
 
 from procurement.domain.identifiers import Environment
+from procurement.domain.policy.preferences import AppliedPreferences
 from procurement.ports.mcp import ReplenishmentCandidate
 
 _IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]*$", re.ASCII)
@@ -28,6 +29,7 @@ class RecommendationRequest:
 
     environment: Environment
     candidates: tuple[ReplenishmentCandidate, ...]
+    preferences: tuple[AppliedPreferences, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.environment, Environment):
@@ -41,6 +43,15 @@ class RecommendationRequest:
             )
         ):
             raise ValueError("candidates must contain 1 to 25 candidates")
+        if (
+            not isinstance(self.preferences, tuple)
+            or len(self.preferences) not in {0, len(self.candidates)}
+            or not all(
+                isinstance(preference, AppliedPreferences)
+                for preference in self.preferences
+            )
+        ):
+            raise ValueError("preferences must match the candidate set")
 
 
 @dataclass(frozen=True, slots=True)

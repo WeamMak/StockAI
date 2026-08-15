@@ -150,6 +150,66 @@ def _budget(category, analytic_account, amount):
     return budget
 
 
+def _preference(scope, priorities, premium, mode, *, category=None, product=None):
+    domain = [
+        ("company_id", "=", company.id),
+        ("scope", "=", scope),
+        ("active", "=", True),
+    ]
+    if scope == "category":
+        domain.append(("product_category_id", "=", category.id))
+    if scope == "product":
+        domain.append(("product_id", "=", product.id))
+    records = env["stockai.procurement.preference"].sudo().search(domain)  # noqa: F821
+    if len(records) > 1:
+        raise RuntimeError("seed found duplicate preference records")
+    values = {
+        "company_id": company.id,
+        "scope": scope,
+        "product_category_id": category.id if category else False,
+        "product_id": product.id if product else False,
+        "max_price_premium_percent": premium,
+        "enforcement_mode": mode,
+        "active": True,
+    }
+    ordered = (
+        list(records.priority_ids.sorted("sequence").mapped("criterion"))
+        if records
+        else []
+    )
+    if records:
+        preference = records.ensure_one()
+        relationship_fields = {"product_category_id", "product_id", "company_id"}
+        changed = {
+            name: value
+            for name, value in values.items()
+            if name in relationship_fields and preference[name].id != value
+        }
+        changed.update(
+            {
+                name: value
+                for name, value in values.items()
+                if name not in relationship_fields and preference[name] != value
+            }
+        )
+        if ordered != priorities:
+            changed["priority_ids"] = [
+                Command.clear(),
+                *[
+                    Command.create({"sequence": index * 10, "criterion": criterion})
+                    for index, criterion in enumerate(priorities, start=1)
+                ],
+            ]
+        if changed:
+            preference.write(changed)
+        return preference
+    values["priority_ids"] = [
+        Command.create({"sequence": index * 10, "criterion": criterion})
+        for index, criterion in enumerate(priorities, start=1)
+    ]
+    return env["stockai.procurement.preference"].sudo().create(values)  # noqa: F821
+
+
 def _draft_order(origin, vendor, product, analytic_account, *, quantity, price):
     planned_date = datetime.datetime.now() + datetime.timedelta(days=7)
     orders = (
@@ -363,6 +423,21 @@ no_offer_template, _no_offer_product = _product(
     f"{prefix}-NO-OFFER",
     f"{label} Fictional No-Valid-Offer Component",
     no_offer_category,
+)
+_preference("company", ["reliability", "delivery", "price"], 25.0, "advisory")
+_preference(
+    "category",
+    ["delivery", "reliability", "price"],
+    15.0,
+    "hard",
+    category=over_category,
+)
+_preference(
+    "product",
+    ["price", "reliability", "delivery"],
+    10.0,
+    "advisory",
+    product=happy_product,
 )
 _offer(happy_template, fast_vendor, price=19.0, delay=2, sequence=1)
 _offer(happy_template, cheap_vendor, price=16.0, delay=6, sequence=2)

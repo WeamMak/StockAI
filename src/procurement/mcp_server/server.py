@@ -23,12 +23,14 @@ from procurement.mcp_server.schemas import (
     CandidateLimit,
     EnvironmentValue,
     GetProcurementEvidenceInput,
+    GetProcurementPreferencesInput,
     HorizonDays,
     ListReplenishmentCandidatesInput,
     ListReplenishmentCandidatesOutput,
     ProcurementEvidenceOutput,
+    ProcurementPreferenceOutput,
 )
-from procurement.mcp_server.tools import candidates, evidence
+from procurement.mcp_server.tools import candidates, evidence, preferences
 from procurement.observability.logging import configure_json_logging
 from procurement.ports.erp import ErpPort
 
@@ -38,7 +40,11 @@ SERVICE_NAME = "procurement-mcp"
 def _harden_tool_argument_validation(server: FastMCP) -> None:
     """Make SDK-generated validation strict, extra-forbid, and non-echoing."""
 
-    for tool_name in (candidates.TOOL_NAME, evidence.TOOL_NAME):
+    for tool_name in (
+        candidates.TOOL_NAME,
+        evidence.TOOL_NAME,
+        preferences.TOOL_NAME,
+    ):
         tool = server._tool_manager.get_tool(tool_name)
         if tool is None:  # pragma: no cover - construction invariant
             raise RuntimeError(f"The {tool_name} tool was not registered.")
@@ -148,6 +154,39 @@ def create_mcp_server(
             horizon_days=horizon_days,
         )
         return await evidence.get_procurement_evidence(
+            request=request,
+            erp=erp,
+            server_environment=server_environment,
+            metrics=resolved_metrics,
+            logger=resolved_logger,
+            read_timeout_seconds=read_timeout_seconds,
+        )
+
+    @server.tool(
+        name=preferences.TOOL_NAME,
+        title="Get procurement preferences",
+        description="Resolve one typed current company, category, or product profile.",
+        annotations=ToolAnnotations(
+            readOnlyHint=True,
+            destructiveHint=False,
+            idempotentHint=True,
+            openWorldHint=False,
+        ),
+        structured_output=True,
+    )
+    async def get_procurement_preferences(
+        environment: EnvironmentValue,
+        company_id: str,
+        category_id: str,
+        product_id: str,
+    ) -> ProcurementPreferenceOutput:
+        request = GetProcurementPreferencesInput(
+            environment=environment,
+            company_id=company_id,
+            category_id=category_id,
+            product_id=product_id,
+        )
+        return await preferences.get_procurement_preferences(
             request=request,
             erp=erp,
             server_environment=server_environment,

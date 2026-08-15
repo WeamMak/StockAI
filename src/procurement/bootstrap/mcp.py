@@ -29,6 +29,13 @@ from procurement.domain.policy.evidence import (
 from procurement.domain.policy.forecast import StockMovement, project_shortage
 from procurement.domain.policy.offers import VendorOffer, evaluate_offer
 from procurement.domain.policy.performance import CompletedOrder, performance_evidence
+from procurement.domain.policy.preferences import (
+    PreferenceCriterion,
+    PreferenceScope,
+    PremiumEnforcement,
+    ProcurementPreference,
+    preference_from_dict,
+)
 from procurement.mcp_server.observability import create_mcp_metrics
 from procurement.mcp_server.server import SERVICE_NAME, create_mcp_server
 from procurement.observability.logging import configure_json_logging
@@ -37,6 +44,7 @@ from procurement.ports.erp import (
     ErpPort,
     ErpUnavailableError,
     ProcurementEvidenceQuery,
+    ProcurementPreferenceQuery,
     ReplenishmentCandidateRecord,
     ReplenishmentCandidatesQuery,
 )
@@ -195,6 +203,13 @@ class LocalFictionalErp(ErpPort):
             await asyncio.sleep(3_600)
         return _fictional_evidence(query)
 
+    async def get_procurement_preferences(
+        self, query: ProcurementPreferenceQuery
+    ) -> ProcurementPreference:
+        if self.mode == "timeout":
+            await asyncio.sleep(3_600)
+        return _fictional_preference(query)
+
 
 def _candidate_record(raw: object) -> ReplenishmentCandidateRecord:
     if not isinstance(raw, Mapping) or set(raw) != {
@@ -302,6 +317,50 @@ class LocalHttpFictionalErp(ErpPort):
             raise TimeoutError from None
         except (httpx.HTTPError, InvalidOperation, TypeError, ValueError) as error:
             raise ErpUnavailableError from error
+
+    async def get_procurement_preferences(
+        self, query: ProcurementPreferenceQuery
+    ) -> ProcurementPreference:
+        try:
+            async with httpx.AsyncClient(
+                base_url=self.base_url,
+                timeout=self.timeout_seconds,
+            ) as client:
+                response = await client.post(
+                    "/test/procurement-preferences",
+                    json={
+                        "environment": query.environment.value,
+                        "company_id": query.company_id,
+                        "category_id": query.category_id,
+                        "product_id": query.product_id,
+                    },
+                )
+                response.raise_for_status()
+                return preference_from_dict(response.json())
+        except httpx.TimeoutException:
+            raise TimeoutError from None
+        except (httpx.HTTPError, InvalidOperation, TypeError, ValueError) as error:
+            raise ErpUnavailableError from error
+
+
+def _fictional_preference(query: ProcurementPreferenceQuery) -> ProcurementPreference:
+    return ProcurementPreference(
+        profile_id="preference-local-company",
+        company_id=query.company_id,
+        category_id=query.category_id,
+        product_id=query.product_id,
+        scope=PreferenceScope.COMPANY,
+        scope_id=query.company_id,
+        revision=1,
+        ordered_criteria=(
+            PreferenceCriterion.RELIABILITY,
+            PreferenceCriterion.DELIVERY,
+            PreferenceCriterion.PRICE,
+        ),
+        max_price_premium_percent=Decimal("25.000000"),
+        enforcement_mode=PremiumEnforcement.ADVISORY,
+        precedence_source=PreferenceScope.COMPANY,
+    )
 
 
 def _fictional_evidence(query: ProcurementEvidenceQuery) -> ProcurementEvidence:

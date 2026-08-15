@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from procurement.domain.errors import DomainValidationError, FieldError
 from procurement.domain.identifiers import CaseId, Environment, Revision
 from procurement.domain.models import UtcTimestamp
+from procurement.domain.policy.preferences import AppliedPreferences
 
 MAX_AUDIT_TEXT_LENGTH = 128
 _AUDIT_TEXT_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]*$", re.ASCII)
@@ -44,6 +45,7 @@ class AuditEvent:
     source_revision: Revision
     outcome: str
     evidence_digest: str | None = None
+    preferences: AppliedPreferences | None = None
 
     def __post_init__(self) -> None:
         for field, value in (
@@ -83,6 +85,18 @@ class AuditEvent:
                     FieldError(
                         field="evidence_digest",
                         message="Use a lowercase SHA-256 digest.",
+                    ),
+                ),
+            )
+        if self.preferences is not None and not isinstance(
+            self.preferences, AppliedPreferences
+        ):
+            raise DomainValidationError(
+                "The audit preference snapshot is invalid.",
+                field_errors=(
+                    FieldError(
+                        field="preferences",
+                        message="Use a typed applied preference snapshot.",
                     ),
                 ),
             )

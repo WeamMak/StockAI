@@ -26,6 +26,10 @@ from procurement.domain.policy.evidence import (
     ProcurementEvidence,
     procurement_evidence_from_dict,
 )
+from procurement.domain.policy.preferences import (
+    ProcurementPreference,
+    preference_from_dict,
+)
 from procurement.mcp_server.server import create_mcp_server
 from procurement.observability.metrics import create_agent_metrics
 from procurement.ports.erp import CandidatePage as ErpCandidatePage
@@ -167,6 +171,40 @@ class RealTransportMcpClient(ProcurementMcpPort):
             raise McpUnavailableError(retry_count=0)
         try:
             return procurement_evidence_from_dict(dict(result.structuredContent))
+        except (TypeError, ValueError) as error:
+            raise McpUnavailableError(retry_count=0, private_detail=error) from None
+
+    async def get_procurement_preferences(
+        self,
+        *,
+        environment: Environment,
+        company_id: str,
+        category_id: str,
+        product_id: str,
+    ) -> ProcurementPreference:
+        async with httpx.AsyncClient(
+            headers={"Authorization": f"Bearer {self._bearer_token}"}
+        ) as http_client:
+            async with streamable_http_client(self._url, http_client=http_client) as (
+                read_stream,
+                write_stream,
+                _,
+            ):
+                async with ClientSession(read_stream, write_stream) as session:
+                    await session.initialize()
+                    result = await session.call_tool(
+                        "get_procurement_preferences",
+                        arguments={
+                            "environment": environment.value,
+                            "company_id": company_id,
+                            "category_id": category_id,
+                            "product_id": product_id,
+                        },
+                    )
+        if result.isError or not isinstance(result.structuredContent, Mapping):
+            raise McpUnavailableError(retry_count=0)
+        try:
+            return preference_from_dict(dict(result.structuredContent))
         except (TypeError, ValueError) as error:
             raise McpUnavailableError(retry_count=0, private_detail=error) from None
 

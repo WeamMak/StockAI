@@ -55,6 +55,10 @@ from procurement.domain.policy.evidence import (
     ProcurementEvidence,
     procurement_evidence_from_dict,
 )
+from procurement.domain.policy.preferences import (
+    ProcurementPreference,
+    preference_from_dict,
+)
 from procurement.observability.logging import configure_json_logging
 from procurement.observability.metrics import create_agent_metrics
 from procurement.ports.llm import (
@@ -77,6 +81,7 @@ from procurement.ports.repositories import (
 
 _MCP_TOOL_NAME = "list_replenishment_candidates"
 _MCP_EVIDENCE_TOOL_NAME = "get_procurement_evidence"
+_MCP_PREFERENCES_TOOL_NAME = "get_procurement_preferences"
 _MIN_TOKEN_LENGTH = 32
 _MAX_TOKEN_LENGTH = 512
 
@@ -109,6 +114,7 @@ class LocalApiSettings:
     api: ApiSettings
     mcp_url: str
     mcp_token: str = field(repr=False)
+    odoo_company_id: int = 1
     llm_mode: LlmMode = LlmMode.LOCAL
     persistence_mode: PersistenceMode = PersistenceMode.MEMORY
     authentication_mode: AuthenticationMode = AuthenticationMode.DISABLED
@@ -137,6 +143,8 @@ class LocalApiSettings:
             raise ValueError(
                 "PROCUREMENT_MCP_CLIENT_TIMEOUT_SECONDS must be between 0 and 120"
             )
+        if type(self.odoo_company_id) is not int or self.odoo_company_id <= 0:
+            raise ValueError("PROCUREMENT_ODOO_COMPANY_ID must be positive")
         if not isinstance(self.llm_mode, LlmMode):
             raise ValueError("PROCUREMENT_LLM_MODE must be local or bedrock")
         if not isinstance(self.persistence_mode, PersistenceMode):
@@ -220,6 +228,7 @@ class LocalApiSettings:
                 "http://127.0.0.1:9000/mcp",
             ),
             mcp_token=mcp_token,
+            odoo_company_id=int(os.environ.get("PROCUREMENT_ODOO_COMPANY_ID", "1")),
             llm_mode=llm_mode,
             persistence_mode=persistence_mode,
             authentication_mode=authentication_mode,
@@ -454,6 +463,47 @@ class StreamableHttpProcurementMcp(ProcurementMcpPort):
         except (InvalidOperation, TypeError, ValueError) as error:
             raise McpUnavailableError(retry_count=0, private_detail=error) from None
 
+    async def get_procurement_preferences(
+        self,
+        *,
+        environment: Environment,
+        company_id: str,
+        category_id: str,
+        product_id: str,
+    ) -> ProcurementPreference:
+        try:
+            async with httpx.AsyncClient(
+                headers={"Authorization": f"Bearer {self.bearer_token}"},
+                timeout=self.timeout_seconds,
+            ) as http_client:
+                async with streamable_http_client(
+                    self.url,
+                    http_client=http_client,
+                ) as (read_stream, write_stream, _):
+                    async with ClientSession(read_stream, write_stream) as session:
+                        await session.initialize()
+                        result = await session.call_tool(
+                            _MCP_PREFERENCES_TOOL_NAME,
+                            arguments={
+                                "environment": environment.value,
+                                "company_id": company_id,
+                                "category_id": category_id,
+                                "product_id": product_id,
+                            },
+                        )
+        except httpx.TimeoutException:
+            raise McpTimeoutError(retry_count=0) from None
+        except Exception as error:
+            raise McpUnavailableError(retry_count=0, private_detail=error) from None
+        if result.isError:
+            _raise_mcp_error(result)
+        if not isinstance(result.structuredContent, Mapping):
+            raise McpUnavailableError(retry_count=0)
+        try:
+            return preference_from_dict(dict(result.structuredContent))
+        except (InvalidOperation, TypeError, ValueError) as error:
+            raise McpUnavailableError(retry_count=0, private_detail=error) from None
+
 
 def create_local_api_app(
     settings: LocalApiSettings | None = None,
@@ -517,6 +567,7 @@ def create_local_api_app(
         checkpointer=checkpointer,
         metrics=agent_metrics,
         logger=logger,
+        company_id=str(resolved.odoo_company_id),
     )
     identity_provider = identity_provider_override
     if (

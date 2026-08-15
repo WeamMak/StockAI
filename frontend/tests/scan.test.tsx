@@ -72,6 +72,28 @@ const BASE_SCAN = {
         exception_required: false,
       },
       skip_reason_code: null,
+      preferences: {
+        profile_id: "preference-3",
+        company_id: "1",
+        category_id: "category-safety",
+        product_id: "product-101",
+        scope: "product",
+        scope_id: "product-101",
+        revision: 6,
+        ordered_criteria: ["price", "reliability", "delivery"],
+        max_price_premium_percent: "10.000000",
+        enforcement_mode: "advisory",
+        precedence_source: "product",
+        cheapest_eligible_cost: "437.500000",
+        offer_results: [
+          {
+            offer_id: "offer-101",
+            premium_percent: "0.000000",
+            exceeds_cap: false,
+            outcome: "within_cap",
+          },
+        ],
+      },
     },
   ],
   result: {
@@ -122,6 +144,11 @@ describe("ScanPage", () => {
     expect(screen.getByText(/0.500000/)).toBeInTheDocument();
     expect(screen.getByText("14-day inventory projection")).toBeInTheDocument();
     expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Applied preferences" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("price → reliability → delivery")).toBeInTheDocument();
+    expect(screen.getByText("10.000000% (advisory)")).toBeInTheDocument();
   });
 
   it("shows a non-retryable unresolved result as manual review", async () => {

@@ -76,6 +76,19 @@
       ],
       "title": "MCP timeouts and retries",
       "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "stockai-prometheus"},
+      "description": "Low-cardinality deterministic outcomes after applying the resolved company, category, or product preference.",
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 16},
+      "id": 7,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom"}},
+      "targets": [
+        {"expr": "sum by (scope, mode, outcome) (increase(procurement_preference_offer_outcomes_total[1h]))", "legendFormat": "{{scope}} {{mode}} {{outcome}}", "refId": "A"}
+      ],
+      "title": "Preference premium outcomes",
+      "type": "timeseries"
     }
   ],
   "refresh": "30s",

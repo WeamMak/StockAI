@@ -12,6 +12,7 @@ import pytest
 import uvicorn
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
+from scripts.odoo.probe_contract import Json2Client
 
 from procurement.agent.graph import build_walking_skeleton_graph
 from procurement.agent.state import ApprovalReadyResult
@@ -126,6 +127,25 @@ async def test_seeded_odoo_candidate_reaches_the_walking_skeleton_over_real_mcp(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     _seed(running_odoo_contract)
+    fixture = running_odoo_contract.first_bootstrap["fixture"]
+    assert isinstance(fixture, Mapping)
+    company_id = fixture["company_id"]
+    assert type(company_id) is int
+    with Json2Client(
+        base_url=running_odoo_contract.base_url,
+        database=running_odoo_contract.database,
+        api_key=running_odoo_contract.api_key,
+    ) as odoo:
+        seeded_products = odoo.call(
+            "product.product",
+            "search_read",
+            {
+                "domain": [["default_code", "like", "STOCKAI-DEV-%"]],
+                "fields": ["id", "categ_id", "default_code"],
+                "limit": 10,
+            },
+        )
+    assert isinstance(seeded_products, list)
 
     async with _running_real_odoo_mcp(running_odoo_contract) as (
         mcp_url,
@@ -151,6 +171,30 @@ async def test_seeded_odoo_candidate_reaches_the_walking_skeleton_over_real_mcp(
             url=mcp_url,
             bearer_token=BEARER_TOKEN,
         )
+        resolved_scopes = {}
+        for product in seeded_products:
+            assert isinstance(product, Mapping)
+            candidate_product_id = product["id"]
+            candidate_category = product["categ_id"]
+            candidate_code = product["default_code"]
+            assert type(candidate_product_id) is int
+            assert (
+                isinstance(candidate_category, list)
+                and type(candidate_category[0]) is int
+            )
+            assert isinstance(candidate_code, str)
+            profile = await transport.get_procurement_preferences(
+                environment=Environment.DEV,
+                company_id=str(company_id),
+                category_id=str(candidate_category[0]),
+                product_id=str(candidate_product_id),
+            )
+            resolved_scopes[candidate_code] = profile.scope.value
+        assert resolved_scopes == {
+            "STOCKAI-DEV-HAPPY": "product",
+            "STOCKAI-DEV-NO-OFFER": "company",
+            "STOCKAI-DEV-OVER": "category",
+        }
         evidence = await transport.get_procurement_evidence(
             environment=Environment.DEV,
             product_id=product_id,
@@ -172,6 +216,7 @@ async def test_seeded_odoo_candidate_reaches_the_walking_skeleton_over_real_mcp(
         graph = build_walking_skeleton_graph(
             mcp=transport,
             llm=llm,
+            company_id=str(company_id),
         )
         state = await graph.ainvoke(
             {"scan_id": "scan-real-odoo-001", "environment": Environment.DEV}

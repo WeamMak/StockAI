@@ -221,3 +221,37 @@ class ProcurementEvidenceOutput(BaseModel):
     skip_reason_code: str | None = Field(
         default=None, max_length=64, pattern=_SKIP_CODE_PATTERN
     )
+    preferences: dict[str, object] | None = None
+
+
+class GetProcurementPreferencesInput(BaseModel):
+    """Identifiers required to resolve one environment-bound profile."""
+
+    model_config = _STRICT_MODEL_CONFIG
+
+    environment: EnvironmentValue
+    company_id: str = Field(min_length=1, max_length=128, pattern=_IDENTIFIER_PATTERN)
+    category_id: str = Field(min_length=1, max_length=128, pattern=_IDENTIFIER_PATTERN)
+    product_id: str = Field(min_length=1, max_length=128, pattern=_IDENTIFIER_PATTERN)
+
+
+class ProcurementPreferenceOutput(BaseModel):
+    """Strict typed preference profile returned over MCP."""
+
+    model_config = _STRICT_MODEL_CONFIG
+
+    profile_id: str = Field(min_length=1, max_length=128, pattern=_IDENTIFIER_PATTERN)
+    company_id: str = Field(min_length=1, max_length=128, pattern=_IDENTIFIER_PATTERN)
+    category_id: str = Field(min_length=1, max_length=128, pattern=_IDENTIFIER_PATTERN)
+    product_id: str = Field(min_length=1, max_length=128, pattern=_IDENTIFIER_PATTERN)
+    scope: Literal["company", "category", "product"]
+    scope_id: str = Field(min_length=1, max_length=128, pattern=_IDENTIFIER_PATTERN)
+    revision: int = Field(strict=True, ge=1, le=2_147_483_647)
+    ordered_criteria: tuple[Literal["price", "delivery", "reliability"], ...] = Field(
+        min_length=3, max_length=3
+    )
+    max_price_premium_percent: Decimal = Field(
+        ge=Decimal("0"), le=Decimal("100"), decimal_places=6, allow_inf_nan=False
+    )
+    enforcement_mode: Literal["advisory", "hard"]
+    precedence_source: Literal["company", "category", "product"]
