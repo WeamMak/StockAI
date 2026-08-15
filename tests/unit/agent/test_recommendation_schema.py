@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
+from typing import cast
 
 import pytest
 
@@ -63,7 +64,7 @@ def test_valid_output_uses_provider_token_metadata() -> None:
 
 
 def test_provider_schema_enforces_the_application_text_bounds() -> None:
-    properties = RECOMMENDATION_JSON_SCHEMA["properties"]
+    properties = cast(dict[str, object], RECOMMENDATION_JSON_SCHEMA["properties"])
 
     assert properties["product_id"] == {
         "type": ["string", "null"],
