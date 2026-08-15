@@ -30,6 +30,7 @@ def test_identities_change_only_for_images_that_consume_the_file(
     _write(tmp_path, "frontend/src/App.tsx", "frontend source")
     _write(tmp_path, "odoo/addons/stockai_procurement/__init__.py", "addon")
     _write(tmp_path, "odoo/bootstrap/bootstrap.py", "bootstrap")
+    _write(tmp_path, "scripts/odoo/seed.py", "seed")
 
     before = calculate_build_identities(tmp_path)
     _write(tmp_path, "frontend/src/App.tsx", "changed frontend source")
@@ -40,6 +41,16 @@ def test_identities_change_only_for_images_that_consume_the_file(
     assert before.images["api"] == after.images["api"]
     assert before.images["mcp"] == after.images["mcp"]
     assert before.images["odoo"] == after.images["odoo"]
+
+    before = after
+    _write(tmp_path, "scripts/odoo/seed.py", "changed seed")
+    after = calculate_build_identities(tmp_path)
+
+    assert before.application != after.application
+    assert before.images["odoo"] != after.images["odoo"]
+    assert before.images["frontend"] == after.images["frontend"]
+    assert before.images["api"] == after.images["api"]
+    assert before.images["mcp"] == after.images["mcp"]
 
 
 def test_generated_release_and_overlay_edits_do_not_change_build_identity(

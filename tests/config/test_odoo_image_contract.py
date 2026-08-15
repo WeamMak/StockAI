@@ -89,11 +89,15 @@ def test_odoo_image_copies_only_the_addon_and_finite_bootstrap_code() -> None:
         "odoo/addons/stockai_procurement",
         "odoo/bootstrap/bootstrap.py",
         "odoo/bootstrap/sinks.py",
+        "scripts/odoo/seed.py",
+        "scripts/odoo/verify_seed.py",
     ]
     assert "/tmp/odoo-requirements.txt" in dockerfile
     assert "/mnt/extra-addons/stockai_procurement" in dockerfile
     assert "/opt/stockai/bootstrap.py" in dockerfile
     assert "/opt/stockai/sinks.py" in dockerfile
+    assert "/opt/stockai/seed.py" in dockerfile
+    assert "/opt/stockai/verify_seed.py" in dockerfile
 
 
 def test_bootstrap_uses_the_isolated_sink_boundary() -> None:
@@ -130,3 +134,6 @@ def test_image_build_context_excludes_local_secret_sinks() -> None:
     assert "**/bootstrap-api-key" in ignored
     assert ".env*" in ignored
     assert "reports" in ignored
+    assert "scripts/*" in ignored
+    assert "!scripts/odoo/seed.py" in ignored
+    assert "!scripts/odoo/verify_seed.py" in ignored

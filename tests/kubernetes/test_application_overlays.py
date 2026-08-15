@@ -88,7 +88,7 @@ def test_complete_application_inventory_and_immutable_images(environment: str) -
     assert APPLICATION_DEPLOYMENTS <= set(deployments)
     assert {
         resource["metadata"]["name"] for resource in _by_kind(resources, "Job")
-    } == {"stockai-odoo-bootstrap"}
+    } == {"stockai-odoo-bootstrap", "stockai-odoo-seed"}
     assert {
         resource["metadata"]["name"] for resource in _by_kind(resources, "CronJob")
     } == {"stockai-daily-scan"}
@@ -101,11 +101,15 @@ def test_complete_application_inventory_and_immutable_images(environment: str) -
     project_images["stockai-odoo-bootstrap"] = _containers(
         _named(resources, "Job", "stockai-odoo-bootstrap")
     )[0]["image"]
+    project_images["stockai-odoo-seed"] = _containers(
+        _named(resources, "Job", "stockai-odoo-seed")
+    )[0]["image"]
     project_images["stockai-daily-scan"] = _containers(
         _named(resources, "CronJob", "stockai-daily-scan")
     )[0]["image"]
     assert all(IMAGE_PATTERN.fullmatch(image) for image in project_images.values())
     assert project_images["stockai-odoo"] == project_images["stockai-odoo-bootstrap"]
+    assert project_images["stockai-odoo"] == project_images["stockai-odoo-seed"]
     assert project_images["stockai-agent-api"] == project_images["stockai-daily-scan"]
     assert IMAGE_PATTERN.fullmatch(
         _containers(deployments["stockai-postgresql"])[0]["image"]
@@ -125,7 +129,11 @@ def test_dev_and_prod_have_the_same_project_image_inventory() -> None:
             ]
             if resource["metadata"]["name"]
             in APPLICATION_DEPLOYMENTS
-            | {"stockai-odoo-bootstrap", "stockai-daily-scan"}
+            | {
+                "stockai-odoo-bootstrap",
+                "stockai-odoo-seed",
+                "stockai-daily-scan",
+            }
             and resource["metadata"]["name"] != "stockai-postgresql"
         }
 
@@ -178,6 +186,28 @@ def test_stateful_storage_and_finite_odoo_bootstrap(environment: str) -> None:
     assert env["STOCKAI_ODOO_BOOTSTRAP_SECRET_ARN"]["valueFrom"] == {
         "configMapKeyRef": {
             "key": "STOCKAI_ODOO_BOOTSTRAP_SECRET_ARN",
+            "name": "stockai-environment",
+        }
+    }
+
+    seed = _named(resources, "Job", "stockai-odoo-seed")
+    seed_spec = seed["spec"]
+    seed_pod = _pod_spec(seed)
+    seed_container = _containers(seed)[0]
+    assert seed["metadata"]["annotations"] == {
+        "argocd.argoproj.io/sync-options": "Force=true,Replace=true",
+        "argocd.argoproj.io/sync-wave": "1",
+    }
+    assert seed_spec["activeDeadlineSeconds"] == 300
+    assert seed_spec["backoffLimit"] == 6
+    assert "ttlSecondsAfterFinished" not in seed_spec
+    assert seed_pod["restartPolicy"] == "OnFailure"
+    assert "/opt/stockai/seed.py" in seed_container["args"][0]
+    assert "/opt/stockai/verify_seed.py" in seed_container["args"][0]
+    seed_env = {item["name"]: item for item in seed_container["env"]}
+    assert seed_env["STOCKAI_ODOO_SEED_ENVIRONMENT"]["valueFrom"] == {
+        "configMapKeyRef": {
+            "key": "STOCKAI_ODOO_SEED_ENVIRONMENT",
             "name": "stockai-environment",
         }
     }

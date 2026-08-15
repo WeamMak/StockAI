@@ -6,6 +6,7 @@ on:
     paths:
       - compose.yaml
       - compose.odoo.yaml
+      - .dockerignore
       - docker/**
       - frontend/**
       - odoo/**
@@ -13,6 +14,8 @@ on:
       - pyproject.toml
       - uv.lock
       - README.md
+      - scripts/odoo/seed.py
+      - scripts/odoo/verify_seed.py
       - scripts/release/**
       - .github/workflows/dev-images.yml
 
