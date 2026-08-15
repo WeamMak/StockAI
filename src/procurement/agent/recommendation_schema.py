@@ -24,9 +24,23 @@ RECOMMENDATION_JSON_SCHEMA: Mapping[str, object] = {
     "type": "object",
     "properties": {
         "decision": {"type": "string", "enum": ["recommend", "manual_review"]},
-        "product_id": {"type": ["string", "null"]},
-        "rationale": {"type": "string"},
-        "risk_flags": {"type": "array", "items": {"type": "string"}},
+        "product_id": {
+            "type": ["string", "null"],
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": r"^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+        },
+        "rationale": {"type": "string", "minLength": 1, "maxLength": 500},
+        "risk_flags": {
+            "type": "array",
+            "maxItems": 10,
+            "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": r"^[A-Z][A-Z0-9_]*$",
+            },
+        },
         "budget_acknowledgement": {
             "type": "string",
             "enum": ["not_evaluated"],
