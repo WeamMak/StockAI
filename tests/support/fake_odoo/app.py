@@ -135,7 +135,7 @@ async def list_replenishment_candidates(
     )
 
 
-@app.post("/test/procurement-evidence")
+@app.post("/test/procurement-evidence", response_model=None)
 async def get_procurement_evidence(
     query: EvidenceQuery,
 ) -> dict[str, object] | Response:
