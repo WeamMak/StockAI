@@ -75,6 +75,63 @@ class RecordingBedrockClient:
         return cast(dict[str, Any], response)
 
 
+class ContextualBedrockClient(RecordingBedrockClient):
+    """Return one valid recommendation copied from the exact provider request."""
+
+    def __init__(self) -> None:
+        super().__init__()
+
+    def converse(self, **request: Any) -> dict[str, Any]:
+        self.requests.append(request)
+        message = request["messages"][0]["content"][0]["text"]
+        serialized = message.split("<procurement_data>\n", 1)[1].split(
+            "\n</procurement_data>", 1
+        )[0]
+        context = json.loads(serialized)
+        evidence = context["eligible_alternatives"][0]
+        offer = evidence["offers"][0]
+        preferences = evidence["preferences"]
+        premium = next(
+            item
+            for item in preferences["offer_results"]
+            if item["offer_id"] == offer["offer_id"]
+        )
+        risk_flags = []
+        if evidence["budget_status"] == "unavailable":
+            risk_flags.append("BUDGET_UNAVAILABLE")
+        elif evidence["budget_status"] == "exception_required":
+            risk_flags.append("BUDGET_EXCEPTION_REQUIRED")
+        if offer["performance"]["history_status"] == "limited":
+            risk_flags.append("LIMITED_VENDOR_HISTORY")
+        if premium["outcome"] == "advisory_exceeded":
+            risk_flags.append("ADVISORY_PREMIUM_EXCEEDED")
+        return cast(
+            dict[str, Any],
+            _bedrock_response(
+                {
+                    "decision": "recommend",
+                    "offer_id": offer["offer_id"],
+                    "rationale": "The eligible offer balances the priorities.",
+                    "trade_offs": ["Reliable delivery is favored."],
+                    "risk_flags": risk_flags,
+                    "uncertainty": "History is limited to supplied orders.",
+                    "evidence_limitations": ["No quality evidence is available."],
+                    "evidence_id": evidence["evidence_id"],
+                    "evidence_digest": evidence["evidence_digest"],
+                    "quantity": offer["quantity"],
+                    "unit_price": offer["unit_price"],
+                    "normalized_cost": offer["normalized_cost"],
+                    "budget_status": evidence["budget_status"],
+                    "preference_profile_id": preferences["profile_id"],
+                    "preference_scope": preferences["scope"],
+                    "preference_revision": preferences["revision"],
+                    "priority_order": preferences["ordered_criteria"],
+                    "premium_outcome": premium["outcome"],
+                }
+            ),
+        )
+
+
 def _settings(mode: LlmMode) -> LocalApiSettings:
     return LocalApiSettings(
         api=ApiSettings(environment=Environment.DEV),
@@ -382,17 +439,7 @@ def test_dynamodb_persistence_and_cognito_are_both_runtime_reachable() -> None:
 async def test_bedrock_mode_runs_api_graph_schema_and_metrics_with_mocked_aws(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    provider = RecordingBedrockClient(
-        _bedrock_response(
-            {
-                "decision": "recommend",
-                "product_id": "product-101",
-                "rationale": "Stock is below the configured reorder minimum.",
-                "risk_flags": ["LIMITED_WALKING_SKELETON_EVIDENCE"],
-                "budget_acknowledgement": "not_evaluated",
-            }
-        )
-    )
+    provider = ContextualBedrockClient()
     _patch_mcp(monkeypatch)
     application = create_local_api_app(
         _settings(LlmMode.BEDROCK),
@@ -435,7 +482,7 @@ async def test_bedrock_mode_runs_api_graph_schema_and_metrics_with_mocked_aws(
 
 
 @pytest.mark.anyio
-async def test_bedrock_invalid_output_becomes_safe_observable_scan_failure(
+async def test_bedrock_invalid_output_becomes_safe_observable_manual_review(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     provider = RecordingBedrockClient(
@@ -458,14 +505,11 @@ async def test_bedrock_invalid_output_becomes_safe_observable_scan_failure(
         finished = await _finished_scan(client, accepted.json()["scan_id"])
         metrics = await client.get("/metrics")
 
-    assert finished["status"] == "failed"
-    failure = cast(dict[str, object], finished["error"])
-    assert failure == {
-        "error_code": "LLM_OUTPUT_INVALID",
-        "message": "The recommendation model returned an invalid result.",
-        "retryable": False,
-        "retry_count": 0,
-    }
+    assert finished["status"] == "succeeded"
+    result = cast(dict[str, object], finished["result"])
+    assert result["outcome"] == "manual_review"
+    assert result["risk_flags"] == ["LLM_OUTPUT_INVALID"]
+    assert finished["error"] is None
     assert "private malformed output" not in json.dumps(finished)
     assert len(provider.requests) == 2
     assert 'procurement_llm_calls_total{status="error"} 1.0' in metrics.text
@@ -473,10 +517,11 @@ async def test_bedrock_invalid_output_becomes_safe_observable_scan_failure(
         'procurement_llm_failures_total{error_code="LLM_OUTPUT_INVALID"} 1.0'
         in metrics.text
     )
+    assert 'procurement_llm_fallbacks_total{reason="invalid"} 1.0' in metrics.text
 
 
 @pytest.mark.anyio
-async def test_bedrock_unavailable_becomes_safe_retryable_scan_failure(
+async def test_bedrock_unavailable_becomes_safe_observable_manual_review(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     private_detail = "private provider access detail"
@@ -502,14 +547,11 @@ async def test_bedrock_unavailable_becomes_safe_retryable_scan_failure(
         finished = await _finished_scan(client, accepted.json()["scan_id"])
         metrics = await client.get("/metrics")
 
-    assert finished["status"] == "failed"
-    failure = cast(dict[str, object], finished["error"])
-    assert failure == {
-        "error_code": "LLM_UNAVAILABLE",
-        "message": "The recommendation model is unavailable.",
-        "retryable": True,
-        "retry_count": 0,
-    }
+    assert finished["status"] == "succeeded"
+    result = cast(dict[str, object], finished["result"])
+    assert result["outcome"] == "manual_review"
+    assert result["risk_flags"] == ["LLM_UNAVAILABLE"]
+    assert finished["error"] is None
     assert private_detail not in json.dumps(finished)
     assert len(provider.requests) == 1
     assert 'procurement_llm_calls_total{status="error"} 1.0' in metrics.text
@@ -517,3 +559,4 @@ async def test_bedrock_unavailable_becomes_safe_retryable_scan_failure(
         'procurement_llm_failures_total{error_code="LLM_UNAVAILABLE"} 1.0'
         in metrics.text
     )
+    assert 'procurement_llm_fallbacks_total{reason="unavailable"} 1.0' in metrics.text

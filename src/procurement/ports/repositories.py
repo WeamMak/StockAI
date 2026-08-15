@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Protocol
 
 from procurement.domain.audit import AuditEvent
@@ -32,11 +33,26 @@ class ImmutableRecordError(RepositoryConflictError):
 class RecommendationRecord:
     """Sanitized recommendation result retained with a case."""
 
-    product_id: str
-    product_name: str
+    product_id: str | None
+    product_name: str | None
     rationale: str
     risk_flags: tuple[str, ...]
     evidence: ProcurementEvidence | None = None
+    outcome: str = "approval_ready"
+    offer_id: str | None = None
+    trade_offs: tuple[str, ...] = ()
+    uncertainty: str = "No additional uncertainty identified."
+    evidence_limitations: tuple[str, ...] = ()
+    evidence_digest: str | None = None
+    quantity: Decimal | None = None
+    unit_price: Decimal | None = None
+    normalized_cost: Decimal | None = None
+    budget_status: str = "not_evaluated"
+    preference_profile_id: str | None = None
+    preference_scope: str | None = None
+    preference_revision: int | None = None
+    priority_order: tuple[str, ...] = ()
+    premium_outcome: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -12,6 +12,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import InMemorySaver
 from prometheus_client import generate_latest
 from tests.support.fakes.llm import FakeStructuredLlm
+from tests.support.recommendations import t27_recommendation
 
 from procurement.agent.graph import build_walking_skeleton_graph
 from procurement.agent.state import ApprovalReadyResult, UnresolvedResult
@@ -137,16 +138,7 @@ async def test_graph_returns_one_approval_ready_read_only_result() -> None:
             next_cursor=None,
         )
     )
-    llm = FakeStructuredLlm(
-        response=StructuredRecommendation(
-            decision=RecommendationDecision.RECOMMEND,
-            product_id="product-101",
-            rationale="Projected stock is below the configured reorder minimum.",
-            risk_flags=("LIMITED_WALKING_SKELETON_EVIDENCE",),
-            input_tokens=48,
-            output_tokens=19,
-        )
-    )
+    llm = FakeStructuredLlm(response=t27_recommendation())
     metrics = create_agent_metrics()
     stream = StringIO()
     graph = build_walking_skeleton_graph(
@@ -201,16 +193,7 @@ async def test_checkpoint_retains_result_but_not_transient_odoo_data() -> None:
             next_cursor=None,
         )
     )
-    llm = FakeStructuredLlm(
-        response=StructuredRecommendation(
-            decision=RecommendationDecision.RECOMMEND,
-            product_id="product-101",
-            rationale="Stock is below the configured minimum.",
-            risk_flags=("LIMITED_WALKING_SKELETON_EVIDENCE",),
-            input_tokens=10,
-            output_tokens=5,
-        )
-    )
+    llm = FakeStructuredLlm(response=t27_recommendation())
     config: RunnableConfig = {"configurable": {"thread_id": "scan-immutable-case-001"}}
     first_graph = build_walking_skeleton_graph(
         mcp=mcp,

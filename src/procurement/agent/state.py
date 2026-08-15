@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Annotated, TypedDict
 
 from langgraph.channels import UntrackedValue
@@ -20,8 +21,22 @@ class ApprovalReadyResult:
 
     product_id: str
     product_name: str
+    offer_id: str
     rationale: str
+    trade_offs: tuple[str, ...]
     risk_flags: tuple[str, ...]
+    uncertainty: str
+    evidence_limitations: tuple[str, ...]
+    evidence_digest: str
+    quantity: Decimal
+    unit_price: Decimal
+    normalized_cost: Decimal
+    budget_status: str
+    preference_profile_id: str
+    preference_scope: str
+    preference_revision: int
+    priority_order: tuple[str, ...]
+    premium_outcome: str
     evidence: ProcurementEvidence | None = None
 
     @property
@@ -41,7 +56,24 @@ class UnresolvedResult:
     retry_count: int = 0
 
 
-ScanResult = ApprovalReadyResult | UnresolvedResult
+@dataclass(frozen=True, slots=True)
+class ManualReviewResult:
+    """Safe deterministic comparison when model judgment cannot be accepted."""
+
+    rationale: str
+    trade_offs: tuple[str, ...]
+    risk_flags: tuple[str, ...]
+    uncertainty: str
+    evidence_limitations: tuple[str, ...]
+
+    @property
+    def read_only(self) -> bool:
+        """Manual review never grants ERP write authority."""
+
+        return True
+
+
+ScanResult = ApprovalReadyResult | ManualReviewResult | UnresolvedResult
 
 
 class ScanState(TypedDict, total=False):
