@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ScanPage } from "../src/pages/ScanPage";
@@ -120,6 +121,7 @@ afterEach(() => {
 
 describe("ScanPage", () => {
   it("shows loading before rendering an approval-ready result", async () => {
+    const user = userEvent.setup();
     let resolveRequest: ((response: Response) => void) | undefined;
     const request = new Promise<Response>((resolve) => {
       resolveRequest = resolve;
@@ -141,14 +143,53 @@ describe("ScanPage", () => {
     expect(
       screen.getByRole("heading", { name: "Deterministic procurement evidence" }),
     ).toBeInTheDocument();
-    expect(screen.getByText(/0.500000/)).toBeInTheDocument();
+
+    await user.click(screen.getByText("Vendor offers", { selector: "summary > span" }));
+    expect(screen.getByText(/50%/)).toBeInTheDocument();
+
+    await user.click(
+      screen.getByText("Inventory projection", { selector: "summary > span" }),
+    );
     expect(screen.getByText("14-day inventory projection")).toBeInTheDocument();
     expect(screen.getByRole("table")).toBeInTheDocument();
+
+    await user.click(
+      screen.getByText("Applied preferences", { selector: "summary > span" }),
+    );
     expect(
       screen.getByRole("heading", { name: "Applied preferences" }),
     ).toBeInTheDocument();
     expect(screen.getByText("price → reliability → delivery")).toBeInTheDocument();
-    expect(screen.getByText("10.000000% (advisory)")).toBeInTheDocument();
+    expect(screen.getByText("10% (advisory)")).toBeInTheDocument();
+  });
+
+  it("shows a decision summary before expandable supporting evidence", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(BASE_SCAN)));
+
+    render(<ScanPage scanId="scan-101" onBack={vi.fn()} />);
+
+    const summary = await screen.findByRole("region", {
+      name: "Recommendation summary",
+    });
+    expect(summary).toHaveTextContent("Approval ready");
+    expect(summary).toHaveTextContent("Aug 12, 2026");
+    expect(summary).toHaveTextContent("35 units");
+    expect(summary).toHaveTextContent("1 eligible offer");
+    expect(summary).toHaveTextContent("$437.50");
+    expect(summary).toHaveTextContent("Within budget");
+
+    const inventory = screen
+      .getByText("Inventory projection")
+      .closest("details");
+    expect(inventory).not.toBeNull();
+    expect(inventory).not.toHaveAttribute("open");
+
+    await user.click(screen.getByText("Inventory projection"));
+    expect(inventory).toHaveAttribute("open");
+    expect(screen.getByRole("table")).toHaveAccessibleName(
+      "14-day inventory projection",
+    );
   });
 
   it("shows a non-retryable unresolved result as manual review", async () => {

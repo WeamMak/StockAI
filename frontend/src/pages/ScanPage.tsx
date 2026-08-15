@@ -8,6 +8,7 @@ import {
   type ScanFailure,
 } from "../api/client";
 import { ProcurementEvidence } from "../components/ProcurementEvidence";
+import { formatCurrency, formatDate, formatQuantity } from "../presentation";
 
 const DEFAULT_POLL_INTERVAL_MS = 1_000;
 const DEFAULT_MAX_POLL_ATTEMPTS = 130;
@@ -41,6 +42,96 @@ function ErrorState({ error }: { error: UiError | ScanFailure }) {
       <h2>Scan could not be completed</h2>
       <p>{error.message}</p>
       <p className="error-code">{code}</p>
+    </section>
+  );
+}
+
+function RecommendationSummary({ scan }: { scan: Scan }) {
+  if (scan.result === null) {
+    return null;
+  }
+  const evidence = scan.evidence.find(
+    (item) => item.product_id === scan.result?.product_id,
+  );
+  const eligibleOfferCount =
+    evidence?.offers.filter((offer) => offer.status === "eligible").length ?? 0;
+  const budget = evidence?.budget ?? null;
+
+  return (
+    <section
+      aria-label="Recommendation summary"
+      className="panel recommendation-summary"
+    >
+      <div className="result-heading">
+        <div>
+          <p className="eyebrow">Approval ready</p>
+          <h2>{scan.result.product_name}</h2>
+          <p className="muted identifier">{scan.result.product_id}</p>
+        </div>
+        <span className="read-only-badge">Read-only recommendation</span>
+      </div>
+
+      {evidence ? (
+        <dl className="decision-grid">
+          <div>
+            <dt>Need by</dt>
+            <dd title={evidence.shortage.need_by_date}>
+              {formatDate(evidence.shortage.need_by_date)}
+            </dd>
+          </div>
+          <div>
+            <dt>Residual need</dt>
+            <dd title={evidence.coverage.residual_quantity}>
+              {formatQuantity(evidence.coverage.residual_quantity)}
+            </dd>
+          </div>
+          <div>
+            <dt>Eligible offers</dt>
+            <dd>
+              {eligibleOfferCount} eligible{" "}
+              {eligibleOfferCount === 1 ? "offer" : "offers"}
+            </dd>
+          </div>
+          <div>
+            <dt>Budget impact</dt>
+            <dd>
+              {budget ? (
+                <>
+                  <span title={budget.proposed_amount}>
+                    {formatCurrency(budget.proposed_amount, budget.currency)}
+                  </span>
+                  <small>
+                    {budget.exception_required
+                      ? "Manager exception required"
+                      : "Within budget"}
+                  </small>
+                </>
+              ) : (
+                "Not available"
+              )}
+            </dd>
+          </div>
+        </dl>
+      ) : null}
+
+      <div className="recommendation-copy">
+        <section aria-labelledby="rationale-title">
+          <h3 id="rationale-title">Why this is recommended</h3>
+          <p>{scan.result.rationale}</p>
+        </section>
+        <section aria-labelledby="risks-title">
+          <h3 id="risks-title">Risks and limitations</h3>
+          {scan.result.risk_flags.length === 0 ? (
+            <p className="muted">No risk flags were returned.</p>
+          ) : (
+            <ul className="tag-list">
+              {scan.result.risk_flags.map((flag) => (
+                <li key={flag}>{flag.replaceAll("_", " ")}</li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
     </section>
   );
 }
@@ -105,7 +196,8 @@ export function ScanPage({
           ← Back to scans
         </button>
         <p className="eyebrow">Scan detail</p>
-        <h1 id="scan-title">{scanId}</h1>
+        <h1 id="scan-title">Procurement recommendation</h1>
+        <p className="muted identifier">{scanId}</p>
       </div>
 
       {requestError ? (
@@ -135,33 +227,8 @@ export function ScanPage({
         <ErrorState error={scan.error} />
       ) : scan.result ? (
         <>
-        <article className="panel result-card">
-          <div className="result-heading">
-            <div>
-              <p className="eyebrow">Approval-ready result</p>
-              <h2>{scan.result.product_name}</h2>
-              <p className="muted">{scan.result.product_id}</p>
-            </div>
-            <span className="read-only-badge">Read-only recommendation</span>
-          </div>
-          <section aria-labelledby="rationale-title">
-            <h3 id="rationale-title">Agent rationale</h3>
-            <p>{scan.result.rationale}</p>
-          </section>
-          <section aria-labelledby="risks-title">
-            <h3 id="risks-title">Risk flags</h3>
-            {scan.result.risk_flags.length === 0 ? (
-              <p>No risk flags were returned.</p>
-            ) : (
-              <ul className="tag-list">
-                {scan.result.risk_flags.map((flag) => (
-                  <li key={flag}>{flag.replaceAll("_", " ")}</li>
-                ))}
-              </ul>
-            )}
-          </section>
-        </article>
-        <ProcurementEvidence evidence={scan.evidence} />
+          <RecommendationSummary scan={scan} />
+          <ProcurementEvidence evidence={scan.evidence} />
         </>
       ) : (
         <ErrorState
