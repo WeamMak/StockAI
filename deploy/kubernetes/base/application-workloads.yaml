@@ -506,6 +506,8 @@ metadata:
     app.kubernetes.io/name: stockai-odoo-bootstrap
     app.kubernetes.io/component: automation
     app.kubernetes.io/part-of: stockai
+  annotations:
+    argocd.argoproj.io/sync-options: Force=true,Replace=true
 spec:
   activeDeadlineSeconds: 300
   backoffLimit: 6

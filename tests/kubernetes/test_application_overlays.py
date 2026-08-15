@@ -171,6 +171,9 @@ def test_stateful_storage_and_finite_odoo_bootstrap(environment: str) -> None:
     bootstrap_spec = bootstrap["spec"]
     bootstrap_pod = _pod_spec(bootstrap)
     bootstrap_container = _containers(bootstrap)[0]
+    assert bootstrap["metadata"]["annotations"] == {
+        "argocd.argoproj.io/sync-options": "Force=true,Replace=true"
+    }
     assert bootstrap_spec["activeDeadlineSeconds"] == 300
     assert bootstrap_spec["backoffLimit"] == 6
     assert bootstrap_spec["ttlSecondsAfterFinished"] == 86400
