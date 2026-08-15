@@ -13,7 +13,6 @@ on:
       - pyproject.toml
       - uv.lock
       - README.md
-      - scripts/odoo/**
       - scripts/release/**
       - .github/workflows/dev-images.yml
 

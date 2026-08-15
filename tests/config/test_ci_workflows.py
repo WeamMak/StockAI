@@ -232,7 +232,6 @@ def test_dev_images_builds_changed_images_and_updates_only_git_desired_state() -
     source = (WORKFLOWS / "dev-images.yml").read_text(encoding="utf-8")
 
     assert workflow["on"]["push"]["branches"] == ["dev"]
-    assert "scripts/odoo/**" in workflow["on"]["push"]["paths"]
     assert workflow["permissions"] == {"contents": "read"}
     assert workflow["jobs"]["desired-state"]["permissions"] == {"contents": "write"}
     assert "github-actions[bot]" in source
