@@ -6,7 +6,7 @@
     "mcp": "sha256:a163ae735ef732c6596a5f4c410e60300dd5324931a4bc924e95cde539cf2e1e",
     "odoo": "sha256:85682455ba91de2dea3c134bda85be5cac6cab8be3fc744817444bf5aa0b1060"
   },
-  "createdAt": "2026-08-15T11:14:20Z",
+  "createdAt": "2026-08-15T11:37:50Z",
   "devValidation": {
     "attempts": [],
     "status": "pending"
@@ -19,7 +19,7 @@
   },
   "integrity": {
     "algorithm": "sha256",
-    "digest": "sha256:35c8221aa0fdd2a96d03e68d5c57d0aa61baf863ebca240e2dad70c5b7591d06"
+    "digest": "sha256:ce75bd355f6ab93d47ff48000a1ed0148a8aa3e02486bc8dc7c3658332dc6a9a"
   },
   "provenance": {
     "api": "sha256:741eee1ffbd1a82026435c72cba7a113d00df0872fe7db598b4e7c3d03e4dd2c",
@@ -27,14 +27,14 @@
     "mcp": "sha256:1b7ccd0b2ed02515fe7313c2fb49fbf75b4e7a83400f489578a7be335abd5ba3",
     "odoo": "sha256:8f9eb6f41667c1a491719639b2d1f43c66dac3c4e8ef4c9c4390225580bae42d"
   },
-  "releaseId": "sha256:36bd902c8c1d1974351c1990c261e82248782324288353c5b645b2ec68688084",
+  "releaseId": "sha256:54691ced5be98de03ea4bbc62b51a6b7dccfe5291240e1bca27ecc3f21a50a69",
   "schemaVersion": 1,
   "scout": {
-    "reportDigest": "sha256:ef1451db18266074512ad35f13b4fdb36fa27eff71d5d486866578f6ba4898fb",
+    "reportDigest": "sha256:41af482ab181d38d1aecc4bfee4cb16da7020dbba977ce4d6b2b8439dcaa0dc0",
     "status": "findings"
   },
   "source": {
-    "commit": "d8be50f852d453e9f4532c7c9b8b254c303e9f20",
-    "tree": "07a3d1ba1910a9238e9008a7005941ff96ca0dfe"
+    "commit": "9a884cf623bd830e1bab76f60563c9d4825f482d",
+    "tree": "2558a1170dd4a09f403f396ab093dbdfd7cb30aa"
   }
 }
