@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -421,6 +422,27 @@ async def test_case_listing_is_bounded_newest_first_and_uses_an_opaque_cursor() 
     assert "ExclusiveStartKey" not in first_request
     assert client.calls[1][1]["ExclusiveStartKey"] == last_key
     assert second.records == (_record(),)
+
+
+@pytest.mark.anyio
+async def test_case_listing_accepts_preference_free_legacy_evidence() -> None:
+    client = RecordingDynamoClient()
+    repository = DynamoApplicationRepository(
+        client=client,
+        table_name=TABLE_NAME,
+        environment=Environment.DEV,
+    )
+    legacy_evidence = _evidence().to_dict()
+    legacy_evidence.pop("preferences")
+    item = _case_item(status="succeeded")
+    item["evidence"] = {
+        "L": [{"S": json.dumps(legacy_evidence, separators=(",", ":"))}]
+    }
+    client.queue("query", {"Items": [item]})
+
+    page = await repository.list_cases(limit=1)
+
+    assert page.records[0].evidence[0].preferences is None
 
 
 @pytest.mark.anyio
