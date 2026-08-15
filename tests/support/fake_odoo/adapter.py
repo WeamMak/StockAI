@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from procurement.bootstrap.mcp import _fictional_evidence
+from procurement.domain.policy.evidence import ProcurementEvidence
 from procurement.ports.erp import (
     CandidatePage,
+    ProcurementEvidenceQuery,
     ReplenishmentCandidatesQuery,
 )
 
@@ -33,3 +36,10 @@ class FakeOdooAdapter:
         if self._failures:
             raise self._failures.pop(0)
         return self._page
+
+    async def get_procurement_evidence(
+        self, query: ProcurementEvidenceQuery
+    ) -> ProcurementEvidence:
+        """Return policy-built evidence for the requested fictional product."""
+
+        return _fictional_evidence(query)

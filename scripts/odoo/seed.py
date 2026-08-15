@@ -245,15 +245,62 @@ def _receipt_and_return(origin, vendor, product, analytic_account):
     return order
 
 
+def _inventory_scenario(product):
+    """Keep one idempotent on-hand balance and one dated confirmed demand."""
+    quant = env["stock.quant"].sudo()  # noqa: F821
+    current = quant._get_available_quantity(product, warehouse.lot_stock_id)
+    difference = 8.0 - current
+    if difference:
+        quant._update_available_quantity(
+            product,
+            warehouse.lot_stock_id,
+            difference,
+        )
+    move_origin = f"{prefix} Forecast Demand {product.default_code}"
+    moves = (
+        env["stock.move"]
+        .sudo()
+        .search(  # noqa: F821
+            [
+                ("origin", "=", move_origin),
+                ("product_id", "=", product.id),
+                ("company_id", "=", company.id),
+                ("state", "!=", "cancel"),
+            ]
+        )
+    )
+    if len(moves) > 1:
+        raise RuntimeError("seed found duplicate forecast demand moves")
+    if not moves:
+        customer_location = env.ref("stock.stock_location_customers")  # noqa: F821
+        move = (
+            env["stock.move"]
+            .sudo()
+            .create(  # noqa: F821
+                {
+                    "origin": move_origin,
+                    "product_id": product.id,
+                    "product_uom_qty": 8.0,
+                    "product_uom": unit_uom.id,
+                    "location_id": warehouse.lot_stock_id.id,
+                    "location_dest_id": customer_location.id,
+                    "date": datetime.datetime.now() + datetime.timedelta(days=3),
+                    "company_id": company.id,
+                }
+            )
+        )
+        move._action_confirm()
+
+
 approved_tag = _one_or_create(
     "res.partner.category",
-    [("name", "=", f"{prefix} Approved Vendor")],
-    {"name": f"{prefix} Approved Vendor"},
+    [("name", "=", "Approved Procurement Vendor")],
+    {"name": "Approved Procurement Vendor"},
 )
 blocked_tag = _one_or_create(
     "res.partner.category",
-    [("name", "=", f"{prefix} Blocked Vendor")],
-    {"name": f"{prefix} Blocked Vendor"},
+    [("name", "=", "Blocked Procurement Vendor")],
+    {"name": "Blocked Procurement Vendor"},
 )
 fast_vendor = _vendor(
     f"{prefix}-VENDOR-FAST", f"{label} Fictional Fast Supplies", approved_tag
@@ -320,7 +367,7 @@ _draft_order(
     cheap_vendor,
     happy_product,
     analytic_account,
-    quantity=10.0,
+    quantity=2.0,
     price=16.0,
 )
 _draft_order(
@@ -337,6 +384,9 @@ _receipt_and_return(
     happy_product,
     analytic_account,
 )
+_inventory_scenario(happy_product)
+_inventory_scenario(over_product)
+_inventory_scenario(_no_offer_product)
 
 env.cr.commit()  # noqa: F821
 print(

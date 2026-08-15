@@ -7,6 +7,7 @@ import {
   type Scan,
   type ScanFailure,
 } from "../api/client";
+import { ProcurementEvidence } from "../components/ProcurementEvidence";
 
 const DEFAULT_POLL_INTERVAL_MS = 1_000;
 const DEFAULT_MAX_POLL_ATTEMPTS = 130;
@@ -122,14 +123,18 @@ export function ScanPage({
           <p>This page will update automatically.</p>
         </section>
       ) : scan.status === "failed" && scan.error?.retryable === false ? (
-        <section className="notice notice--review">
-          <h2>Manual review required</h2>
-          <p>{scan.error.message}</p>
-          <p className="error-code">{scan.error.error_code}</p>
-        </section>
+        <>
+          <section className="notice notice--review">
+            <h2>Manual review required</h2>
+            <p>{scan.error.message}</p>
+            <p className="error-code">{scan.error.error_code}</p>
+          </section>
+          <ProcurementEvidence evidence={scan.evidence} />
+        </>
       ) : scan.status === "failed" && scan.error ? (
         <ErrorState error={scan.error} />
       ) : scan.result ? (
+        <>
         <article className="panel result-card">
           <div className="result-heading">
             <div>
@@ -156,6 +161,8 @@ export function ScanPage({
             )}
           </section>
         </article>
+        <ProcurementEvidence evidence={scan.evidence} />
+        </>
       ) : (
         <ErrorState
           error={{
