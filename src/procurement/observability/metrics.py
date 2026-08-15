@@ -15,6 +15,7 @@ _KNOWN_MCP_TOOLS = frozenset(
         "get_procurement_preferences",
     }
 )
+_KNOWN_RETRY_OPERATIONS = _KNOWN_MCP_TOOLS | {"bedrock"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,6 +30,8 @@ class AgentMetrics:
     llm_failures: Counter
     llm_duration: Histogram
     llm_tokens: Counter
+    llm_repairs: Counter
+    llm_fallbacks: Counter
     mcp_calls: Counter
     mcp_failures: Counter
     mcp_timeouts: Counter
@@ -54,7 +57,9 @@ class AgentMetrics:
         safe_trigger = trigger if trigger in {"manual", "cron"} else "unknown"
         safe_status = status if status in {"success", "error"} else "error"
         safe_outcome = (
-            outcome if outcome in {"approval_ready", "unresolved"} else "unresolved"
+            outcome
+            if outcome in {"approval_ready", "manual_review", "unresolved"}
+            else "unresolved"
         )
         self.scans.labels(trigger=safe_trigger, status=safe_status).inc()
         self.scan_duration.labels(trigger=safe_trigger).observe(duration_seconds)
@@ -110,8 +115,25 @@ class AgentMetrics:
     def record_retries(self, *, operation: str, count: int) -> None:
         if count <= 0:
             return
-        safe_operation = operation if operation in _KNOWN_MCP_TOOLS else "unknown"
+        safe_operation = (
+            operation if operation in _KNOWN_RETRY_OPERATIONS else "unknown"
+        )
         self.retries.labels(operation=safe_operation).inc(count)
+
+    def record_llm_repair(self) -> None:
+        """Record one bounded structured-output repair attempt."""
+
+        self.llm_repairs.inc()
+
+    def record_llm_fallback(self, *, reason: str) -> None:
+        """Record a deterministic manual-review fallback with bounded labels."""
+
+        safe_reason = (
+            reason
+            if reason in {"unavailable", "invalid", "model_declined"}
+            else "unknown"
+        )
+        self.llm_fallbacks.labels(reason=safe_reason).inc()
 
     def record_preference_outcome(self, *, scope: str, mode: str, outcome: str) -> None:
         safe_scope = scope if scope in {"company", "category", "product"} else "unknown"
@@ -173,6 +195,17 @@ def create_agent_metrics(
             "procurement_llm_tokens",
             "Structured recommendation model tokens.",
             ("direction",),
+            registry=resolved_registry,
+        ),
+        llm_repairs=Counter(
+            "procurement_llm_repairs",
+            "Structured recommendation schema repair attempts.",
+            registry=resolved_registry,
+        ),
+        llm_fallbacks=Counter(
+            "procurement_llm_fallbacks",
+            "Deterministic manual-review fallbacks after model reasoning.",
+            ("reason",),
             registry=resolved_registry,
         ),
         mcp_calls=Counter(

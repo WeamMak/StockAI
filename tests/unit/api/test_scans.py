@@ -9,8 +9,9 @@ import anyio
 import pytest
 from httpx2 import ASGITransport, AsyncClient
 from tests.support.local_identity import LocalIdentityProvider, sign_in
+from tests.support.recommendations import t27_approval_result
 
-from procurement.agent.state import ApprovalReadyResult, ScanState
+from procurement.agent.state import ScanState
 from procurement.api.app import create_app
 from procurement.api.auth.session import UserRole
 from procurement.api.config import ApiSettings
@@ -40,12 +41,7 @@ class SuccessfulWorkflow:
         self.configs.append(config)
         return {
             **state,
-            "result": ApprovalReadyResult(
-                product_id="product-101",
-                product_name="Fictional Safety Gloves",
-                rationale="Projected stock is below the reorder minimum.",
-                risk_flags=("LIMITED_WALKING_SKELETON_EVIDENCE",),
-            ),
+            "result": t27_approval_result(),
         }
 
 
@@ -141,14 +137,15 @@ async def test_manual_scan_returns_202_and_can_be_polled_to_completion() -> None
     assert accepted_body["status"] == "queued"
     assert finished["status"] == "succeeded"
     assert finished["trigger"] == "manual"
-    assert finished["result"] == {
-        "outcome": "approval_ready",
-        "product_id": "product-101",
-        "product_name": "Fictional Safety Gloves",
-        "rationale": "Projected stock is below the reorder minimum.",
-        "risk_flags": ["LIMITED_WALKING_SKELETON_EVIDENCE"],
-        "read_only": True,
-    }
+    result = cast(dict[str, object], finished["result"])
+    assert result["outcome"] == "approval_ready"
+    assert result["product_id"] == "product-101"
+    assert result["offer_id"] == "offer-101"
+    assert result["quantity"] == "35.000000"
+    assert result["normalized_cost"] == "437.500000"
+    assert result["budget_status"] == "within_budget"
+    assert result["preference_revision"] == 1
+    assert result["read_only"] is True
     assert finished["error"] is None
     assert listed.status_code == 200
     assert listed.json()["scans"][0]["scan_id"] == scan_id

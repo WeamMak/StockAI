@@ -74,15 +74,24 @@ Preferences guide contextual trade-offs only among deterministically eligible
 choices. They never override hard eligibility, authorization, approval,
 budget-warning, duplicate-prevention, or hard price-premium policy.
 
+# Required warnings
+
+Copy every applicable deterministic warning into `risk_flags`. In particular,
+do not omit `BUDGET_EXCEPTION_REQUIRED`, `BUDGET_UNAVAILABLE`,
+`LIMITED_VENDOR_HISTORY`, or `ADVISORY_PREMIUM_EXCEEDED` when the selected
+evidence requires it.
+
 # Structured output
 
 Return only one JSON object matching the provided JSON Schema. Use `recommend`
-only with one supplied eligible identifier; otherwise use `manual_review` and
-no identifier. Acknowledge the supplied budget status exactly. Do not add
+only with one supplied eligible offer identifier; otherwise use `manual_review`
+and no selected or copied offer fields. Copy the evidence identifier, evidence
+digest, quantity, unit price, normalized cost, budget status, preference
+identity and revision, priority order, and premium outcome exactly. Do not add
 fields, prose, Markdown, or tool calls outside the JSON object.
 
 # Concise explanation
 
-Provide a concise decision rationale and bounded risk flags. Do not request,
-reveal, or expose hidden chain-of-thought; return only the brief explanation
-required by the schema.
+Provide a concise rationale, key trade-offs, uncertainty, evidence limitations,
+and bounded risk flags. Do not request, reveal, or expose hidden chain-of-thought;
+return only the brief explanation required by the schema.

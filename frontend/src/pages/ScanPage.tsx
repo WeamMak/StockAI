@@ -102,15 +102,49 @@ function RecommendationSummary({ scan }: { scan: Scan }) {
   if (scan.result === null) {
     return null;
   }
+  if (scan.result.outcome === "manual_review") {
+    return (
+      <section aria-label="Manual review summary" className="panel recommendation-summary">
+        <div className="result-heading">
+          <div>
+            <p className="eyebrow">Manual review</p>
+            <h2>Compare eligible offers</h2>
+          </div>
+          <span className="read-only-badge">No draft created</span>
+        </div>
+        <div className="recommendation-copy">
+          <section aria-labelledby="manual-rationale-title">
+            <h3 id="manual-rationale-title">Why review is required</h3>
+            <p>{scan.result.rationale}</p>
+            <ul>
+              {scan.result.trade_offs.map((item) => <li key={item}>{item}</li>)}
+            </ul>
+          </section>
+          <section aria-labelledby="manual-limitations-title">
+            <h3 id="manual-limitations-title">Uncertainty and limitations</h3>
+            <p>{scan.result.uncertainty}</p>
+            <ul>
+              {scan.result.evidence_limitations.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+              {scan.result.risk_flags.map((flag) => (
+                <li key={flag}>{flag.replaceAll("_", " ")}</li>
+              ))}
+            </ul>
+          </section>
+        </div>
+      </section>
+    );
+  }
+  const result = scan.result;
   const evidence = scan.evidence.find(
-    (item) => item.product_id === scan.result?.product_id,
+    (item) => item.product_id === result.product_id,
   );
   const eligibleOfferCount =
     evidence?.offers.filter((offer) => offer.status === "eligible").length ?? 0;
-  const onlyEligibleOffer =
-    eligibleOfferCount === 1
-      ? evidence?.offers.find((offer) => offer.status === "eligible") ?? null
-      : null;
+  const selectedOffer = evidence?.offers.find(
+    (offer) => offer.offer_id === result.offer_id,
+  ) ?? null;
   const budget = evidence?.budget ?? null;
 
   return (
@@ -151,15 +185,15 @@ function RecommendationSummary({ scan }: { scan: Scan }) {
           <div className="decision-card decision-card--offer">
             <dt><span className="summary-icon summary-icon--blue"><Icon name="offer" /></span>Offer</dt>
             <dd>
-              {onlyEligibleOffer
+              {selectedOffer
                 ? formatCurrency(
-                    onlyEligibleOffer.normalized_cost,
-                    onlyEligibleOffer.company_currency,
+                    selectedOffer.normalized_cost,
+                    selectedOffer.company_currency,
                   )
                 : `${eligibleOfferCount} eligible offers`}
               <small>
                 {eligibleOfferCount} eligible {eligibleOfferCount === 1 ? "offer" : "offers"}
-                {onlyEligibleOffer ? " · Only eligible offer" : ""}
+                {selectedOffer ? ` · Selected ${selectedOffer.offer_id}` : ""}
               </small>
             </dd>
           </div>
@@ -182,6 +216,9 @@ function RecommendationSummary({ scan }: { scan: Scan }) {
         <section aria-labelledby="rationale-title">
           <h3 id="rationale-title">Why this is recommended</h3>
           <p>{scan.result.rationale}</p>
+          <ul>
+            {scan.result.trade_offs.map((item) => <li key={item}>{item}</li>)}
+          </ul>
         </section>
         <section aria-labelledby="risks-title">
           <h3 id="risks-title">Risks and limitations</h3>
@@ -200,6 +237,14 @@ function RecommendationSummary({ scan }: { scan: Scan }) {
               </ul>
             </div>
           )}
+          <p>{scan.result.uncertainty}</p>
+          {scan.result.evidence_limitations.length > 0 ? (
+            <ul>
+              {scan.result.evidence_limitations.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          ) : null}
         </section>
       </div>
     </section>
