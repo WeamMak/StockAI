@@ -268,6 +268,21 @@ def run_exact_walking_skeleton(environment: str) -> None:
 
     assert completed["status"] == "succeeded", completed.get("error")
     assert completed["result"]["outcome"] == "approval_ready"
+    applied_preferences = [
+        evidence.get("preferences")
+        for evidence in completed["evidence"]
+        if evidence.get("preferences") is not None
+    ]
+    assert applied_preferences
+    for preferences in applied_preferences:
+        assert preferences["scope"] in {"company", "category", "product"}
+        assert preferences["revision"] > 0
+        assert sorted(preferences["ordered_criteria"]) == [
+            "delivery",
+            "price",
+            "reliability",
+        ]
+        assert preferences["enforcement_mode"] in {"advisory", "hard"}
     scan_id = str(completed["scan_id"])
 
     dynamodb = _aws_client("dynamodb")
@@ -296,6 +311,7 @@ def run_exact_walking_skeleton(environment: str) -> None:
         "running",
         "succeeded",
     }
+    assert any("preferences" in entry for entry in audit_items)
     checkpoints = dynamodb.query(
         TableName=f"weam-stockai-{environment}-checkpoints",
         KeyConditionExpression="PK = :pk",
@@ -317,6 +333,7 @@ def run_exact_walking_skeleton(environment: str) -> None:
             (
                 'increase(procurement_llm_calls_total{status="success"}[10m])',
                 'increase(procurement_agent_mcp_calls_total{status="success"}[10m])',
+                'increase(procurement_agent_mcp_calls_total{tool="get_procurement_preferences",status="success"}[10m])',
                 'increase(procurement_mcp_tool_calls_total{status="success"}[10m])',
                 'increase(procurement_odoo_calls_total{status="success"}[10m])',
             ),

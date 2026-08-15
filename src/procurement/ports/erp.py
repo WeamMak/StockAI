@@ -9,6 +9,7 @@ from typing import Protocol
 
 from procurement.domain.identifiers import Environment
 from procurement.domain.policy.evidence import ProcurementEvidence
+from procurement.domain.policy.preferences import ProcurementPreference
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,6 +52,16 @@ class ProcurementEvidenceQuery:
     horizon_days: int = 14
 
 
+@dataclass(frozen=True, slots=True)
+class ProcurementPreferenceQuery:
+    """Environment-bound identifiers used for preference resolution."""
+
+    environment: Environment
+    company_id: str
+    category_id: str
+    product_id: str
+
+
 class ErpPort(Protocol):
     """Operations the Procurement MCP server may request from an ERP."""
 
@@ -65,6 +76,12 @@ class ErpPort(Protocol):
         query: ProcurementEvidenceQuery,
     ) -> ProcurementEvidence:
         """Return one complete deterministic evidence record."""
+
+    async def get_procurement_preferences(
+        self,
+        query: ProcurementPreferenceQuery,
+    ) -> ProcurementPreference:
+        """Return the effective current typed preference profile."""
 
 
 class ErpUnavailableError(Exception):

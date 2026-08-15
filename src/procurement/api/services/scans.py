@@ -398,6 +398,14 @@ class ScanService:
                 if record.evidence
                 else None
             ),
+            preferences=next(
+                (
+                    item.preferences
+                    for item in record.evidence
+                    if item.preferences is not None
+                ),
+                None,
+            ),
         )
         await self._repository.append_audit(
             event,

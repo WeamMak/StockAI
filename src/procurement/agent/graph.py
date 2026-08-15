@@ -21,6 +21,7 @@ def build_walking_skeleton_graph(
     checkpointer: BaseCheckpointSaver[Any] | None = None,
     metrics: AgentMetrics | None = None,
     logger: logging.Logger | None = None,
+    company_id: str = "1",
 ) -> CompiledStateGraph[ScanState, None, ScanState, ScanState]:
     """Compile the smallest explicit MCP-to-LLM procurement workflow."""
 
@@ -29,13 +30,16 @@ def build_walking_skeleton_graph(
         llm=llm,
         metrics=metrics or create_agent_metrics(),
         logger=logger or logging.getLogger(__name__),
+        company_id=company_id,
     )
     builder = StateGraph(ScanState)
     builder.add_node("discover_candidates", nodes.discover_candidates)
     builder.add_node("gather_evidence", nodes.gather_evidence)
+    builder.add_node("resolve_preferences", nodes.resolve_preferences)
     builder.add_node("reason", nodes.reason_about_candidate)
     builder.add_edge(START, "discover_candidates")
     builder.add_edge("discover_candidates", "gather_evidence")
-    builder.add_edge("gather_evidence", "reason")
+    builder.add_edge("gather_evidence", "resolve_preferences")
+    builder.add_edge("resolve_preferences", "reason")
     builder.add_edge("reason", END)
     return builder.compile(checkpointer=checkpointer)

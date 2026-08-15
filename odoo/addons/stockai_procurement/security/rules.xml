@@ -21,4 +21,33 @@
         <field name="perm_create" eval="1"/>
         <field name="perm_unlink" eval="0"/>
     </record>
+
+    <record id="rule_stockai_preference_integration_company" model="ir.rule">
+        <field name="name">StockAI preference integration company access</field>
+        <field name="model_id" ref="model_stockai_procurement_preference"/>
+        <field name="groups" eval="[(4, ref('group_stockai_procurement_integration'))]"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+        <field name="perm_read" eval="1"/><field name="perm_write" eval="0"/><field name="perm_create" eval="0"/><field name="perm_unlink" eval="0"/>
+    </record>
+    <record id="rule_stockai_preference_priority_integration_company" model="ir.rule">
+        <field name="name">StockAI preference priority integration company access</field>
+        <field name="model_id" ref="model_stockai_procurement_preference_priority"/>
+        <field name="groups" eval="[(4, ref('group_stockai_procurement_integration'))]"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+        <field name="perm_read" eval="1"/><field name="perm_write" eval="0"/><field name="perm_create" eval="0"/><field name="perm_unlink" eval="0"/>
+    </record>
+    <record id="rule_stockai_preference_config_admin_company" model="ir.rule">
+        <field name="name">StockAI preference configuration administrator company access</field>
+        <field name="model_id" ref="model_stockai_procurement_preference"/>
+        <field name="groups" eval="[(4, ref('group_stockai_procurement_config_admin'))]"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+        <field name="perm_read" eval="1"/><field name="perm_write" eval="1"/><field name="perm_create" eval="1"/><field name="perm_unlink" eval="0"/>
+    </record>
+    <record id="rule_stockai_preference_priority_config_admin_company" model="ir.rule">
+        <field name="name">StockAI preference priority configuration administrator company access</field>
+        <field name="model_id" ref="model_stockai_procurement_preference_priority"/>
+        <field name="groups" eval="[(4, ref('group_stockai_procurement_config_admin'))]"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+        <field name="perm_read" eval="1"/><field name="perm_write" eval="1"/><field name="perm_create" eval="1"/><field name="perm_unlink" eval="0"/>
+    </record>
 </odoo>

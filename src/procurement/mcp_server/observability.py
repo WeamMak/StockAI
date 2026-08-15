@@ -9,7 +9,11 @@ from prometheus_client import CollectorRegistry, Counter, Histogram
 from procurement.domain.errors import ErrorCode
 
 _KNOWN_MCP_TOOLS = frozenset(
-    {"list_replenishment_candidates", "get_procurement_evidence"}
+    {
+        "list_replenishment_candidates",
+        "get_procurement_evidence",
+        "get_procurement_preferences",
+    }
 )
 
 

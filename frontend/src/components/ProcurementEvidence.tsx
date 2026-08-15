@@ -1,4 +1,5 @@
 import type { ProcurementEvidence as Evidence } from "../api/client";
+import { AppliedPreferences } from "./AppliedPreferences";
 
 function label(code: string) {
   return code.replaceAll("_", " ").toLowerCase();
@@ -86,6 +87,9 @@ export function ProcurementEvidence({ evidence }: { evidence: Evidence[] }) {
                 ? `; manager exception required for ${item.budget.overage} ${item.budget.currency} overage`
                 : ""}
             </p>
+          ) : null}
+          {item.preferences ? (
+            <AppliedPreferences preferences={item.preferences} />
           ) : null}
         </article>
       ))}

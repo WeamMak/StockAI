@@ -10,6 +10,7 @@ from typing import Protocol
 
 from procurement.domain.identifiers import Environment
 from procurement.domain.policy.evidence import ProcurementEvidence
+from procurement.domain.policy.preferences import ProcurementPreference
 
 _IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]*$", re.ASCII)
 _SKIP_CODE_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]*$", re.ASCII)
@@ -128,6 +129,16 @@ class ProcurementMcpPort(Protocol):
         horizon_days: int,
     ) -> ProcurementEvidence:
         """Return one validated authoritative evidence record."""
+
+    async def get_procurement_preferences(
+        self,
+        *,
+        environment: Environment,
+        company_id: str,
+        category_id: str,
+        product_id: str,
+    ) -> ProcurementPreference:
+        """Return one independently validated effective preference profile."""
 
 
 class McpReadError(Exception):

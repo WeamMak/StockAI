@@ -11,6 +11,11 @@ from enum import StrEnum
 from typing import Any, cast
 
 from procurement.domain.identifiers import Environment
+from procurement.domain.policy.preferences import (
+    AppliedPreferences,
+    OfferPremiumResult,
+    preference_from_dict,
+)
 
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$", re.ASCII)
 _REASON_CODE = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$", re.ASCII)
@@ -276,6 +281,7 @@ class ProcurementEvidence:
     offers: tuple[OfferEvidence, ...]
     budget: BudgetEvidence | None
     skip_reason_code: str | None
+    preferences: AppliedPreferences | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.environment, Environment):
@@ -308,13 +314,21 @@ class ProcurementEvidence:
             _REASON_CODE.fullmatch(self.skip_reason_code) is None
         ):
             raise ValueError("skip_reason_code is invalid")
+        if self.preferences is not None and not isinstance(
+            self.preferences, AppliedPreferences
+        ):
+            raise ValueError("applied preferences are invalid")
         if len(self.canonical_json()) > _MAX_SERIALIZED_BYTES:
             raise ValueError("procurement evidence exceeds the serialization limit")
 
     def to_dict(self) -> dict[str, Any]:
         """Return the strict JSON-compatible public representation."""
 
-        return cast(dict[str, Any], _json_value(asdict(self)))
+        payload = cast(dict[str, Any], _json_value(asdict(self)))
+        payload["preferences"] = (
+            self.preferences.to_dict() if self.preferences is not None else None
+        )
+        return payload
 
     def canonical_json(self) -> bytes:
         """Return stable bounded bytes suitable for hashing and persistence."""
@@ -357,6 +371,7 @@ def procurement_evidence_from_dict(raw: object) -> ProcurementEvidence:
         "offers",
         "budget",
         "skip_reason_code",
+        "preferences",
     }:
         raise ValueError("procurement evidence payload is invalid")
     shortage_raw = _mapping(raw["shortage"], ShortageEvidence)
@@ -424,6 +439,70 @@ def procurement_evidence_from_dict(raw: object) -> ProcurementEvidence:
             exception_required=exception_required,
             **{key: Decimal(str(value)) for key, value in values.items()},
         )
+    preferences_raw = raw["preferences"]
+    preferences = None
+    if preferences_raw is not None:
+        if not isinstance(preferences_raw, dict):
+            raise ValueError("applied preferences are invalid")
+        expected = {
+            "profile_id",
+            "company_id",
+            "category_id",
+            "product_id",
+            "scope",
+            "scope_id",
+            "revision",
+            "ordered_criteria",
+            "max_price_premium_percent",
+            "enforcement_mode",
+            "precedence_source",
+            "cheapest_eligible_cost",
+            "offer_results",
+        }
+        if set(preferences_raw) != expected:
+            raise ValueError("applied preference fields are invalid")
+        ordered = preferences_raw["ordered_criteria"]
+        result_rows = preferences_raw["offer_results"]
+        if not isinstance(ordered, list) or not isinstance(result_rows, list):
+            raise ValueError("applied preference values are invalid")
+        profile = preference_from_dict(
+            {
+                key: preferences_raw[key]
+                for key in expected - {"offer_results", "cheapest_eligible_cost"}
+            }
+        )
+        premium_results: list[OfferPremiumResult] = []
+        for result_raw in result_rows:
+            if not isinstance(result_raw, dict) or set(result_raw) != {
+                "offer_id",
+                "premium_percent",
+                "exceeds_cap",
+                "outcome",
+            }:
+                raise ValueError("offer premium result is invalid")
+            if type(result_raw["exceeds_cap"]) is not bool:
+                raise ValueError("offer premium result is invalid")
+            if not all(
+                isinstance(result_raw[field], str)
+                for field in ("offer_id", "premium_percent", "outcome")
+            ):
+                raise ValueError("offer premium result is invalid")
+            premium_results.append(
+                OfferPremiumResult(
+                    offer_id=result_raw["offer_id"],
+                    premium_percent=Decimal(result_raw["premium_percent"]),
+                    exceeds_cap=result_raw["exceeds_cap"],
+                    outcome=result_raw["outcome"],
+                )
+            )
+        cheapest_cost = preferences_raw["cheapest_eligible_cost"]
+        if not isinstance(cheapest_cost, str):
+            raise ValueError("applied preference cost is invalid")
+        preferences = AppliedPreferences(
+            profile=profile,
+            cheapest_eligible_cost=Decimal(cheapest_cost),
+            offer_results=tuple(premium_results),
+        )
     return ProcurementEvidence(
         environment=Environment(str(raw["environment"])),
         evidence_id=str(raw["evidence_id"]),
@@ -460,6 +539,7 @@ def procurement_evidence_from_dict(raw: object) -> ProcurementEvidence:
             if raw["skip_reason_code"] is not None
             else None
         ),
+        preferences=preferences,
     )
 
 

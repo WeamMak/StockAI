@@ -4,15 +4,24 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Any
 
 import pytest
 from botocore.exceptions import ClientError  # type: ignore[import-untyped]
+from tests.unit.domain.policy.test_evidence import _evidence
 
 from procurement.adapters.aws.dynamodb import DynamoApplicationRepository
 from procurement.domain.audit import AuditEvent
 from procurement.domain.identifiers import CaseId, Environment, Revision
 from procurement.domain.models import UtcTimestamp
+from procurement.domain.policy.preferences import (
+    PreferenceCriterion,
+    PreferenceScope,
+    PremiumEnforcement,
+    ProcurementPreference,
+    apply_preferences,
+)
 from procurement.ports.repositories import (
     ApprovalRecord,
     CaseRecord,
@@ -91,6 +100,51 @@ def _case_item(*, revision: int = 1, status: str = "queued") -> dict[str, Any]:
         "updated_at": {"S": UPDATED_AT.value.isoformat()},
         "ttl": {"N": str(int(EXPIRES_AT.value.timestamp()))},
     }
+
+
+@pytest.mark.anyio
+async def test_case_round_trip_preserves_immutable_preference_snapshot() -> None:
+    client = RecordingDynamoClient()
+    repository = DynamoApplicationRepository(
+        client=client, table_name=TABLE_NAME, environment=Environment.DEV
+    )
+    profile = ProcurementPreference(
+        profile_id="preference-3",
+        company_id="7",
+        category_id="category-1",
+        product_id="product-1",
+        scope=PreferenceScope.PRODUCT,
+        scope_id="product-1",
+        revision=6,
+        ordered_criteria=(
+            PreferenceCriterion.PRICE,
+            PreferenceCriterion.RELIABILITY,
+            PreferenceCriterion.DELIVERY,
+        ),
+        max_price_premium_percent=Decimal("10.000000"),
+        enforcement_mode=PremiumEnforcement.ADVISORY,
+        precedence_source=PreferenceScope.PRODUCT,
+    )
+    evidence = apply_preferences(_evidence(), profile)
+    record = CaseRecord(
+        case_id=CASE_ID,
+        revision=Revision(2),
+        status="succeeded",
+        trigger="manual",
+        created_at=CREATED_AT,
+        updated_at=UPDATED_AT,
+        evidence=(evidence,),
+    )
+    client.queue(
+        "get_item",
+        {"Item": repository._case_item(record, expires_at=EXPIRES_AT)},
+    )
+
+    restored = await repository.get_case(CASE_ID)
+
+    assert restored == record
+    assert restored is not None
+    assert restored.evidence[0].preferences == evidence.preferences
 
 
 def _transaction_cancelled() -> ClientError:

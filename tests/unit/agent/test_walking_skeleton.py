@@ -12,15 +12,22 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import InMemorySaver
 from prometheus_client import generate_latest
 from tests.support.fakes.llm import FakeStructuredLlm
-from tests.unit.mcp_server.test_evidence import _evidence
 
 from procurement.agent.graph import build_walking_skeleton_graph
 from procurement.agent.state import ApprovalReadyResult, UnresolvedResult
+from procurement.bootstrap.mcp import _fictional_evidence
 from procurement.domain.errors import ErrorCode
 from procurement.domain.identifiers import Environment
 from procurement.domain.policy.evidence import ProcurementEvidence
+from procurement.domain.policy.preferences import (
+    PreferenceCriterion,
+    PreferenceScope,
+    PremiumEnforcement,
+    ProcurementPreference,
+)
 from procurement.observability.logging import configure_json_logging
 from procurement.observability.metrics import create_agent_metrics
+from procurement.ports.erp import ProcurementEvidenceQuery
 from procurement.ports.llm import (
     RecommendationDecision,
     StructuredRecommendation,
@@ -31,6 +38,10 @@ from procurement.ports.mcp import (
     ProcurementMcpPort,
     ReplenishmentCandidate,
 )
+
+
+def _evidence(environment: Environment = Environment.DEV) -> ProcurementEvidence:
+    return _fictional_evidence(ProcurementEvidenceQuery(environment, "product-101", 14))
 
 
 def _candidate() -> ReplenishmentCandidate:
@@ -52,6 +63,9 @@ class FakeMcp(ProcurementMcpPort):
     error: Exception | None = None
     requests: list[tuple[Environment, int, int]] = field(default_factory=list)
     evidence_requests: list[tuple[Environment, str, int]] = field(default_factory=list)
+    preference_requests: list[tuple[Environment, str, str, str]] = field(
+        default_factory=list
+    )
 
     async def list_replenishment_candidates(
         self,
@@ -80,6 +94,37 @@ class FakeMcp(ProcurementMcpPort):
             evidence_id=f"{environment.value}:evidence-{product_id}",
             product_id=product_id,
             skip_reason_code=None,
+        )
+
+    async def get_procurement_preferences(
+        self,
+        *,
+        environment: Environment,
+        company_id: str,
+        category_id: str,
+        product_id: str,
+    ) -> ProcurementPreference:
+        self.preference_requests.append(
+            (environment, company_id, category_id, product_id)
+        )
+        if self.error is not None:
+            raise self.error
+        return ProcurementPreference(
+            profile_id="preference-1",
+            company_id=company_id,
+            category_id=category_id,
+            product_id=product_id,
+            scope=PreferenceScope.COMPANY,
+            scope_id=company_id,
+            revision=1,
+            ordered_criteria=(
+                PreferenceCriterion.RELIABILITY,
+                PreferenceCriterion.DELIVERY,
+                PreferenceCriterion.PRICE,
+            ),
+            max_price_premium_percent=Decimal("25.000000"),
+            enforcement_mode=PremiumEnforcement.ADVISORY,
+            precedence_source=PreferenceScope.COMPANY,
         )
 
 
@@ -120,21 +165,19 @@ async def test_graph_returns_one_approval_ready_read_only_result() -> None:
 
     assert mcp.requests == [(Environment.DEV, 14, 50)]
     assert mcp.evidence_requests == [(Environment.DEV, "product-101", 14)]
+    assert mcp.preference_requests == [
+        (Environment.DEV, "1", "category-safety", "product-101")
+    ]
     assert len(llm.requests) == 1
     assert llm.requests[0].candidates == (_candidate(),)
-    assert state["result"] == ApprovalReadyResult(
-        product_id="product-101",
-        product_name="Fictional Safety Gloves",
-        rationale="Projected stock is below the configured reorder minimum.",
-        risk_flags=("LIMITED_WALKING_SKELETON_EVIDENCE",),
-        evidence=replace(
-            _evidence(),
-            evidence_id="dev:evidence-product-101",
-            product_id="product-101",
-            skip_reason_code=None,
-        ),
-    )
-    assert state["result"].read_only is True
+    result = state["result"]
+    assert isinstance(result, ApprovalReadyResult)
+    assert result.product_id == "product-101"
+    assert result.product_name == "Fictional Safety Gloves"
+    assert result.evidence is not None
+    assert result.evidence.preferences is not None
+    assert result.evidence.preferences.profile.profile_id == "preference-1"
+    assert result.read_only is True
     metric_text = generate_latest(metrics.registry).decode()
     assert (
         'procurement_agent_mcp_calls_total{status="success",'

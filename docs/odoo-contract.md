@@ -2,9 +2,9 @@
 
 **Investigation date:** 2026-08-07
 
-**Tasks:** T10, T11A, and T11B
+**Tasks:** T10, T11A, T11B, and T26
 
-**Status:** **T10, T11A, and T11B verified**
+**Status:** **T10, T11A, T11B, and T26 verified**
 
 This note records both official Odoo documentation/source evidence and the
 completed clean-database probe against the pinned runtime. It does not invent
@@ -66,6 +66,15 @@ seeded a real orderpoint and product, called `list_replenishment_candidates`
 over authenticated MCP Streamable HTTP, completed the existing LangGraph scan,
 observed successful bounded Odoo and MCP metrics, and verified that captured
 logs contained neither the API key nor the database password.
+
+T26 adds current company/category/product recommendation preferences with
+typed ordered criteria, bounded premium enforcement, tracked configuration,
+configuration-administrator-only mutation, and row-locked monotonic revisions.
+The final clean `make odoo-contract` run passed all 24 tests in 191.94 seconds.
+It verified constraints, read-only integration access, concurrent revision
+increments, idempotent dev/prod seed records, product → category → company
+precedence, and the exact resolved revision through real JSON-2, authenticated
+MCP Streamable HTTP, and LangGraph.
 
 ## 2. Runtime under investigation
 
