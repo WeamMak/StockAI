@@ -9,6 +9,7 @@ from langgraph.channels import UntrackedValue
 
 from procurement.domain.errors import ErrorCode
 from procurement.domain.identifiers import Environment
+from procurement.domain.policy.evidence import ProcurementEvidence
 from procurement.ports.llm import StructuredRecommendation
 from procurement.ports.mcp import ReplenishmentCandidate
 
@@ -21,6 +22,7 @@ class ApprovalReadyResult:
     product_name: str
     rationale: str
     risk_flags: tuple[str, ...]
+    evidence: ProcurementEvidence | None = None
 
     @property
     def read_only(self) -> bool:
@@ -48,5 +50,6 @@ class ScanState(TypedDict, total=False):
     scan_id: str
     environment: Environment
     candidates: Annotated[tuple[ReplenishmentCandidate, ...], UntrackedValue]
+    evidence: Annotated[tuple[ProcurementEvidence, ...], UntrackedValue]
     recommendation: Annotated[StructuredRecommendation, UntrackedValue]
     result: ScanResult

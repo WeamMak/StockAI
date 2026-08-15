@@ -16,6 +16,7 @@ from botocore.exceptions import ClientError  # type: ignore[import-untyped]
 from procurement.domain.audit import AuditEvent
 from procurement.domain.identifiers import CaseId, Environment, Revision
 from procurement.domain.models import UtcTimestamp
+from procurement.domain.policy.evidence import procurement_evidence_from_dict
 from procurement.ports.repositories import (
     ApplicationRepository,
     ApprovalRecord,
@@ -281,6 +282,8 @@ class DynamoApplicationRepository(ApplicationRepository):
             "outcome": {"S": event.outcome},
             "ttl": self._ttl(expires_at),
         }
+        if event.evidence_digest is not None:
+            item["evidence_digest"] = {"S": event.evidence_digest}
         try:
             self._client.put_item(
                 TableName=self._table_name,
@@ -451,15 +454,23 @@ class DynamoApplicationRepository(ApplicationRepository):
             if timestamp is not None:
                 values[name] = {"S": timestamp.value.isoformat()}
         if record.result is not None:
-            values["result"] = {
-                "M": {
-                    "product_id": {"S": record.result.product_id},
-                    "product_name": {"S": record.result.product_name},
-                    "rationale": {"S": record.result.rationale},
-                    "risk_flags": {
-                        "L": [{"S": flag} for flag in record.result.risk_flags]
-                    },
+            result_values: dict[str, Any] = {
+                "product_id": {"S": record.result.product_id},
+                "product_name": {"S": record.result.product_name},
+                "rationale": {"S": record.result.rationale},
+                "risk_flags": {"L": [{"S": flag} for flag in record.result.risk_flags]},
+            }
+            if record.result.evidence is not None:
+                result_values["evidence"] = {
+                    "S": record.result.evidence.canonical_json().decode("utf-8")
                 }
+            values["result"] = {"M": result_values}
+        if record.evidence:
+            values["evidence"] = {
+                "L": [
+                    {"S": item.canonical_json().decode("utf-8")}
+                    for item in record.evidence
+                ]
             }
         if record.error is not None:
             values["error"] = {
@@ -486,6 +497,10 @@ class DynamoApplicationRepository(ApplicationRepository):
             updated_at=UtcTimestamp.from_value(self._string(item, "updated_at")),
             started_at=self._optional_timestamp(item, "started_at"),
             completed_at=self._optional_timestamp(item, "completed_at"),
+            evidence=tuple(
+                procurement_evidence_from_dict(json.loads(entry["S"]))
+                for entry in item.get("evidence", {}).get("L", [])
+            ),
             result=(
                 RecommendationRecord(
                     product_id=self._string(result_item, "product_id"),
@@ -494,6 +509,13 @@ class DynamoApplicationRepository(ApplicationRepository):
                     risk_flags=tuple(
                         cast(Mapping[str, str], entry)["S"]
                         for entry in result_item["risk_flags"]["L"]
+                    ),
+                    evidence=(
+                        procurement_evidence_from_dict(
+                            json.loads(self._string(result_item, "evidence"))
+                        )
+                        if "evidence" in result_item
+                        else None
                     ),
                 )
                 if result_item is not None

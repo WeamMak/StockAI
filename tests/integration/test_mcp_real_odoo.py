@@ -135,13 +135,29 @@ async def test_seeded_odoo_candidate_reaches_the_walking_skeleton_over_real_mcp(
         candidates = payload["candidates"]
         assert isinstance(candidates, list)
         seeded = next(
-            candidate
-            for candidate in candidates
-            if isinstance(candidate, Mapping)
-            and str(candidate.get("product_name", "")).startswith("DEV Fictional")
+            (
+                candidate
+                for candidate in candidates
+                if isinstance(candidate, Mapping)
+                and "Happy" in str(candidate.get("product_name", ""))
+            ),
+            None,
         )
+        assert seeded is not None, candidates
         product_id = seeded["product_id"]
         assert isinstance(product_id, str)
+
+        transport = RealTransportMcpClient(
+            url=mcp_url,
+            bearer_token=BEARER_TOKEN,
+        )
+        evidence = await transport.get_procurement_evidence(
+            environment=Environment.DEV,
+            product_id=product_id,
+            horizon_days=14,
+        )
+        assert evidence.skip_reason_code is None, evidence.to_dict()
+        assert evidence.offers
 
         llm = FakeStructuredLlm(
             response=StructuredRecommendation(
@@ -154,10 +170,7 @@ async def test_seeded_odoo_candidate_reaches_the_walking_skeleton_over_real_mcp(
             )
         )
         graph = build_walking_skeleton_graph(
-            mcp=RealTransportMcpClient(
-                url=mcp_url,
-                bearer_token=BEARER_TOKEN,
-            ),
+            mcp=transport,
             llm=llm,
         )
         state = await graph.ainvoke(

@@ -22,6 +22,10 @@ from procurement.api.app import create_app
 from procurement.api.observability import create_http_metrics
 from procurement.api.services.scans import ScanWorkflow
 from procurement.domain.identifiers import Environment
+from procurement.domain.policy.evidence import (
+    ProcurementEvidence,
+    procurement_evidence_from_dict,
+)
 from procurement.mcp_server.server import create_mcp_server
 from procurement.observability.metrics import create_agent_metrics
 from procurement.ports.erp import CandidatePage as ErpCandidatePage
@@ -134,6 +138,37 @@ class RealTransportMcpClient(ProcurementMcpPort):
         if result.isError or not isinstance(result.structuredContent, Mapping):
             raise McpUnavailableError(retry_count=0)
         return _candidate_page(result.structuredContent)
+
+    async def get_procurement_evidence(
+        self,
+        *,
+        environment: Environment,
+        product_id: str,
+        horizon_days: int,
+    ) -> ProcurementEvidence:
+        async with httpx.AsyncClient(
+            headers={"Authorization": f"Bearer {self._bearer_token}"}
+        ) as http_client:
+            async with streamable_http_client(
+                self._url,
+                http_client=http_client,
+            ) as (read_stream, write_stream, _):
+                async with ClientSession(read_stream, write_stream) as session:
+                    await session.initialize()
+                    result = await session.call_tool(
+                        "get_procurement_evidence",
+                        arguments={
+                            "environment": environment.value,
+                            "product_id": product_id,
+                            "horizon_days": horizon_days,
+                        },
+                    )
+        if result.isError or not isinstance(result.structuredContent, Mapping):
+            raise McpUnavailableError(retry_count=0)
+        try:
+            return procurement_evidence_from_dict(dict(result.structuredContent))
+        except (TypeError, ValueError) as error:
+            raise McpUnavailableError(retry_count=0, private_detail=error) from None
 
 
 def _candidate_page(payload: Mapping[str, object]) -> CandidatePage:

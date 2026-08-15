@@ -344,7 +344,7 @@ def test_configured_bearer_token_is_strict_and_never_normalized(
 
 
 @pytest.mark.anyio
-async def test_server_discovery_publishes_one_strict_read_only_contract() -> None:
+async def test_server_discovery_publishes_strict_read_only_contracts() -> None:
     server = create_mcp_server(
         erp=FakeOdooAdapter(
             page=CandidatePage(items=(_candidate(),), next_cursor=None)
@@ -357,11 +357,14 @@ async def test_server_discovery_publishes_one_strict_read_only_contract() -> Non
     tools = await server.list_tools()
     settings = create_auth_settings()
 
-    assert len(tools) == 1
-    assert tools[0].name == "list_replenishment_candidates"
-    assert tools[0].inputSchema["additionalProperties"] is False
-    assert tools[0].outputSchema is not None
-    assert tools[0].annotations is not None
-    assert tools[0].annotations.readOnlyHint is True
-    assert tools[0].annotations.destructiveHint is False
+    assert {tool.name for tool in tools} == {
+        "list_replenishment_candidates",
+        "get_procurement_evidence",
+    }
+    for tool in tools:
+        assert tool.inputSchema["additionalProperties"] is False
+        assert tool.outputSchema is not None
+        assert tool.annotations is not None
+        assert tool.annotations.readOnlyHint is True
+        assert tool.annotations.destructiveHint is False
     assert settings.required_scopes == [READ_SCOPE]

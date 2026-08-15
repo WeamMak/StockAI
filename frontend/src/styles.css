@@ -303,6 +303,35 @@ h2 {
   gap: 1.5rem;
 }
 
+.evidence-record + .evidence-record {
+  border-top: 1px solid var(--border);
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+}
+
+.evidence-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  margin: 1rem 0;
+}
+
+.evidence-grid dt {
+  color: var(--muted);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+}
+
+.evidence-grid dd {
+  margin: 0.25rem 0 0;
+}
+
+.offer-list li {
+  display: grid;
+  gap: 0.25rem;
+  margin-bottom: 0.75rem;
+}
+
 .tag-list {
   display: flex;
   flex-wrap: wrap;

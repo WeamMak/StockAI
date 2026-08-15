@@ -6,6 +6,68 @@ const MAX_SCAN_LIST_LENGTH = 100;
 export type ScanStatus = "queued" | "running" | "succeeded" | "failed";
 export type ScanTrigger = "manual" | "cron";
 
+export interface VendorPerformanceEvidence {
+  completed_order_count: number;
+  on_time_rate: string | null;
+  history_status: "limited" | "sufficient";
+}
+
+export interface OfferEvidence {
+  offer_id: string;
+  vendor_id: string;
+  vendor_name: string;
+  status: "eligible" | "rejected";
+  reason_codes: string[];
+  currency: string;
+  unit_price: string;
+  company_currency: string;
+  normalized_unit_price: string;
+  delivery_date: string;
+  quantity: string;
+  normalized_cost: string;
+  projected_inventory_after_receipt: string;
+  excess_inventory: string;
+  performance: VendorPerformanceEvidence;
+}
+
+export interface ProcurementEvidence {
+  environment: "dev" | "prod";
+  evidence_id: string;
+  product_id: string;
+  product_name: string;
+  category_id: string;
+  captured_at: string;
+  shortage: {
+    horizon_start: string;
+    horizon_end: string;
+    reorder_trigger_date: string | null;
+    need_by_date: string;
+    reorder_minimum: string;
+    reorder_maximum: string;
+    minimum_projected_quantity: string;
+    timeline: { projection_date: string; quantity: string }[];
+  };
+  coverage: {
+    status: "none" | "partial" | "full";
+    covered_quantity: string;
+    residual_quantity: string;
+    source_count: number;
+  };
+  offers: OfferEvidence[];
+  budget: {
+    period_start: string;
+    currency: string;
+    budget_amount: string;
+    confirmed_commitment: string;
+    proposed_amount: string;
+    remaining_before: string;
+    remaining_after: string;
+    overage: string;
+    exception_required: boolean;
+  } | null;
+  skip_reason_code: string | null;
+}
+
 export interface ApprovalReadyResult {
   outcome: "approval_ready";
   product_id: string;
@@ -29,6 +91,7 @@ export interface Scan {
   created_at: string;
   started_at: string | null;
   completed_at: string | null;
+  evidence: ProcurementEvidence[];
   result: ApprovalReadyResult | null;
   error: ScanFailure | null;
 }
@@ -128,6 +191,136 @@ function parseFailure(value: unknown): ScanFailure | null {
   };
 }
 
+function stringField(record: Record<string, unknown>, name: string): string {
+  return typeof record[name] === "string" ? record[name] : invalidResponse();
+}
+
+function parseEvidence(value: unknown): ProcurementEvidence {
+  if (!isRecord(value) || !isRecord(value.shortage) || !isRecord(value.coverage)) {
+    return invalidResponse();
+  }
+  const offers = value.offers;
+  const timeline = value.shortage.timeline;
+  if (!Array.isArray(offers) || offers.length > 50) {
+    return invalidResponse();
+  }
+  if (
+    !Array.isArray(timeline) ||
+    timeline.length !== 15 ||
+    !timeline.every(
+      (item) =>
+        isRecord(item) &&
+        typeof item.projection_date === "string" &&
+        typeof item.quantity === "string",
+    )
+  ) {
+    return invalidResponse();
+  }
+  const parsedOffers = offers.map((offer): OfferEvidence => {
+    if (!isRecord(offer) || !isRecord(offer.performance)) {
+      return invalidResponse();
+    }
+    const reasonCodes = offer.reason_codes;
+    if (!Array.isArray(reasonCodes) || !reasonCodes.every((code) => typeof code === "string")) {
+      return invalidResponse();
+    }
+    const historyStatus = offer.performance.history_status;
+    const offerStatus = offer.status;
+    if (
+      !["eligible", "rejected"].includes(String(offerStatus)) ||
+      !["limited", "sufficient"].includes(String(historyStatus)) ||
+      !Number.isInteger(offer.performance.completed_order_count) ||
+      !isNullableString(offer.performance.on_time_rate)
+    ) {
+      return invalidResponse();
+    }
+    return {
+      offer_id: stringField(offer, "offer_id"),
+      vendor_id: stringField(offer, "vendor_id"),
+      vendor_name: stringField(offer, "vendor_name"),
+      status: offerStatus as OfferEvidence["status"],
+      reason_codes: reasonCodes,
+      currency: stringField(offer, "currency"),
+      unit_price: stringField(offer, "unit_price"),
+      company_currency: stringField(offer, "company_currency"),
+      normalized_unit_price: stringField(offer, "normalized_unit_price"),
+      delivery_date: stringField(offer, "delivery_date"),
+      quantity: stringField(offer, "quantity"),
+      normalized_cost: stringField(offer, "normalized_cost"),
+      projected_inventory_after_receipt: stringField(
+        offer,
+        "projected_inventory_after_receipt",
+      ),
+      excess_inventory: stringField(offer, "excess_inventory"),
+      performance: {
+        completed_order_count: offer.performance.completed_order_count as number,
+        on_time_rate: offer.performance.on_time_rate,
+        history_status: historyStatus as VendorPerformanceEvidence["history_status"],
+      },
+    };
+  });
+  const coverageStatus = value.coverage.status;
+  if (
+    !["dev", "prod"].includes(String(value.environment)) ||
+    !["none", "partial", "full"].includes(String(coverageStatus)) ||
+    !Number.isInteger(value.coverage.source_count) ||
+    !isNullableString(value.shortage.reorder_trigger_date) ||
+    !isNullableString(value.skip_reason_code)
+  ) {
+    return invalidResponse();
+  }
+  let budget: ProcurementEvidence["budget"] = null;
+  if (value.budget !== null) {
+    if (!isRecord(value.budget) || typeof value.budget.exception_required !== "boolean") {
+      return invalidResponse();
+    }
+    budget = {
+      period_start: stringField(value.budget, "period_start"),
+      currency: stringField(value.budget, "currency"),
+      budget_amount: stringField(value.budget, "budget_amount"),
+      confirmed_commitment: stringField(value.budget, "confirmed_commitment"),
+      proposed_amount: stringField(value.budget, "proposed_amount"),
+      remaining_before: stringField(value.budget, "remaining_before"),
+      remaining_after: stringField(value.budget, "remaining_after"),
+      overage: stringField(value.budget, "overage"),
+      exception_required: value.budget.exception_required,
+    };
+  }
+  return {
+    environment: value.environment as ProcurementEvidence["environment"],
+    evidence_id: stringField(value, "evidence_id"),
+    product_id: stringField(value, "product_id"),
+    product_name: stringField(value, "product_name"),
+    category_id: stringField(value, "category_id"),
+    captured_at: stringField(value, "captured_at"),
+    shortage: {
+      horizon_start: stringField(value.shortage, "horizon_start"),
+      horizon_end: stringField(value.shortage, "horizon_end"),
+      reorder_trigger_date: value.shortage.reorder_trigger_date,
+      need_by_date: stringField(value.shortage, "need_by_date"),
+      reorder_minimum: stringField(value.shortage, "reorder_minimum"),
+      reorder_maximum: stringField(value.shortage, "reorder_maximum"),
+      minimum_projected_quantity: stringField(
+        value.shortage,
+        "minimum_projected_quantity",
+      ),
+      timeline: timeline.map((item) => ({
+        projection_date: stringField(item as Record<string, unknown>, "projection_date"),
+        quantity: stringField(item as Record<string, unknown>, "quantity"),
+      })),
+    },
+    coverage: {
+      status: coverageStatus as ProcurementEvidence["coverage"]["status"],
+      covered_quantity: stringField(value.coverage, "covered_quantity"),
+      residual_quantity: stringField(value.coverage, "residual_quantity"),
+      source_count: value.coverage.source_count as number,
+    },
+    offers: parsedOffers,
+    budget,
+    skip_reason_code: value.skip_reason_code,
+  };
+}
+
 function parseScan(value: unknown): Scan {
   if (
     !isRecord(value) ||
@@ -147,6 +340,10 @@ function parseScan(value: unknown): Scan {
 
   const result = parseResult(value.result);
   const error = parseFailure(value.error);
+  if (!Array.isArray(value.evidence) || value.evidence.length > 50) {
+    return invalidResponse();
+  }
+  const evidence = value.evidence.map(parseEvidence);
   if (
     (value.status === "succeeded" && result === null) ||
     (value.status === "failed" && error === null) ||
@@ -163,6 +360,7 @@ function parseScan(value: unknown): Scan {
     created_at: value.created_at,
     started_at: value.started_at,
     completed_at: value.completed_at,
+    evidence,
     result,
     error,
   };

@@ -10,6 +10,70 @@ const BASE_SCAN = {
   created_at: "2026-08-05T10:00:00Z",
   started_at: "2026-08-05T10:00:01Z",
   completed_at: "2026-08-05T10:00:02Z",
+  evidence: [
+    {
+      environment: "dev",
+      evidence_id: "dev:evidence-product-101",
+      product_id: "product-101",
+      product_name: "Fictional Safety Gloves",
+      category_id: "category-safety",
+      captured_at: "2026-08-05T10:00:01Z",
+      shortage: {
+        horizon_start: "2026-08-05",
+        horizon_end: "2026-08-19",
+        reorder_trigger_date: "2026-08-08",
+        need_by_date: "2026-08-12",
+        reorder_minimum: "10.000000",
+        reorder_maximum: "40.000000",
+        minimum_projected_quantity: "0.000000",
+        timeline: Array.from({ length: 15 }, (_, offset) => ({
+          projection_date: `2026-08-${String(5 + offset).padStart(2, "0")}`,
+          quantity: offset < 7 ? "8.000000" : "0.000000",
+        })),
+      },
+      coverage: {
+        status: "partial",
+        covered_quantity: "5.000000",
+        residual_quantity: "35.000000",
+        source_count: 1,
+      },
+      offers: [
+        {
+          offer_id: "offer-101",
+          vendor_id: "vendor-101",
+          vendor_name: "Fictional Approved Supplies",
+          status: "eligible",
+          reason_codes: [],
+          currency: "USD",
+          unit_price: "12.500000",
+          company_currency: "USD",
+          normalized_unit_price: "12.500000",
+          delivery_date: "2026-08-10",
+          quantity: "35.000000",
+          normalized_cost: "437.500000",
+          projected_inventory_after_receipt: "40.000000",
+          excess_inventory: "0.000000",
+          performance: {
+            completed_order_count: 2,
+            on_time_rate: "0.500000",
+            history_status: "limited",
+          },
+        },
+      ],
+      budget: {
+        period_start: "2026-08-01",
+        currency: "USD",
+        budget_amount: "5000.000000",
+        confirmed_commitment: "160.000000",
+        proposed_amount: "437.500000",
+        remaining_before: "4840.000000",
+        remaining_after: "4402.500000",
+        overage: "0.000000",
+        exception_required: false,
+      },
+      skip_reason_code: null,
+    },
+  ],
   result: {
     outcome: "approval_ready",
     product_id: "product-101",
@@ -46,9 +110,18 @@ describe("ScanPage", () => {
     resolveRequest?.(jsonResponse(BASE_SCAN));
 
     expect(
-      await screen.findByRole("heading", { name: "Fictional Safety Gloves" }),
+      await screen.findByRole("heading", {
+        name: "Fictional Safety Gloves",
+        level: 2,
+      }),
     ).toBeInTheDocument();
     expect(screen.getByText("Read-only recommendation")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Deterministic procurement evidence" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/0.500000/)).toBeInTheDocument();
+    expect(screen.getByText("14-day inventory projection")).toBeInTheDocument();
+    expect(screen.getByRole("table")).toBeInTheDocument();
   });
 
   it("shows a non-retryable unresolved result as manual review", async () => {
@@ -128,7 +201,10 @@ describe("ScanPage", () => {
 
     expect(await screen.findByText("Scan in progress")).toBeInTheDocument();
     expect(
-      await screen.findByRole("heading", { name: "Fictional Safety Gloves" }),
+      await screen.findByRole("heading", {
+        name: "Fictional Safety Gloves",
+        level: 2,
+      }),
     ).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });

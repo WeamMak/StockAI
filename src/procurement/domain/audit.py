@@ -11,6 +11,7 @@ from procurement.domain.models import UtcTimestamp
 
 MAX_AUDIT_TEXT_LENGTH = 128
 _AUDIT_TEXT_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]*$", re.ASCII)
+_DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$", re.ASCII)
 
 
 def _validated_audit_text(value: object, *, field: str) -> None:
@@ -42,6 +43,7 @@ class AuditEvent:
     correlation_id: str
     source_revision: Revision
     outcome: str
+    evidence_digest: str | None = None
 
     def __post_init__(self) -> None:
         for field, value in (
@@ -69,6 +71,19 @@ class AuditEvent:
                 "The audit source revision is invalid.",
                 field_errors=(
                     FieldError(field="source_revision", message="Use a Revision."),
+                ),
+            )
+        if (
+            self.evidence_digest is not None
+            and _DIGEST_PATTERN.fullmatch(self.evidence_digest) is None
+        ):
+            raise DomainValidationError(
+                "The audit evidence digest is invalid.",
+                field_errors=(
+                    FieldError(
+                        field="evidence_digest",
+                        message="Use a lowercase SHA-256 digest.",
+                    ),
                 ),
             )
 

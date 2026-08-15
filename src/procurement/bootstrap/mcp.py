@@ -7,7 +7,7 @@ import logging
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 
 import httpx
@@ -20,6 +20,15 @@ from procurement.adapters.odoo.client import (
     create_odoo_metrics,
 )
 from procurement.domain.identifiers import Environment
+from procurement.domain.policy.budget import calculate_budget
+from procurement.domain.policy.coverage import apply_coverage
+from procurement.domain.policy.evidence import (
+    ProcurementEvidence,
+    procurement_evidence_from_dict,
+)
+from procurement.domain.policy.forecast import StockMovement, project_shortage
+from procurement.domain.policy.offers import VendorOffer, evaluate_offer
+from procurement.domain.policy.performance import CompletedOrder, performance_evidence
 from procurement.mcp_server.observability import create_mcp_metrics
 from procurement.mcp_server.server import SERVICE_NAME, create_mcp_server
 from procurement.observability.logging import configure_json_logging
@@ -27,6 +36,7 @@ from procurement.ports.erp import (
     CandidatePage,
     ErpPort,
     ErpUnavailableError,
+    ProcurementEvidenceQuery,
     ReplenishmentCandidateRecord,
     ReplenishmentCandidatesQuery,
 )
@@ -178,6 +188,13 @@ class LocalFictionalErp(ErpPort):
             next_cursor=None,
         )
 
+    async def get_procurement_evidence(
+        self, query: ProcurementEvidenceQuery
+    ) -> ProcurementEvidence:
+        if self.mode == "timeout":
+            await asyncio.sleep(3_600)
+        return _fictional_evidence(query)
+
 
 def _candidate_record(raw: object) -> ReplenishmentCandidateRecord:
     if not isinstance(raw, Mapping) or set(raw) != {
@@ -262,6 +279,100 @@ class LocalHttpFictionalErp(ErpPort):
             raise TimeoutError from None
         except (httpx.HTTPError, InvalidOperation, TypeError, ValueError) as error:
             raise ErpUnavailableError from error
+
+    async def get_procurement_evidence(
+        self, query: ProcurementEvidenceQuery
+    ) -> ProcurementEvidence:
+        try:
+            async with httpx.AsyncClient(
+                base_url=self.base_url,
+                timeout=self.timeout_seconds,
+            ) as client:
+                response = await client.post(
+                    "/test/procurement-evidence",
+                    json={
+                        "environment": query.environment.value,
+                        "product_id": query.product_id,
+                        "horizon_days": query.horizon_days,
+                    },
+                )
+                response.raise_for_status()
+                return procurement_evidence_from_dict(response.json())
+        except httpx.TimeoutException:
+            raise TimeoutError from None
+        except (httpx.HTTPError, InvalidOperation, TypeError, ValueError) as error:
+            raise ErpUnavailableError from error
+
+
+def _fictional_evidence(query: ProcurementEvidenceQuery) -> ProcurementEvidence:
+    """Build deterministic local evidence through the real policy functions."""
+
+    as_of = date.today()
+    shortage, timeline = project_shortage(
+        as_of=as_of,
+        on_hand=Decimal("8"),
+        reserved=Decimal("0"),
+        movements=(StockMovement(as_of + timedelta(days=3), Decimal("-8")),),
+        reorder_minimum=Decimal("10"),
+        reorder_maximum=Decimal("40"),
+    )
+    coverage = apply_coverage(shortage=shortage, timeline=timeline, sources=())
+    performance = performance_evidence(
+        orders=(
+            CompletedOrder(as_of - timedelta(days=30), as_of - timedelta(days=30)),
+            CompletedOrder(as_of - timedelta(days=20), as_of - timedelta(days=19)),
+        ),
+        as_of=as_of,
+    )
+    offer = evaluate_offer(
+        offer=VendorOffer(
+            offer_id="offer-101",
+            vendor_id="vendor-101",
+            vendor_name="Fictional Approved Supplies",
+            approved=True,
+            blocked=False,
+            valid_from=None,
+            valid_until=None,
+            currency="USD",
+            company_currency="USD",
+            unit_price=Decimal("12.50"),
+            exchange_rate=Decimal("1"),
+            lead_time_days=2,
+            minimum_quantity=Decimal("1"),
+            package_multiple=Decimal("5"),
+        ),
+        order_date=as_of,
+        shortage=shortage,
+        timeline=timeline,
+        performance=performance,
+    )
+    budget = calculate_budget(
+        period_start=as_of.replace(day=1),
+        currency="USD",
+        budget_amount=Decimal("5000"),
+        confirmed_commitment=Decimal("160"),
+        proposed_amount=offer.normalized_cost,
+    )
+    skip_reason = (
+        "FULLY_COVERED"
+        if coverage.status == "full"
+        else None
+        if offer.status.value == "eligible"
+        else "NO_VALID_OFFER"
+    )
+    return ProcurementEvidence(
+        environment=query.environment,
+        evidence_id=f"{query.environment.value}:evidence-{query.product_id}",
+        product_id=query.product_id,
+        product_name="Fictional Safety Gloves",
+        category_id="category-safety",
+        captured_at=datetime.now(tz=UTC),
+        shortage=shortage,
+        coverage=coverage,
+        offers=(offer,),
+        budget=budget,
+        skip_reason_code=skip_reason,
+    )
 
 
 def create_local_mcp_app(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Literal
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
@@ -21,11 +22,13 @@ from procurement.mcp_server.schemas import (
     CandidateCursor,
     CandidateLimit,
     EnvironmentValue,
+    GetProcurementEvidenceInput,
     HorizonDays,
     ListReplenishmentCandidatesInput,
     ListReplenishmentCandidatesOutput,
+    ProcurementEvidenceOutput,
 )
-from procurement.mcp_server.tools import candidates
+from procurement.mcp_server.tools import candidates, evidence
 from procurement.observability.logging import configure_json_logging
 from procurement.ports.erp import ErpPort
 
@@ -35,18 +38,19 @@ SERVICE_NAME = "procurement-mcp"
 def _harden_tool_argument_validation(server: FastMCP) -> None:
     """Make SDK-generated validation strict, extra-forbid, and non-echoing."""
 
-    tool = server._tool_manager.get_tool(candidates.TOOL_NAME)
-    if tool is None:  # pragma: no cover - construction invariant
-        raise RuntimeError("The candidate tool was not registered.")
-    argument_model = tool.fn_metadata.arg_model
-    argument_model.model_config = ConfigDict(
-        **argument_model.model_config,
-        strict=True,
-        extra="forbid",
-        hide_input_in_errors=True,
-    )
-    argument_model.model_rebuild(force=True)
-    tool.parameters = argument_model.model_json_schema(by_alias=True)
+    for tool_name in (candidates.TOOL_NAME, evidence.TOOL_NAME):
+        tool = server._tool_manager.get_tool(tool_name)
+        if tool is None:  # pragma: no cover - construction invariant
+            raise RuntimeError(f"The {tool_name} tool was not registered.")
+        argument_model = tool.fn_metadata.arg_model
+        argument_model.model_config = ConfigDict(
+            **argument_model.model_config,
+            strict=True,
+            extra="forbid",
+            hide_input_in_errors=True,
+        )
+        argument_model.model_rebuild(force=True)
+        tool.parameters = argument_model.model_json_schema(by_alias=True)
 
 
 def create_mcp_server(
@@ -119,6 +123,37 @@ def create_mcp_server(
             read_timeout_seconds=read_timeout_seconds,
             max_retries=max_retries,
             retry_delay_seconds=retry_delay_seconds,
+        )
+
+    @server.tool(
+        name=evidence.TOOL_NAME,
+        title="Get procurement evidence",
+        description="Get complete deterministic evidence for one candidate product.",
+        annotations=ToolAnnotations(
+            readOnlyHint=True,
+            destructiveHint=False,
+            idempotentHint=True,
+            openWorldHint=False,
+        ),
+        structured_output=True,
+    )
+    async def get_procurement_evidence(
+        environment: EnvironmentValue,
+        product_id: str,
+        horizon_days: Literal[14] = 14,
+    ) -> ProcurementEvidenceOutput:
+        request = GetProcurementEvidenceInput(
+            environment=environment,
+            product_id=product_id,
+            horizon_days=horizon_days,
+        )
+        return await evidence.get_procurement_evidence(
+            request=request,
+            erp=erp,
+            server_environment=server_environment,
+            metrics=resolved_metrics,
+            logger=resolved_logger,
+            read_timeout_seconds=read_timeout_seconds,
         )
 
     _harden_tool_argument_validation(server)

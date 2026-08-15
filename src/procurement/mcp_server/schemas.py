@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Literal
 
@@ -116,3 +116,108 @@ class ListReplenishmentCandidatesOutput(BaseModel):
     environment: EnvironmentValue
     candidates: tuple[ReplenishmentCandidate, ...] = Field(max_length=100)
     next_cursor: CandidateCursor | None
+
+
+class GetProcurementEvidenceInput(BaseModel):
+    """Arguments for one environment-bound product evidence read."""
+
+    model_config = _STRICT_MODEL_CONFIG
+
+    environment: EnvironmentValue
+    product_id: str = Field(
+        min_length=1,
+        max_length=128,
+        pattern=_IDENTIFIER_PATTERN,
+    )
+    horizon_days: Literal[14] = 14
+
+
+class ProjectedDayOutput(BaseModel):
+    model_config = _STRICT_MODEL_CONFIG
+
+    projection_date: date
+    quantity: Decimal
+
+
+class ShortageEvidenceOutput(BaseModel):
+    model_config = _STRICT_MODEL_CONFIG
+
+    horizon_start: date
+    horizon_end: date
+    reorder_trigger_date: date | None
+    need_by_date: date
+    reorder_minimum: Decimal
+    reorder_maximum: Decimal
+    minimum_projected_quantity: Decimal
+    timeline: tuple[ProjectedDayOutput, ...] = Field(min_length=15, max_length=15)
+
+
+class CoverageEvidenceOutput(BaseModel):
+    model_config = _STRICT_MODEL_CONFIG
+
+    status: Literal["none", "partial", "full"]
+    covered_quantity: Decimal
+    residual_quantity: Decimal
+    source_count: int = Field(strict=True, ge=0, le=100)
+
+
+class PerformanceEvidenceOutput(BaseModel):
+    model_config = _STRICT_MODEL_CONFIG
+
+    completed_order_count: int = Field(strict=True, ge=0, le=100_000)
+    on_time_rate: Decimal | None
+    history_status: Literal["limited", "sufficient"]
+
+
+class OfferEvidenceOutput(BaseModel):
+    model_config = _STRICT_MODEL_CONFIG
+
+    offer_id: str = Field(min_length=1, max_length=128, pattern=_IDENTIFIER_PATTERN)
+    vendor_id: str = Field(min_length=1, max_length=128, pattern=_IDENTIFIER_PATTERN)
+    vendor_name: str = Field(min_length=1, max_length=200)
+    status: Literal["eligible", "rejected"]
+    reason_codes: tuple[str, ...] = Field(max_length=16)
+    currency: str = Field(pattern=r"^[A-Z]{3}$")
+    unit_price: Decimal
+    company_currency: str = Field(pattern=r"^[A-Z]{3}$")
+    normalized_unit_price: Decimal
+    delivery_date: date
+    quantity: Decimal
+    normalized_cost: Decimal
+    projected_inventory_after_receipt: Decimal
+    excess_inventory: Decimal
+    performance: PerformanceEvidenceOutput
+
+
+class BudgetEvidenceOutput(BaseModel):
+    model_config = _STRICT_MODEL_CONFIG
+
+    period_start: date
+    currency: str = Field(pattern=r"^[A-Z]{3}$")
+    budget_amount: Decimal
+    confirmed_commitment: Decimal
+    proposed_amount: Decimal
+    remaining_before: Decimal
+    remaining_after: Decimal
+    overage: Decimal
+    exception_required: bool
+
+
+class ProcurementEvidenceOutput(BaseModel):
+    """Strict authoritative evidence exposed over MCP transport."""
+
+    model_config = _STRICT_MODEL_CONFIG
+
+    environment: EnvironmentValue
+    evidence_id: str = Field(min_length=1, max_length=128, pattern=_IDENTIFIER_PATTERN)
+    product_id: str = Field(min_length=1, max_length=128, pattern=_IDENTIFIER_PATTERN)
+    product_name: str = Field(min_length=1, max_length=200)
+    category_id: str = Field(min_length=1, max_length=128, pattern=_IDENTIFIER_PATTERN)
+    captured_at: datetime
+    shortage: ShortageEvidenceOutput
+    coverage: CoverageEvidenceOutput
+    offers: tuple[OfferEvidenceOutput, ...] = Field(max_length=50)
+    budget: BudgetEvidenceOutput | None
+    skip_reason_code: str | None = Field(
+        default=None, max_length=64, pattern=_SKIP_CODE_PATTERN
+    )
