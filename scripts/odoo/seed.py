@@ -271,6 +271,7 @@ def _inventory_scenario(product):
     )
     if len(moves) > 1:
         raise RuntimeError("seed found duplicate forecast demand moves")
+    demand_date = datetime.datetime.now() + datetime.timedelta(days=3)
     if not moves:
         customer_location = env.ref("stock.stock_location_customers")  # noqa: F821
         move = (
@@ -284,12 +285,14 @@ def _inventory_scenario(product):
                     "product_uom": unit_uom.id,
                     "location_id": warehouse.lot_stock_id.id,
                     "location_dest_id": customer_location.id,
-                    "date": datetime.datetime.now() + datetime.timedelta(days=3),
+                    "date": demand_date,
                     "company_id": company.id,
                 }
             )
         )
         move._action_confirm()
+    else:
+        moves.ensure_one().write({"date": demand_date})
 
 
 approved_tag = _one_or_create(
