@@ -7,7 +7,10 @@ from decimal import Decimal
 
 import pytest
 
-from procurement.agent.recommendation_schema import validate_recommendation_payload
+from procurement.agent.recommendation_schema import (
+    RECOMMENDATION_JSON_SCHEMA,
+    validate_recommendation_payload,
+)
 from procurement.domain.identifiers import Environment
 from procurement.ports.llm import (
     LlmOutputInvalidError,
@@ -57,6 +60,32 @@ def test_valid_output_uses_provider_token_metadata() -> None:
     assert recommendation.product_id == "product-101"
     assert recommendation.input_tokens == 83
     assert recommendation.output_tokens == 27
+
+
+def test_provider_schema_enforces_the_application_text_bounds() -> None:
+    properties = RECOMMENDATION_JSON_SCHEMA["properties"]
+
+    assert properties["product_id"] == {
+        "type": ["string", "null"],
+        "minLength": 1,
+        "maxLength": 128,
+        "pattern": r"^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+    }
+    assert properties["rationale"] == {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 500,
+    }
+    assert properties["risk_flags"] == {
+        "type": "array",
+        "maxItems": 10,
+        "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": r"^[A-Z][A-Z0-9_]*$",
+        },
+    }
 
 
 def test_ineligible_identifier_is_rejected() -> None:
