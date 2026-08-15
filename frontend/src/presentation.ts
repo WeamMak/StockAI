@@ -9,6 +9,13 @@ const numberFormatter = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 2,
 });
 
+const dateTimeFormatter = new Intl.DateTimeFormat("en-US", {
+  day: "numeric",
+  month: "short",
+  timeZone: "UTC",
+  year: "numeric",
+});
+
 function finiteNumber(value: string): number | null {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
@@ -25,6 +32,11 @@ export function formatDate(value: string | null): string {
 export function formatNumber(value: string): string {
   const parsed = finiteNumber(value);
   return parsed === null ? value : numberFormatter.format(parsed);
+}
+
+export function formatDateTime(value: string): string {
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? value : dateTimeFormatter.format(parsed);
 }
 
 export function formatQuantity(value: string): string {

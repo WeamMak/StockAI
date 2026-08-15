@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { ApiError, getSession, isAbortError, type Session } from "./api/client";
+import { AppNavigation } from "./components/AppNavigation";
 import { OverviewPage } from "./pages/OverviewPage";
 import { ScanPage } from "./pages/ScanPage";
 import { SignInPage } from "./pages/SignInPage";
@@ -53,20 +54,29 @@ export function App() {
           )}
         </div>
       </header>
-      <main className="app-shell" id="main-content">
-        {session === undefined ? (
-          <p role="status">Loading session…</p>
-        ) : session === null ? (
-          <SignInPage message={sessionError} />
-        ) : selectedScanId === null ? (
-          <OverviewPage onSelectScan={setSelectedScanId} />
-        ) : (
-          <ScanPage
-            scanId={selectedScanId}
-            onBack={() => setSelectedScanId(null)}
+      <div className={session ? "app-layout" : undefined}>
+        {session ? (
+          <AppNavigation
+            active={selectedScanId === null ? "home" : "scans"}
+            onHome={() => setSelectedScanId(null)}
+            onScans={() => setSelectedScanId(null)}
           />
-        )}
-      </main>
+        ) : null}
+        <main className="app-shell" id="main-content">
+          {session === undefined ? (
+            <p role="status">Loading session…</p>
+          ) : session === null ? (
+            <SignInPage message={sessionError} />
+          ) : selectedScanId === null ? (
+            <OverviewPage onSelectScan={setSelectedScanId} />
+          ) : (
+            <ScanPage
+              scanId={selectedScanId}
+              onBack={() => setSelectedScanId(null)}
+            />
+          )}
+        </main>
+      </div>
     </>
   );
 }
