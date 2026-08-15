@@ -2780,18 +2780,36 @@ eligibility bypass.
 **Files**
 
 - Modify `frontend/src/pages/ScanPage.tsx`,
+  `frontend/src/pages/OverviewPage.tsx`, `frontend/src/App.tsx`,
   `frontend/src/components/ProcurementEvidence.tsx`,
   `frontend/src/components/AppliedPreferences.tsx`, and
   `frontend/src/styles.css`.
+- Create small dependency-free presentation components for the working
+  navigation rail, reusable status icons, and accessible inventory chart under
+  `frontend/src/components/`.
 - Extend `frontend/tests/scan.test.tsx`; add a small presentation helper and
-  focused test only if shared date, quantity, percentage, and currency
-  formatting would otherwise be duplicated.
+  focused tests for `App` navigation and `OverviewPage`. Keep shared date,
+  quantity, percentage, currency, and relative-time formatting in
+  `frontend/src/presentation.ts`.
 
 **Approved design**
 
 - Use the decision-first Executive Summary direction as the foundation.
-- Borrow accessible expandable evidence sections from the Evidence Workspace
-  direction.
+- Add four icon-backed summary cards for coverage, shortage, offer, and
+  recommendation. A green risk check appears only when the response contains
+  no risk flags; real flags use warning treatment and remain visible.
+- Borrow progressive disclosure from the Evidence Workspace direction. Show an
+  accessible SVG inventory projection with a reorder-threshold reference line
+  by default and retain exact daily values in an expandable table.
+- Show eligible offers first. Label an offer `Only eligible offer` only when
+  exactly one exists; never claim a best vendor without an authoritative
+  selected-offer field. Put rejected offers in a separate disclosure.
+- Present applied preferences as ordered priority chips, scope/revision and
+  enforcement badges, premium policy, and compact per-offer outcomes.
+- Add a desktop navigation rail with only working Home and Scans destinations,
+  compact navigation on narrow screens, and a clearer home hero, truthful scan
+  status counts, recent-scan cards, timestamps, loading skeletons, and empty
+  states derived from current API data.
 - Defer the Guided Timeline until a later explainability slice has real
   workflow events; never invent reasoning steps or expose hidden
   chain-of-thought.
@@ -2801,39 +2819,42 @@ eligibility bypass.
 - Consumes: the existing `Scan`, `ApprovalReadyResult`,
   `ProcurementEvidence`, `OfferEvidence`, and `AppliedPreferences` frontend
   types without changing their API shape.
-- Produces: a responsive decision-first summary with the recommendation,
-  status, product, need-by date, residual need, eligible-offer count, proposed
-  budget impact, and key risks visible first; complete inventory, offer,
-  budget, and preference evidence remains available in accessible expandable
-  sections.
+- Produces: a responsive application shell and decision-first summary with
+  truthful status, product, coverage, shortage, offer, recommendation, budget,
+  and risk information visible first; a visual projection and complete exact
+  evidence remain accessible without leaving the page.
 - Excludes: backend/API changes, new workflow actions, approval controls,
-  fabricated values, a chart or component dependency, and the guided
+  fabricated winners or values, inactive navigation, third-party icon/chart/UI
+  dependencies, search, filtering, dark mode, notifications, and the guided
   explainability timeline. A later task may add the timeline only from real
   workflow events.
 
 **Work and tests**
 
-- [ ] **Step 1: Lock the decision hierarchy with failing React tests.** Assert
-  that the result status, product, need-by date, residual need, eligible-offer
-  count, budget state, rationale, and risks appear before detailed evidence,
-  while queued, running, manual-review, and safe-error states retain their
-  current behavior.
-- [ ] **Step 2: Add minimal presentation formatting.** Display human-readable
-  dates, quantities, percentages, and currency using browser-native formatting;
-  do not round away a material value or change the API/domain representation.
-- [ ] **Step 3: Build the executive-summary layout.** Reorganize the existing
-  result and evidence fields into a compact responsive header and summary
-  cards. Keep the read-only boundary and clear manual-review/exception status
-  visible without relying on color alone.
-- [ ] **Step 4: Make complete evidence progressively discoverable.** Use
-  semantic native disclosure sections for the 14-day inventory projection,
-  vendor offers, budget calculation, and applied preferences. Keep tables,
-  headings, focus states, and mobile overflow accessible.
-- [ ] **Step 5: Verify only the affected surface.** Run the focused scan React
-  tests, frontend lint, frontend production build, and repository diff checks.
-  Then publish the changed frontend release, wait for dev Argo `Synced` and
-  `Healthy`, and verify the exact dev release through the existing smoke and a
-  browser-width check.
+- [x] **Step 1: Lock the application shell and home behavior with failing React
+  tests.** Assert that authenticated users receive only working Home and Scans
+  navigation, can return home, see truthful counts derived from loaded scans,
+  and retain the existing start-scan, loading, empty, and error behaviors.
+- [x] **Step 2: Add minimal presentation formatting.** Display human-readable
+  dates, relative timestamps, quantities, percentages, and currency using
+  browser-native formatting; do not round away a material value or change the
+  API/domain representation.
+- [x] **Step 3: Lock and build the executive summary.** Test then implement the
+  four icon-backed coverage, shortage, truthful offer, and recommendation
+  cards; show a green no-risk state only for an empty risk array and warning
+  treatment for actual flags.
+- [x] **Step 4: Lock and build visual evidence.** Test then implement a
+  dependency-free accessible SVG projection with a reorder threshold and an
+  expandable exact-value table. Show eligible offers first, rejected offers
+  separately, and never infer a best vendor when more than one remains.
+- [x] **Step 5: Modernize applied preferences.** Render ordered priority chips,
+  scope/revision and enforcement badges, premium cap, baseline cost, and
+  truthful offer outcomes using the current typed response only.
+- [ ] **Step 6: Verify and release the affected surface.** Local verification is
+  complete: all React tests, frontend lint, frontend production build, and
+  repository diff checks passed. Remaining: publish the changed frontend
+  release, wait for dev Argo `Synced` and `Healthy`, and verify the exact dev
+  release through the existing smoke and desktop/narrow browser checks.
 
 **Verification:** Run `npm test -- tests/scan.test.tsx`, `npm run lint`, and
 `npm run build` from `frontend/`, followed by `git diff --check`. After release

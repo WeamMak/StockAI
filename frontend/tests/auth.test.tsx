@@ -55,6 +55,12 @@ describe("application authentication state", () => {
 
     expect(await screen.findByText("No scans yet")).toBeInTheDocument();
     expect(screen.getByText("manager@example.invalid")).toBeInTheDocument();
+    const navigation = screen.getByRole("navigation", {
+      name: "Application navigation",
+    });
+    expect(navigation).toHaveTextContent("Home");
+    expect(navigation).toHaveTextContent("Scans");
+    expect(navigation).not.toHaveTextContent(/analytics|vendors|settings/i);
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
       "/api/v1/session",

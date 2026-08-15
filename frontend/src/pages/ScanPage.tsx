@@ -8,7 +8,13 @@ import {
   type ScanFailure,
 } from "../api/client";
 import { ProcurementEvidence } from "../components/ProcurementEvidence";
-import { formatCurrency, formatDate, formatQuantity } from "../presentation";
+import { Icon } from "../components/Icon";
+import {
+  formatCurrency,
+  formatDate,
+  formatDateTime,
+  formatQuantity,
+} from "../presentation";
 
 const DEFAULT_POLL_INTERVAL_MS = 1_000;
 const DEFAULT_MAX_POLL_ATTEMPTS = 130;
@@ -46,6 +52,52 @@ function ErrorState({ error }: { error: UiError | ScanFailure }) {
   );
 }
 
+function ScanHeading({
+  completedAt,
+  onBack,
+  scanId,
+}: {
+  completedAt: string | null;
+  onBack: () => void;
+  scanId: string;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  async function copyScanId() {
+    if (navigator.clipboard === undefined) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(scanId);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  }
+
+  return (
+    <div className="scan-heading">
+      <button className="back-button" type="button" onClick={onBack}>
+        ← Back to scans
+      </button>
+      <p className="eyebrow">Scan detail</p>
+      <h1 id="scan-title">Procurement recommendation</h1>
+      <div className="scan-metadata">
+        <span className="identifier" title={scanId}>{scanId}</span>
+        <button
+          aria-label="Copy scan ID"
+          className="copy-button"
+          type="button"
+          onClick={() => void copyScanId()}
+        >
+          {copied ? "Copied" : "Copy ID"}
+        </button>
+        {completedAt ? <span>Completed {formatDateTime(completedAt)}</span> : null}
+      </div>
+    </div>
+  );
+}
+
 function RecommendationSummary({ scan }: { scan: Scan }) {
   if (scan.result === null) {
     return null;
@@ -55,6 +107,10 @@ function RecommendationSummary({ scan }: { scan: Scan }) {
   );
   const eligibleOfferCount =
     evidence?.offers.filter((offer) => offer.status === "eligible").length ?? 0;
+  const onlyEligibleOffer =
+    eligibleOfferCount === 1
+      ? evidence?.offers.find((offer) => offer.status === "eligible") ?? null
+      : null;
   const budget = evidence?.budget ?? null;
 
   return (
@@ -72,46 +128,51 @@ function RecommendationSummary({ scan }: { scan: Scan }) {
       </div>
 
       {evidence ? (
+        <section aria-label="Decision highlights">
         <dl className="decision-grid">
-          <div>
-            <dt>Need by</dt>
-            <dd title={evidence.shortage.need_by_date}>
-              {formatDate(evidence.shortage.need_by_date)}
+          <div className="decision-card decision-card--coverage">
+            <dt><span className="summary-icon summary-icon--green"><Icon name="coverage" /></span>Coverage</dt>
+            <dd>
+              {evidence.coverage.status.charAt(0).toUpperCase() +
+                evidence.coverage.status.slice(1)}
+              <small>{formatQuantity(evidence.coverage.covered_quantity)} covered</small>
             </dd>
           </div>
-          <div>
-            <dt>Residual need</dt>
+          <div className="decision-card decision-card--shortage">
+            <dt><span className="summary-icon summary-icon--amber"><Icon name="shortage" /></span>Shortage</dt>
             <dd title={evidence.coverage.residual_quantity}>
               {formatQuantity(evidence.coverage.residual_quantity)}
+              <small>Need by {formatDate(evidence.shortage.need_by_date)}</small>
             </dd>
           </div>
-          <div>
-            <dt>Eligible offers</dt>
+          <div className="decision-card decision-card--offer">
+            <dt><span className="summary-icon summary-icon--blue"><Icon name="offer" /></span>Offer</dt>
             <dd>
-              {eligibleOfferCount} eligible{" "}
-              {eligibleOfferCount === 1 ? "offer" : "offers"}
+              {onlyEligibleOffer
+                ? formatCurrency(
+                    onlyEligibleOffer.normalized_cost,
+                    onlyEligibleOffer.company_currency,
+                  )
+                : `${eligibleOfferCount} eligible offers`}
+              <small>
+                {eligibleOfferCount} eligible {eligibleOfferCount === 1 ? "offer" : "offers"}
+                {onlyEligibleOffer ? " · Only eligible offer" : ""}
+              </small>
             </dd>
           </div>
-          <div>
-            <dt>Budget impact</dt>
+          <div className="decision-card decision-card--recommendation">
+            <dt><span className="summary-icon summary-icon--green"><Icon name="recommendation" /></span>Recommendation</dt>
             <dd>
-              {budget ? (
-                <>
-                  <span title={budget.proposed_amount}>
-                    {formatCurrency(budget.proposed_amount, budget.currency)}
-                  </span>
-                  <small>
-                    {budget.exception_required
-                      ? "Manager exception required"
-                      : "Within budget"}
-                  </small>
-                </>
-              ) : (
-                "Not available"
-              )}
+              Approval ready
+              <small>
+                {budget
+                  ? `${formatCurrency(budget.proposed_amount, budget.currency)} · ${budget.exception_required ? "Exception required" : "Within budget"}`
+                  : "Budget not available"}
+              </small>
             </dd>
           </div>
         </dl>
+        </section>
       ) : null}
 
       <div className="recommendation-copy">
@@ -122,13 +183,19 @@ function RecommendationSummary({ scan }: { scan: Scan }) {
         <section aria-labelledby="risks-title">
           <h3 id="risks-title">Risks and limitations</h3>
           {scan.result.risk_flags.length === 0 ? (
-            <p className="muted">No risk flags were returned.</p>
+            <p className="risk-state risk-state--clear">
+              <span className="summary-icon summary-icon--green"><Icon name="check" /></span>
+              No risk flags identified
+            </p>
           ) : (
-            <ul className="tag-list">
-              {scan.result.risk_flags.map((flag) => (
-                <li key={flag}>{flag.replaceAll("_", " ")}</li>
-              ))}
-            </ul>
+            <div className="risk-state risk-state--warning">
+              <span className="summary-icon summary-icon--amber"><Icon name="alert" /></span>
+              <ul className="tag-list">
+                {scan.result.risk_flags.map((flag) => (
+                  <li key={flag}>{flag.replaceAll("_", " ")}</li>
+                ))}
+              </ul>
+            </div>
           )}
         </section>
       </div>
@@ -191,21 +258,22 @@ export function ScanPage({
 
   return (
     <section aria-labelledby="scan-title" className="page-stack">
-      <div>
-        <button className="back-button" type="button" onClick={onBack}>
-          ← Back to scans
-        </button>
-        <p className="eyebrow">Scan detail</p>
-        <h1 id="scan-title">Procurement recommendation</h1>
-        <p className="muted identifier">{scanId}</p>
-      </div>
+      <ScanHeading
+        completedAt={scan?.completed_at ?? null}
+        onBack={onBack}
+        scanId={scanId}
+      />
 
       {requestError ? (
         <ErrorState error={requestError} />
       ) : scan === null ? (
-        <p className="panel" role="status">
-          Loading scan…
-        </p>
+        <div className="panel loading-skeleton loading-skeleton--detail" role="status">
+          <span className="visually-hidden">Loading scan…</span>
+          <span />
+          <span />
+          <span />
+          <span />
+        </div>
       ) : scan.status === "queued" || scan.status === "running" ? (
         <section className="panel" role="status" aria-live="polite">
           <p className={`status status--${scan.status}`}>

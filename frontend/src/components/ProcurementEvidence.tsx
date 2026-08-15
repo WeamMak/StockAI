@@ -1,15 +1,62 @@
-import type { ProcurementEvidence as Evidence } from "../api/client";
+import type {
+  OfferEvidence,
+  ProcurementEvidence as Evidence,
+} from "../api/client";
 import {
   formatCurrency,
   formatDate,
+  formatDateTime,
   formatNumber,
   formatQuantity,
   formatRatioPercent,
 } from "../presentation";
 import { AppliedPreferences } from "./AppliedPreferences";
+import { InventoryChart } from "./InventoryChart";
 
 function label(code: string) {
   return code.replaceAll("_", " ").toLowerCase();
+}
+
+function OfferList({
+  accessibleName,
+  offers,
+  onlyEligible = false,
+}: {
+  accessibleName: string;
+  offers: OfferEvidence[];
+  onlyEligible?: boolean;
+}) {
+  return (
+    <ul className="offer-list" aria-label={accessibleName}>
+      {offers.map((offer) => (
+        <li key={offer.offer_id}>
+          <div className="offer-heading">
+            <strong>{offer.vendor_name}</strong>
+            <span
+              className={`status status--${offer.status === "eligible" ? "succeeded" : "failed"}`}
+            >
+              {onlyEligible ? "Only eligible offer" : offer.status}
+            </span>
+          </div>
+          <dl className="offer-metrics">
+            <div><dt>Price</dt><dd title={offer.normalized_cost}>{formatCurrency(offer.normalized_cost, offer.company_currency)}</dd></div>
+            <div><dt>Quantity</dt><dd>{formatQuantity(offer.quantity)}</dd></div>
+            <div><dt>Delivery</dt><dd>{formatDate(offer.delivery_date)}</dd></div>
+          </dl>
+          <p className="offer-history">
+            On-time: {formatRatioPercent(offer.performance.on_time_rate)} ·{" "}
+            {offer.performance.completed_order_count} completed orders ·{" "}
+            {offer.performance.history_status} history
+          </p>
+          {offer.reason_codes.length > 0 ? (
+            <p className="rejection-reason">
+              {offer.reason_codes.map(label).join(", ")}
+            </p>
+          ) : null}
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 export function ProcurementEvidence({ evidence }: { evidence: Evidence[] }) {
@@ -61,13 +108,22 @@ export function ProcurementEvidence({ evidence }: { evidence: Evidence[] }) {
             </div>
           </dl>
 
-          <div className="evidence-disclosures">
-            <details className="disclosure">
-              <summary>
-                <span>Inventory projection</span>
-                <small>{item.shortage.timeline.length} days</small>
-              </summary>
-              <div className="disclosure__content table-scroll">
+          <div className="evidence-primary-grid">
+            <section className="evidence-card" aria-labelledby={`inventory-${item.evidence_id}`}>
+              <div className="evidence-card__heading">
+                <div>
+                  <h4 id={`inventory-${item.evidence_id}`}>Inventory projection</h4>
+                  <p>{formatDate(item.shortage.horizon_start)} – {formatDate(item.shortage.horizon_end)}</p>
+                </div>
+                <span className="evidence-count">{item.shortage.timeline.length} days</span>
+              </div>
+              <InventoryChart
+                reorderMinimum={item.shortage.reorder_minimum}
+                timeline={item.shortage.timeline}
+              />
+              <details className="compact-disclosure">
+                <summary>View daily values</summary>
+                <div className="table-scroll">
                 <table className="evidence-timeline">
                   <caption>14-day inventory projection</caption>
                   <thead>
@@ -87,57 +143,42 @@ export function ProcurementEvidence({ evidence }: { evidence: Evidence[] }) {
                     ))}
                   </tbody>
                 </table>
-              </div>
-            </details>
+                </div>
+              </details>
+            </section>
 
-            <details className="disclosure">
-              <summary>
-                <span>Vendor offers</span>
-                <small>{item.offers.length} considered</small>
-              </summary>
-              <div className="disclosure__content">
-                {item.offers.length === 0 ? (
+            <section className="evidence-card" aria-labelledby={`offers-${item.evidence_id}`}>
+              <div className="evidence-card__heading">
+                <div>
+                  <h4 id={`offers-${item.evidence_id}`}>Vendor offers</h4>
+                  <p>Eligible offers are shown first.</p>
+                </div>
+                <span className="evidence-count">{item.offers.length} considered</span>
+              </div>
+              {item.offers.filter((offer) => offer.status === "eligible").length === 0 ? (
                   <p>No valid vendor offer evidence was available.</p>
                 ) : (
-                  <ul
-                    className="offer-list"
-                    aria-label={`${item.product_name} offers`}
-                  >
-                    {item.offers.map((offer) => (
-                      <li key={offer.offer_id}>
-                        <div className="offer-heading">
-                          <strong>{offer.vendor_name}</strong>
-                          <span
-                            className={`status status--${offer.status === "eligible" ? "succeeded" : "failed"}`}
-                          >
-                            {offer.status}
-                          </span>
-                        </div>
-                        <span>
-                          {formatQuantity(offer.quantity)} for{" "}
-                          <span title={offer.normalized_cost}>
-                            {formatCurrency(
-                              offer.normalized_cost,
-                              offer.company_currency,
-                            )}
-                          </span>
-                        </span>
-                        <span>Delivery {formatDate(offer.delivery_date)}</span>
-                        <span>
-                          On-time:{" "}
-                          {formatRatioPercent(offer.performance.on_time_rate)} ·{" "}
-                          {offer.performance.completed_order_count} completed
-                          orders · {offer.performance.history_status} history
-                        </span>
-                        {offer.reason_codes.length > 0 ? (
-                          <span>{offer.reason_codes.map(label).join(", ")}</span>
-                        ) : null}
-                      </li>
-                    ))}
-                  </ul>
+                  <OfferList
+                    accessibleName={`${item.product_name} eligible offers`}
+                    offers={item.offers.filter((offer) => offer.status === "eligible")}
+                    onlyEligible={item.offers.filter((offer) => offer.status === "eligible").length === 1}
+                  />
                 )}
-              </div>
-            </details>
+              {item.offers.some((offer) => offer.status === "rejected") ? (
+                <details className="compact-disclosure rejected-offers">
+                  <summary>
+                    View rejected offers ({item.offers.filter((offer) => offer.status === "rejected").length})
+                  </summary>
+                  <OfferList
+                    accessibleName={`${item.product_name} rejected offers`}
+                    offers={item.offers.filter((offer) => offer.status === "rejected")}
+                  />
+                </details>
+              ) : null}
+            </section>
+          </div>
+
+          <div className="evidence-disclosures">
 
             {item.budget ? (
               <details className="disclosure">
@@ -191,6 +232,10 @@ export function ProcurementEvidence({ evidence }: { evidence: Evidence[] }) {
               </details>
             ) : null}
           </div>
+          <footer className="evidence-footer">
+            <span className="identifier">Evidence ID: {item.evidence_id}</span>
+            <span>Captured {formatDateTime(item.captured_at)}</span>
+          </footer>
         </article>
       ))}
     </section>
