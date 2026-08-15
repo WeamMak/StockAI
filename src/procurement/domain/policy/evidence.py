@@ -359,7 +359,7 @@ def _json_value(value: Any) -> Any:
 def procurement_evidence_from_dict(raw: object) -> ProcurementEvidence:
     """Strictly reconstruct authoritative evidence from an untrusted mapping."""
 
-    if not isinstance(raw, dict) or set(raw) != {
+    expected_fields = {
         "environment",
         "evidence_id",
         "product_id",
@@ -372,7 +372,11 @@ def procurement_evidence_from_dict(raw: object) -> ProcurementEvidence:
         "budget",
         "skip_reason_code",
         "preferences",
-    }:
+    }
+    if not isinstance(raw, dict) or set(raw) not in (
+        expected_fields,
+        expected_fields - {"preferences"},
+    ):
         raise ValueError("procurement evidence payload is invalid")
     shortage_raw = _mapping(raw["shortage"], ShortageEvidence)
     timeline_raw = shortage_raw.pop("timeline")
@@ -439,7 +443,7 @@ def procurement_evidence_from_dict(raw: object) -> ProcurementEvidence:
             exception_required=exception_required,
             **{key: Decimal(str(value)) for key, value in values.items()},
         )
-    preferences_raw = raw["preferences"]
+    preferences_raw = raw.get("preferences")
     preferences = None
     if preferences_raw is not None:
         if not isinstance(preferences_raw, dict):
