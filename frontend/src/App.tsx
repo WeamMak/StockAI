@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 
 import { ApiError, getSession, isAbortError, type Session } from "./api/client";
+import { AppNavigation } from "./components/AppNavigation";
 import { OverviewPage } from "./pages/OverviewPage";
 import { ScanPage } from "./pages/ScanPage";
 import { SignInPage } from "./pages/SignInPage";
 
 export function App() {
   const [selectedScanId, setSelectedScanId] = useState<string | null>(null);
+  const [workspacePage, setWorkspacePage] = useState<"home" | "scans">("home");
   const [session, setSession] = useState<Session | null | undefined>(undefined);
   const [sessionError, setSessionError] = useState<string | undefined>();
 
@@ -42,6 +44,7 @@ export function App() {
             onClick={(event) => {
               event.preventDefault();
               setSelectedScanId(null);
+              setWorkspacePage("home");
             }}
           >
             StockAI <span>Procurement</span>
@@ -53,20 +56,44 @@ export function App() {
           )}
         </div>
       </header>
-      <main className="app-shell" id="main-content">
-        {session === undefined ? (
-          <p role="status">Loading session…</p>
-        ) : session === null ? (
-          <SignInPage message={sessionError} />
-        ) : selectedScanId === null ? (
-          <OverviewPage onSelectScan={setSelectedScanId} />
-        ) : (
-          <ScanPage
-            scanId={selectedScanId}
-            onBack={() => setSelectedScanId(null)}
+      <div className={session ? "app-layout" : undefined}>
+        {session ? (
+          <AppNavigation
+            active={selectedScanId === null ? workspacePage : "scans"}
+            onHome={() => {
+              setSelectedScanId(null);
+              setWorkspacePage("home");
+            }}
+            onScans={() => {
+              setSelectedScanId(null);
+              setWorkspacePage("scans");
+            }}
           />
-        )}
-      </main>
+        ) : null}
+        <main className="app-shell" id="main-content">
+          {session === undefined ? (
+            <p role="status">Loading session…</p>
+          ) : session === null ? (
+            <SignInPage message={sessionError} />
+          ) : selectedScanId === null ? (
+            <OverviewPage
+              view={workspacePage}
+              onSelectScan={(scanId) => {
+                setWorkspacePage("scans");
+                setSelectedScanId(scanId);
+              }}
+            />
+          ) : (
+            <ScanPage
+              scanId={selectedScanId}
+              onBack={() => {
+                setSelectedScanId(null);
+                setWorkspacePage("scans");
+              }}
+            />
+          )}
+        </main>
+      </div>
     </>
   );
 }

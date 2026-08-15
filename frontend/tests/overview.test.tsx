@@ -16,6 +16,34 @@ const QUEUED_SCAN = {
   error: null,
 };
 
+const SUCCEEDED_SCAN = {
+  ...QUEUED_SCAN,
+  scan_id: "scan-succeeded",
+  status: "succeeded",
+  completed_at: "2026-08-05T10:00:05Z",
+  result: {
+    outcome: "approval_ready",
+    product_id: "product-101",
+    product_name: "Fictional Safety Gloves",
+    rationale: "Replenishment is required.",
+    risk_flags: [],
+    read_only: true,
+  },
+};
+
+const FAILED_SCAN = {
+  ...QUEUED_SCAN,
+  scan_id: "scan-review",
+  status: "failed",
+  completed_at: "2026-08-05T10:00:06Z",
+  error: {
+    error_code: "NO_VALID_OFFER",
+    message: "Manual review is required.",
+    retryable: false,
+    retry_count: 0,
+  },
+};
+
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -55,6 +83,31 @@ describe("OverviewPage", () => {
     await userEvent.click(await screen.findByRole("button", { name: /scan-queued/i }));
 
     expect(onSelectScan).toHaveBeenCalledWith("scan-queued");
+  });
+
+  it("summarizes loaded scan outcomes without inventing data", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          scans: [
+            QUEUED_SCAN,
+            { ...QUEUED_SCAN, scan_id: "scan-running", status: "running" },
+            SUCCEEDED_SCAN,
+            FAILED_SCAN,
+          ],
+        }),
+      ),
+    );
+
+    render(<OverviewPage onSelectScan={vi.fn()} />);
+
+    const summary = await screen.findByRole("region", { name: "Scan summary" });
+    expect(summary).toHaveTextContent("4Total");
+    expect(summary).toHaveTextContent("2In progress");
+    expect(summary).toHaveTextContent("1Approval ready");
+    expect(summary).toHaveTextContent("1Needs review");
+    expect(screen.getAllByText(/Completed Aug 5, 2026/)).toHaveLength(2);
   });
 
   it("starts a manual scan from a 202 response", async () => {

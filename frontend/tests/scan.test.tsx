@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ScanPage } from "../src/pages/ScanPage";
@@ -120,6 +121,7 @@ afterEach(() => {
 
 describe("ScanPage", () => {
   it("shows loading before rendering an approval-ready result", async () => {
+    const user = userEvent.setup();
     let resolveRequest: ((response: Response) => void) | undefined;
     const request = new Promise<Response>((resolve) => {
       resolveRequest = resolve;
@@ -141,14 +143,179 @@ describe("ScanPage", () => {
     expect(
       screen.getByRole("heading", { name: "Deterministic procurement evidence" }),
     ).toBeInTheDocument();
-    expect(screen.getByText(/0.500000/)).toBeInTheDocument();
+
+    expect(screen.getByText(/50%/)).toBeInTheDocument();
+
+    await user.click(
+      screen.getByText("View daily values"),
+    );
     expect(screen.getByText("14-day inventory projection")).toBeInTheDocument();
     expect(screen.getByRole("table")).toBeInTheDocument();
+
+    await user.click(
+      screen.getByText("Applied preferences", { selector: "summary > span" }),
+    );
     expect(
       screen.getByRole("heading", { name: "Applied preferences" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("price → reliability → delivery")).toBeInTheDocument();
-    expect(screen.getByText("10.000000% (advisory)")).toBeInTheDocument();
+    expect(screen.getByRole("list", { name: "Preference priority" })).toHaveTextContent(
+      "1Price2Reliability3Delivery",
+    );
+    expect(screen.getByText("10%", { selector: ".preference-policy dd" })).toBeInTheDocument();
+  });
+
+  it("shows a decision summary before expandable supporting evidence", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(BASE_SCAN)));
+
+    render(<ScanPage scanId="scan-101" onBack={vi.fn()} />);
+
+    const summary = await screen.findByRole("region", {
+      name: "Recommendation summary",
+    });
+    expect(summary).toHaveTextContent("Approval ready");
+    expect(summary).toHaveTextContent("Aug 12, 2026");
+    expect(summary).toHaveTextContent("35 units");
+    expect(summary).toHaveTextContent("1 eligible offer");
+    expect(summary).toHaveTextContent("$437.50");
+    expect(summary).toHaveTextContent("Within budget");
+
+    const inventory = screen
+      .getByText("View daily values")
+      .closest("details");
+    expect(inventory).not.toBeNull();
+    expect(inventory).not.toHaveAttribute("open");
+
+    await user.click(screen.getByText("View daily values"));
+    expect(inventory).toHaveAttribute("open");
+    expect(screen.getByRole("table")).toHaveAccessibleName(
+      "14-day inventory projection",
+    );
+  });
+
+  it("shows truthful icon-card highlights and risk status", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(BASE_SCAN)));
+
+    render(<ScanPage scanId="scan-101" onBack={vi.fn()} />);
+
+    const highlights = await screen.findByRole("region", {
+      name: "Decision highlights",
+    });
+    expect(highlights).toHaveTextContent(
+      "Existing coveragePartial5 units from existing sources",
+    );
+    expect(highlights).toHaveTextContent(
+      "Uncovered target gap35 unitsAt Aug 12, 2026 stockout · target 40 units",
+    );
+    expect(highlights).toHaveTextContent("Offer$437.50");
+    expect(highlights).toHaveTextContent("Only eligible offer");
+    expect(highlights).toHaveTextContent("RecommendationApproval ready");
+
+    const risks = screen.getByRole("region", {
+      name: "Risks and limitations",
+    });
+    expect(risks).toHaveTextContent("LIMITED EVIDENCE");
+    expect(risks).not.toHaveTextContent("No risk flags identified");
+  });
+
+  it("shows a green clear state only when no risk flags exist", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          ...BASE_SCAN,
+          result: { ...BASE_SCAN.result, risk_flags: [] },
+        }),
+      ),
+    );
+
+    render(<ScanPage scanId="scan-101" onBack={vi.fn()} />);
+
+    const risks = await screen.findByRole("region", {
+      name: "Risks and limitations",
+    });
+    expect(risks).toHaveTextContent("No risk flags identified");
+  });
+
+  it("shows a projection graph and separates rejected offers", async () => {
+    const user = userEvent.setup();
+    const eligibleOffer = BASE_SCAN.evidence[0].offers[0];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          ...BASE_SCAN,
+          evidence: [
+            {
+              ...BASE_SCAN.evidence[0],
+              offers: [
+                eligibleOffer,
+                {
+                  ...eligibleOffer,
+                  offer_id: "offer-rejected",
+                  vendor_id: "vendor-rejected",
+                  vendor_name: "Fictional Late Supplies",
+                  status: "rejected",
+                  reason_codes: ["DELIVERY_AFTER_NEED_BY"],
+                  delivery_date: "2026-08-20",
+                },
+              ],
+            },
+          ],
+        }),
+      ),
+    );
+
+    render(<ScanPage scanId="scan-101" onBack={vi.fn()} />);
+
+    expect(
+      await screen.findByRole("img", {
+        name: "Inventory projection from Aug 5, 2026 to Aug 19, 2026",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Projected inventory after existing coverage"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Only eligible offer")).toBeInTheDocument();
+    expect(screen.getByText("Fictional Approved Supplies")).toBeInTheDocument();
+
+    const rejected = screen
+      .getByText("View rejected offers (1)")
+      .closest("details");
+    expect(rejected).not.toBeNull();
+    expect(rejected).not.toHaveAttribute("open");
+    await user.click(screen.getByText("View rejected offers (1)"));
+    expect(rejected).toHaveAttribute("open");
+    expect(screen.getByText("Fictional Late Supplies")).toBeInTheDocument();
+    expect(screen.getByText("delivery after need by")).toBeInTheDocument();
+  });
+
+  it("presents applied preferences as ordered policy information", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(BASE_SCAN)));
+
+    render(<ScanPage scanId="scan-101" onBack={vi.fn()} />);
+
+    await user.click(
+      await screen.findByText("Applied preferences", {
+        selector: "summary > span",
+      }),
+    );
+
+    expect(screen.getByText("Product scope")).toBeInTheDocument();
+    expect(
+      screen.getByText("Revision 6", { selector: ".policy-badges > span" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Advisory enforcement")).toBeInTheDocument();
+    const priorities = screen.getByRole("list", {
+      name: "Preference priority",
+    });
+    expect(priorities).toHaveTextContent("1Price");
+    expect(priorities).toHaveTextContent("2Reliability");
+    expect(priorities).toHaveTextContent("3Delivery");
+    expect(screen.getByText("Maximum premium")).toBeInTheDocument();
+    expect(screen.getByText("Within cap")).toBeInTheDocument();
+    expect(screen.getByText("Captured Aug 5, 2026")).toBeInTheDocument();
   });
 
   it("shows a non-retryable unresolved result as manual review", async () => {

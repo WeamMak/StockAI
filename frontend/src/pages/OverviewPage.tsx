@@ -7,9 +7,12 @@ import {
   listScans,
   type Scan,
 } from "../api/client";
+import { Icon } from "../components/Icon";
+import { formatDateTime } from "../presentation";
 
 interface OverviewPageProps {
   onSelectScan: (scanId: string) => void;
+  view?: "home" | "scans";
 }
 
 function safeMessage(error: unknown): string {
@@ -22,7 +25,23 @@ function displayStatus(status: Scan["status"]): string {
   return status.charAt(0).toUpperCase() + status.slice(1);
 }
 
-export function OverviewPage({ onSelectScan }: OverviewPageProps) {
+function scanCounts(scans: Scan[]) {
+  let inProgress = 0;
+  let approvalReady = 0;
+  let needsReview = 0;
+  for (const scan of scans) {
+    if (scan.status === "queued" || scan.status === "running") {
+      inProgress += 1;
+    } else if (scan.status === "succeeded" && scan.result !== null) {
+      approvalReady += 1;
+    } else if (scan.status === "failed" && scan.error?.retryable === false) {
+      needsReview += 1;
+    }
+  }
+  return { approvalReady, inProgress, needsReview, total: scans.length };
+}
+
+export function OverviewPage({ onSelectScan, view = "home" }: OverviewPageProps) {
   const [scans, setScans] = useState<Scan[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
@@ -67,14 +86,20 @@ export function OverviewPage({ onSelectScan }: OverviewPageProps) {
     }
   }
 
+  const counts = scans === null ? null : scanCounts(scans);
+
   return (
     <section aria-labelledby="overview-title" className="page-stack">
       <div className="page-heading">
         <div>
-          <p className="eyebrow">Walking skeleton</p>
-          <h1 id="overview-title">Procurement scans</h1>
+          <p className="eyebrow">Procurement workspace</p>
+          <h1 id="overview-title">
+            {view === "home" ? "Procurement overview" : "Procurement scans"}
+          </h1>
           <p className="lede">
-            Run and inspect a fictional, read-only replenishment recommendation.
+            {view === "home"
+              ? "Monitor scan activity and recent procurement recommendations."
+              : "Run and review read-only replenishment recommendations."}
           </p>
         </div>
         <button
@@ -94,14 +119,46 @@ export function OverviewPage({ onSelectScan }: OverviewPageProps) {
         </p>
       ) : null}
 
+      {view === "home" && counts ? (
+        <section aria-label="Scan summary" className="overview-summary">
+          <article>
+            <span className="summary-icon summary-icon--blue"><Icon name="document" /></span>
+            <strong>{counts.total}</strong>
+            <span>Total</span>
+          </article>
+          <article>
+            <span className="summary-icon summary-icon--amber"><Icon name="scans" /></span>
+            <strong>{counts.inProgress}</strong>
+            <span>In progress</span>
+          </article>
+          <article>
+            <span className="summary-icon summary-icon--green"><Icon name="check" /></span>
+            <strong>{counts.approvalReady}</strong>
+            <span>Approval ready</span>
+          </article>
+          <article>
+            <span className="summary-icon summary-icon--red"><Icon name="alert" /></span>
+            <strong>{counts.needsReview}</strong>
+            <span>Needs review</span>
+          </article>
+        </section>
+      ) : null}
+
       <section aria-labelledby="recent-scans-title" className="panel">
-        <h2 id="recent-scans-title">Recent scans</h2>
+        <h2 id="recent-scans-title">
+          {view === "home" ? "Recent scans" : "All scans"}
+        </h2>
         {loadError ? (
           <p className="notice notice--error" role="alert">
             {loadError}
           </p>
         ) : scans === null ? (
-          <p role="status">Loading scans…</p>
+          <div className="loading-skeleton" role="status">
+            <span className="visually-hidden">Loading scans…</span>
+            <span />
+            <span />
+            <span />
+          </div>
         ) : scans.length === 0 ? (
           <div className="empty-state">
             <h3>No scans yet</h3>
@@ -121,6 +178,9 @@ export function OverviewPage({ onSelectScan }: OverviewPageProps) {
                     <strong>{scan.scan_id}</strong>
                     <small>
                       {scan.trigger === "manual" ? "Manual" : "Scheduled"} scan
+                      {scan.completed_at
+                        ? ` · Completed ${formatDateTime(scan.completed_at)}`
+                        : ` · Started ${formatDateTime(scan.created_at)}`}
                     </small>
                   </span>
                   <span className={`status status--${scan.status}`}>

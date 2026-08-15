@@ -2415,6 +2415,7 @@ architecture, existing tests, and safe Odoo atomic methods remain intact.
 | T24 | T24 | Prepare and promote the exact dev-tested digests without rebuild or direct deployment. |
 | T25 + T26 + T27 | T25 | Merge forecast, duplicate/open-PO coverage, offers, quantity, performance, and budget into one deterministic-evidence slice. |
 | T27A + T27B + T27C | T26 | Merge Odoo preference configuration, MCP resolution, enforcement, case snapshot, prompt binding, audit, and read-only UI. |
+| New presentation task | T26A | Modernize the existing read-only scan detail using a decision-first summary and expandable evidence, without changing behavior or API contracts. |
 | T28 | T27 | Keep contextual AI recommendation and safe fallback as a separate reasoning boundary. |
 | T29 | T28 | Keep idempotent draft creation, persistence, evidence/revision binding, and manager pause separate. |
 | T30 + reject/cancel/reconcile portions of T31 | T29 | Merge approval/confirmation and rejection/cancellation into one manager-decision lifecycle. |
@@ -2774,6 +2775,103 @@ preferences in Odoo, the exact effective revision is enforced and snapshotted
 through MCP, and officers/managers see it read-only without any prompt or
 eligibility bypass.
 
+#### T26A — Modernize the read-only scan detail
+
+**Files**
+
+- Modify `frontend/src/pages/ScanPage.tsx`,
+  `frontend/src/pages/OverviewPage.tsx`, `frontend/src/App.tsx`,
+  `frontend/src/components/ProcurementEvidence.tsx`,
+  `frontend/src/components/AppliedPreferences.tsx`, and
+  `frontend/src/styles.css`.
+- Create small dependency-free presentation components for the working
+  navigation rail, reusable status icons, and accessible inventory chart under
+  `frontend/src/components/`.
+- Extend `frontend/tests/scan.test.tsx`; add a small presentation helper and
+  focused tests for `App` navigation and `OverviewPage`. Keep shared date,
+  quantity, percentage, currency, and relative-time formatting in
+  `frontend/src/presentation.ts`.
+
+**Approved design**
+
+- Use the decision-first Executive Summary direction as the foundation.
+- Add four icon-backed summary cards for coverage, shortage, offer, and
+  recommendation. A green risk check appears only when the response contains
+  no risk flags; real flags use warning treatment and remain visible.
+- Borrow progressive disclosure from the Evidence Workspace direction. Show an
+  accessible SVG inventory projection with a reorder-threshold reference line
+  by default and retain exact daily values in an expandable table.
+- Show eligible offers first. Label an offer `Only eligible offer` only when
+  exactly one exists; never claim a best vendor without an authoritative
+  selected-offer field. Put rejected offers in a separate disclosure.
+- Present applied preferences as ordered priority chips, scope/revision and
+  enforcement badges, premium policy, and compact per-offer outcomes.
+- Add a desktop navigation rail with only working Home and Scans destinations,
+  compact navigation on narrow screens, and a clearer home hero, truthful scan
+  status counts, recent-scan cards, timestamps, loading skeletons, and empty
+  states derived from current API data.
+- Defer the Guided Timeline until a later explainability slice has real
+  workflow events; never invent reasoning steps or expose hidden
+  chain-of-thought.
+
+**Interfaces**
+
+- Consumes: the existing `Scan`, `ApprovalReadyResult`,
+  `ProcurementEvidence`, `OfferEvidence`, and `AppliedPreferences` frontend
+  types without changing their API shape.
+- Produces: a responsive application shell and decision-first summary with
+  truthful status, product, coverage, shortage, offer, recommendation, budget,
+  and risk information visible first; a visual projection and complete exact
+  evidence remain accessible without leaving the page.
+- Excludes: backend/API changes, new workflow actions, approval controls,
+  fabricated winners or values, inactive navigation, third-party icon/chart/UI
+  dependencies, search, filtering, dark mode, notifications, and the guided
+  explainability timeline. A later task may add the timeline only from real
+  workflow events.
+
+**Work and tests**
+
+- [x] **Step 1: Lock the application shell and home behavior with failing React
+  tests.** Assert that authenticated users receive only working Home and Scans
+  navigation, can return home, see truthful counts derived from loaded scans,
+  and retain the existing start-scan, loading, empty, and error behaviors.
+- [x] **Step 2: Add minimal presentation formatting.** Display human-readable
+  dates, relative timestamps, quantities, percentages, and currency using
+  browser-native formatting; do not round away a material value or change the
+  API/domain representation.
+- [x] **Step 3: Lock and build the executive summary.** Test then implement the
+  four icon-backed coverage, shortage, truthful offer, and recommendation
+  cards; show a green no-risk state only for an empty risk array and warning
+  treatment for actual flags.
+- [x] **Step 4: Lock and build visual evidence.** Test then implement a
+  dependency-free accessible SVG projection with a reorder threshold and an
+  expandable exact-value table. Show eligible offers first, rejected offers
+  separately, and never infer a best vendor when more than one remains.
+- [x] **Step 5: Modernize applied preferences.** Render ordered priority chips,
+  scope/revision and enforcement badges, premium cap, baseline cost, and
+  truthful offer outcomes using the current typed response only.
+- [ ] **Step 6: Verify and release the affected surface.** Local verification is
+  complete: all React tests, frontend lint, frontend production build, and
+  repository diff checks passed. Remaining: publish the changed frontend
+  release, wait for dev Argo `Synced` and `Healthy`, and verify the exact dev
+  release through the existing smoke and desktop/narrow browser checks.
+
+**Verification:** Run `npm test -- tests/scan.test.tsx`, `npm run lint`, and
+`npm run build` from `frontend/`, followed by `git diff --check`. After release
+reconciliation, run `make smoke-dev` and inspect the scan detail at desktop and
+narrow viewport widths. Do not run Odoo contracts or backend integration suites
+unless a shared contract unexpectedly changes.
+
+**Dependencies:** T26.
+
+**Requirements:** CR-02, CR-04, CR-13, CR-14, CR-15; spec sections 5, 7, 8,
+10, 14, 20, and 26.
+
+**Complete when:** Officers and managers can understand the read-only
+recommendation and its key decision facts at a glance, inspect all exact
+supporting evidence on demand, and use the page at desktop and narrow widths
+without any backend or workflow behavior change.
+
 #### T27 — Produce a contextual AI recommendation with safe fallback
 
 **Files**
@@ -2819,7 +2917,7 @@ eligibility bypass.
 **Verification:** Run agent/prompt/UI tests, `make test-integration`, live
 Bedrock dev smoke, observability queries, and release promotion checks.
 
-**Dependencies:** T26.
+**Dependencies:** T26A.
 
 **Requirements:** CR-02, CR-03, CR-05, CR-12, CR-13, CR-15; spec sections
 4.3, 8.7, 9, and 19.
@@ -3163,9 +3261,9 @@ No stretch work may begin before G9.
 | Requirement | Primary implementation tasks | Acceptance evidence |
 |---|---|---|
 | CR-01 Planning gates | Current plan, T34 | Approved spec/plan PRs and explicit implementation instruction |
-| CR-02 Business problem/value | T11A–T11B, T25–T29, T35 | Timed baseline, preference-aware approval-ready latency, approve/reject live workflow |
+| CR-02 Business problem/value | T11A–T11B, T25–T29, T26A, T35 | Timed baseline, preference-aware approval-ready latency, understandable decision-first UI, approve/reject live workflow |
 | CR-03 Coded LLM framework | T05, T12, T25–T29 | LangGraph tests, deployed graph, real model evidence |
-| CR-04 HTTP API/UI | T03, T05, T06, T14, T25–T29 | API/UI tests, live dashboard, typed Odoo preference UI |
+| CR-04 HTTP API/UI | T03, T05, T06, T14, T25–T29, T26A | API/UI tests, live dashboard, decision-first scan detail, typed Odoo preference UI |
 | CR-05 Reliability contracts | T02–T05, T12, T18B, T23, T25–T29, T32–T33 | Errors, preference validation, immutable approval, retries, fallback, lifecycle bounds, reconciliation, representative shutdown tests |
 | CR-06 Real MCP interaction | T04, T07, T11A–T11B, T25–T29 | Ten-tool Streamable HTTP tests and demo traces |
 | CR-07 Self-managed EC2 Kubernetes | T16, T18A–T18C, T21A–T21B | Terraform state, protected provisioning, ASG/node inventory, finite join, controlled replacement, no EKS |
@@ -3175,7 +3273,7 @@ No stretch work may begin before G9.
 | CR-11 CI/CD/GitOps | T21–T24, T26 | Complete four-image dev releases, one content identity, exact validation evidence, Argo reconciliation, same-digest promotion |
 | CR-12 Observability | T03–T05, T18B, T20A–T20B, T23, T25–T29, T32–T34 | Application/ASG/cleanup metrics, logs, S3 objects, dashboards, automatically validated rules, representative live alerts |
 | CR-13 Automated testing | Every behavior task; T34 audit | Unit/integration/UI/smoke/JUnit/coverage evidence |
-| CR-14 Presentation | T06, T23, T29, T34, T35 | Timed live demo, dashboard, pipeline, reflection |
+| CR-14 Presentation | T06, T23, T26A, T29, T34, T35 | Understandable scan detail, timed live demo, dashboard, pipeline, reflection |
 | CR-15 Security | T02–T04, T11A–T11B, T12–T29, T32–T33 | IAM/RBAC/CSRF/idempotency/redaction/network/preference/immutable-approval tests |
 | CR-16 Decision/AWS justification | T15–T18B, T21A–T21B, T23, T33–T35 | Plans, protected deployment evidence, lifecycle/cost evidence, implementation status, explanation |
 
@@ -3191,12 +3289,13 @@ No stretch work may begin before G9.
 | Preference revision and Odoo authorization | T26 | T26 add-on/container/release tests | T26 Odoo administration smoke |
 | Preference resolution and premium | T26 | T26 real MCP + Odoo add-on | T26 company/category/product scenarios |
 | Preference snapshot/prompt/UI binding | T26 | T26 graph/API/React tests | T26 real MCP and read-only applied revision |
+| Scan-detail presentation | T26A | T26A focused React accessibility/state tests | T26A exact dev smoke and responsive browser check |
 | LLM recommendation/fallback | T12/T27 mocked | T27 graph + MCP | T27 real Bedrock |
 | Draft/idempotency | T28 | T28 concurrency/ambiguous result | T28 real Odoo |
 | Approval/confirmation | T11A atomic Odoo contract; T29 approval/MCP | T11A/T29 stale/replay/role/exception | T29 real Odoo |
 | Reject/cancel/reconcile | T29 | T29 failures/restarts | T29 real Odoo |
 | API/auth/CSRF | T03/T05/T14/T25–T29 | T14/T25–T29 | T23/T24/T26/T29 |
-| React states/actions | T06/T14/T25–T29 | Local browser E2E | Dev/prod browser smoke |
+| React states/actions | T06/T14/T25–T29/T26A | Local browser E2E | Dev/prod browser smoke |
 | MCP tools | T04/T11B/T25–T29 | All ten over Streamable HTTP | Real Odoo demo traces |
 | AWS repositories | T12–T14 mocked | DynamoDB Local | Dev/prod AWS smoke |
 | Worker bootstrap and termination | T18A/T18B mocks | Terraform/event/IAM/SSM integration checks | Clean and fail-open dev replacement drills |
