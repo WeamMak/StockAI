@@ -12,6 +12,7 @@ import { formatDateTime } from "../presentation";
 
 interface OverviewPageProps {
   onSelectScan: (scanId: string) => void;
+  view?: "home" | "scans";
 }
 
 function safeMessage(error: unknown): string {
@@ -40,7 +41,7 @@ function scanCounts(scans: Scan[]) {
   return { approvalReady, inProgress, needsReview, total: scans.length };
 }
 
-export function OverviewPage({ onSelectScan }: OverviewPageProps) {
+export function OverviewPage({ onSelectScan, view = "home" }: OverviewPageProps) {
   const [scans, setScans] = useState<Scan[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
@@ -92,10 +93,13 @@ export function OverviewPage({ onSelectScan }: OverviewPageProps) {
       <div className="page-heading">
         <div>
           <p className="eyebrow">Procurement workspace</p>
-          <h1 id="overview-title">Procurement scans</h1>
+          <h1 id="overview-title">
+            {view === "home" ? "Procurement overview" : "Procurement scans"}
+          </h1>
           <p className="lede">
-            Turn inventory evidence into a clear, read-only replenishment
-            recommendation.
+            {view === "home"
+              ? "Monitor scan activity and recent procurement recommendations."
+              : "Run and review read-only replenishment recommendations."}
           </p>
         </div>
         <button
@@ -115,7 +119,7 @@ export function OverviewPage({ onSelectScan }: OverviewPageProps) {
         </p>
       ) : null}
 
-      {counts ? (
+      {view === "home" && counts ? (
         <section aria-label="Scan summary" className="overview-summary">
           <article>
             <span className="summary-icon summary-icon--blue"><Icon name="document" /></span>
@@ -141,7 +145,9 @@ export function OverviewPage({ onSelectScan }: OverviewPageProps) {
       ) : null}
 
       <section aria-labelledby="recent-scans-title" className="panel">
-        <h2 id="recent-scans-title">Recent scans</h2>
+        <h2 id="recent-scans-title">
+          {view === "home" ? "Recent scans" : "All scans"}
+        </h2>
         {loadError ? (
           <p className="notice notice--error" role="alert">
             {loadError}

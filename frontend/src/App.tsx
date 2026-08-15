@@ -8,6 +8,7 @@ import { SignInPage } from "./pages/SignInPage";
 
 export function App() {
   const [selectedScanId, setSelectedScanId] = useState<string | null>(null);
+  const [workspacePage, setWorkspacePage] = useState<"home" | "scans">("home");
   const [session, setSession] = useState<Session | null | undefined>(undefined);
   const [sessionError, setSessionError] = useState<string | undefined>();
 
@@ -43,6 +44,7 @@ export function App() {
             onClick={(event) => {
               event.preventDefault();
               setSelectedScanId(null);
+              setWorkspacePage("home");
             }}
           >
             StockAI <span>Procurement</span>
@@ -57,9 +59,15 @@ export function App() {
       <div className={session ? "app-layout" : undefined}>
         {session ? (
           <AppNavigation
-            active={selectedScanId === null ? "home" : "scans"}
-            onHome={() => setSelectedScanId(null)}
-            onScans={() => setSelectedScanId(null)}
+            active={selectedScanId === null ? workspacePage : "scans"}
+            onHome={() => {
+              setSelectedScanId(null);
+              setWorkspacePage("home");
+            }}
+            onScans={() => {
+              setSelectedScanId(null);
+              setWorkspacePage("scans");
+            }}
           />
         ) : null}
         <main className="app-shell" id="main-content">
@@ -68,11 +76,20 @@ export function App() {
           ) : session === null ? (
             <SignInPage message={sessionError} />
           ) : selectedScanId === null ? (
-            <OverviewPage onSelectScan={setSelectedScanId} />
+            <OverviewPage
+              view={workspacePage}
+              onSelectScan={(scanId) => {
+                setWorkspacePage("scans");
+                setSelectedScanId(scanId);
+              }}
+            />
           ) : (
             <ScanPage
               scanId={selectedScanId}
-              onBack={() => setSelectedScanId(null)}
+              onBack={() => {
+                setSelectedScanId(null);
+                setWorkspacePage("scans");
+              }}
             />
           )}
         </main>

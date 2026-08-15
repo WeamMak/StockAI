@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "../src/App";
@@ -66,5 +67,33 @@ describe("application authentication state", () => {
       "/api/v1/session",
       expect.objectContaining({ credentials: "same-origin", method: "GET" }),
     );
+  });
+
+  it("opens a distinct scans workspace from the application navigation", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          user_id: "cognito-user-001",
+          email: "manager@example.invalid",
+          role: "manager",
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ scans: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Procurement overview" }),
+    ).toBeInTheDocument();
+    const scans = screen.getByRole("button", { name: "Scans" });
+    await user.click(scans);
+
+    expect(scans).toHaveAttribute("aria-current", "page");
+    expect(
+      screen.getByRole("heading", { name: "Procurement scans" }),
+    ).toBeInTheDocument();
   });
 });
