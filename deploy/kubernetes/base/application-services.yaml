@@ -41,6 +41,7 @@ metadata:
     app.kubernetes.io/part-of: stockai
 spec:
   type: ClusterIP
+  sessionAffinity: ClientIP
   selector:
     app.kubernetes.io/name: stockai-procurement-mcp
   ports:
