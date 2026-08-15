@@ -151,6 +151,7 @@ def _budget(category, analytic_account, amount):
 
 
 def _draft_order(origin, vendor, product, analytic_account, *, quantity, price):
+    planned_date = datetime.datetime.now() + datetime.timedelta(days=7)
     orders = (
         env["purchase.order"]
         .sudo()
@@ -164,8 +165,14 @@ def _draft_order(origin, vendor, product, analytic_account, *, quantity, price):
         order = orders.ensure_one()
         if order.state not in {"draft", "sent"}:
             raise RuntimeError("seed open purchase order is no longer a draft")
+        order.order_line.ensure_one().write(
+            {
+                "product_qty": quantity,
+                "date_planned": planned_date,
+                "price_unit": price,
+            }
+        )
         return order
-    planned_date = datetime.datetime.now() + datetime.timedelta(days=7)
     return (
         env["purchase.order"]
         .sudo()
