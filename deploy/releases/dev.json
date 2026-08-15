@@ -1,55 +1,40 @@
 {
-  "applicationIdentity": "sha256:2a0202b63e35cd25619a70a99c352e2c97d215cd01b7177f2621be98d48a91f5",
+  "applicationIdentity": "sha256:730881fe6e513f04de447ac8227b0642ae2f3e3fc7900333d66338360d1d8a60",
   "buildInputs": {
-    "api": "sha256:55e5da2628dd3778f060ded351018b668625ed027dc0a1a474320d1ceb203f18",
-    "frontend": "sha256:4f1e21541d78feba5b3a2c2971d25c5bdaa29cc0146ba9ec3f692de5be517a27",
-    "mcp": "sha256:a163ae735ef732c6596a5f4c410e60300dd5324931a4bc924e95cde539cf2e1e",
-    "odoo": "sha256:672197de914e6d6e2660be042c5379cac54001a261b9d0d6cd075bccc099bf1e"
+    "api": "sha256:6d2b269ff65672a9ab3cef8850486edd4fb9dca0df7645a4b2c379be44167b8a",
+    "frontend": "sha256:8480b8868ea93e44b27064de922c2fa093ea72d92772d7156deea7b7ae9982a1",
+    "mcp": "sha256:f5bd4a1d0f7059fb429693d03646f5f5059911c510aa54fa8933dcb152321b4b",
+    "odoo": "sha256:eedbcfbe54f8165a3af4f951d60d7e2131bdd0c983b2b309504890ff7f2df452"
   },
-  "createdAt": "2026-08-15T13:21:04Z",
+  "createdAt": "2026-08-15T15:39:06Z",
   "devValidation": {
-    "attempts": [
-      {
-        "argoRevision": "d975487bbaab1faada93feb9ee4fd61a1e47f343",
-        "evidenceDigest": "sha256:abbb61bbec01334f1ba752fa27fd009b9be79460e604883b4fc92fe59ab27127",
-        "images": {
-          "api": "sha256:9fc249037494c7422dc9b411c8c71803fac504519e4cb072a28885c448bbc8ce",
-          "frontend": "sha256:1c407a6dacd915234956ebeb192f106d980e3304fe0dcbb542fa6cc9f0660553",
-          "mcp": "sha256:9c2e0b3e53314047ca36ba4655350c74804a54ea2ca500aab27c683f49ce2ea8",
-          "odoo": "sha256:8ce9dc6bd3076429ddbf7f5006a08f8cc1d62340beb70c30d48767aea0890506"
-        },
-        "releaseId": "sha256:09e2c3f6fb48c541eff5ce577c9f36f0a44af5fff68225c8f987d86c8db56c79",
-        "result": "passed",
-        "smokeRunId": "dev-smoke-20260815T140422Z",
-        "timestamp": "2026-08-15T14:04:59Z"
-      }
-    ],
-    "status": "passed"
+    "attempts": [],
+    "status": "pending"
   },
   "images": {
-    "api": "sha256:9fc249037494c7422dc9b411c8c71803fac504519e4cb072a28885c448bbc8ce",
-    "frontend": "sha256:1c407a6dacd915234956ebeb192f106d980e3304fe0dcbb542fa6cc9f0660553",
-    "mcp": "sha256:9c2e0b3e53314047ca36ba4655350c74804a54ea2ca500aab27c683f49ce2ea8",
-    "odoo": "sha256:8ce9dc6bd3076429ddbf7f5006a08f8cc1d62340beb70c30d48767aea0890506"
+    "api": "sha256:2b09cdc1b830b7268d429bd4fc843944c19de53ca0c2734728ee56e71c265806",
+    "frontend": "sha256:d8e3639f7cfbdeeb073dc199b515e72b282d921e96ef7cacdfdac46849e4ae68",
+    "mcp": "sha256:54f8bb2d48274f81ff82de59a66f6df6a83209ba1324ff0b1c4b6acdf8c54cf4",
+    "odoo": "sha256:a58c7ffa489f9676cbd3982afbd32c15b520131709ad63e15b5c6f3383d1e3d8"
   },
   "integrity": {
     "algorithm": "sha256",
-    "digest": "sha256:f3209d45f1ae27a48bb9cf2a47135aae599dcae7217dec9dd1ab33a5bcb4d657"
+    "digest": "sha256:7c8e2cb9d7cbe1fa570c0595e9a60da28a300d0729a150187008d53bc034f270"
   },
   "provenance": {
-    "api": "sha256:741eee1ffbd1a82026435c72cba7a113d00df0872fe7db598b4e7c3d03e4dd2c",
-    "frontend": "sha256:fbb4dca5d0469073a18e4cba21382fdef75371727c52bef59bdcc5cc106b50bb",
-    "mcp": "sha256:1b7ccd0b2ed02515fe7313c2fb49fbf75b4e7a83400f489578a7be335abd5ba3",
-    "odoo": "sha256:1457c24de6e48b5717b0e5cb0aa23a5a1efe015d20cc51b0f0d4631834e81e41"
+    "api": "sha256:8e88ef7e0592c690a55cc3a0227f74cc6c4b0bdf8d791abbe9a498612f5cb1b5",
+    "frontend": "sha256:5e54b4a339a27a04849b5a892d173dc5ed801a8437bc97e7acf45551c0602e58",
+    "mcp": "sha256:9834c706ad664294c87c8182bc6774d9e40a8e27103ea5c3b0700c199ee6368c",
+    "odoo": "sha256:35bf69c274213a8bde26e2d5e6cda98bdb7196a47d047659c83d32f9d850161b"
   },
-  "releaseId": "sha256:09e2c3f6fb48c541eff5ce577c9f36f0a44af5fff68225c8f987d86c8db56c79",
+  "releaseId": "sha256:59f378a04e4a42879206e4895351ef1fadd2a37d475030ce535b09d6f77f8567",
   "schemaVersion": 1,
   "scout": {
-    "reportDigest": "sha256:94278e939697bccc3f29e72cd4f2d01e80acbee16f62ffbe003515c3a19606a0",
+    "reportDigest": "sha256:2b2b203207ca932537763e821a4707d01eb6095164c49ae3504b1f9593cea808",
     "status": "findings"
   },
   "source": {
-    "commit": "292651a7bf874ad44f19a069154472ca19ddbb63",
-    "tree": "3cb08759689cacd9ef2cfe41062fcdc719b6061d"
+    "commit": "1f9e2353e0e7a20f46706c33d8d0bae8dd238887",
+    "tree": "dd1dafe56a2ca2bbe88814191f28c89cb65122ba"
   }
 }
