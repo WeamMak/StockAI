@@ -360,6 +360,7 @@ async def test_server_discovery_publishes_strict_read_only_contracts() -> None:
     assert {tool.name for tool in tools} == {
         "list_replenishment_candidates",
         "get_procurement_evidence",
+        "get_procurement_preferences",
     }
     for tool in tools:
         assert tool.inputSchema["additionalProperties"] is False

@@ -640,6 +640,11 @@ spec:
           args:
             - |
               set -euo pipefail
+              odoo server --stop-after-init \
+                --database="$PROCUREMENT_ODOO_DATABASE" \
+                --db_host="$HOST" --db_port="$PORT" --db_user="$USER" \
+                --db_password="$PASSWORD" --log-level=error \
+                --update=stockai_procurement --without-demo=true
               odoo shell --no-http --database="$PROCUREMENT_ODOO_DATABASE" \
                 --db_host="$HOST" --db_port="$PORT" --db_user="$USER" \
                 --db_password="$PASSWORD" --log-level=error \

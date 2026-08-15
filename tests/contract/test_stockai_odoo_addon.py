@@ -211,6 +211,127 @@ def test_budget_shape_constraints_tracking_and_role_permissions(
             assert denied.value.status_code == 403
 
 
+def test_typed_preferences_revision_constraints_tracking_and_role_permissions(
+    running_odoo_contract: OdooContractStack,
+) -> None:
+    fixture = running_odoo_contract.first_bootstrap["fixture"]
+    assert isinstance(fixture, dict)
+    values = {
+        "company_id": fixture["company_id"],
+        "scope": "product",
+        "product_id": fixture["product_id"],
+        "max_price_premium_percent": 10.0,
+        "enforcement_mode": "advisory",
+        "priority_ids": [
+            [0, 0, {"sequence": 10, "criterion": "price"}],
+            [0, 0, {"sequence": 20, "criterion": "reliability"}],
+            [0, 0, {"sequence": 30, "criterion": "delivery"}],
+        ],
+    }
+    with _client(
+        running_odoo_contract, running_odoo_contract.configuration_api_key
+    ) as administrator:
+        preference_id = administrator.call(
+            "stockai.procurement.preference", "create", {"vals_list": [values]}
+        )[0]
+        preference = administrator.call(
+            "stockai.procurement.preference",
+            "read",
+            {
+                "ids": [preference_id],
+                "fields": [
+                    "company_id",
+                    "scope",
+                    "product_id",
+                    "revision",
+                    "max_price_premium_percent",
+                    "enforcement_mode",
+                    "priority_ids",
+                    "message_ids",
+                    "active",
+                ],
+            },
+        )[0]
+        assert preference["revision"] == 1
+        assert len(preference["priority_ids"]) == 3
+        initial_messages = preference["message_ids"]
+        assert administrator.call(
+            "stockai.procurement.preference",
+            "write",
+            {
+                "ids": [preference_id],
+                "vals": {"max_price_premium_percent": 12.5},
+            },
+        )
+        updated = administrator.call(
+            "stockai.procurement.preference",
+            "read",
+            {"ids": [preference_id], "fields": ["revision", "message_ids"]},
+        )[0]
+        assert updated["revision"] == 2
+        assert len(updated["message_ids"]) > len(initial_messages)
+
+        def update_premium(premium: float) -> bool:
+            with _client(
+                running_odoo_contract,
+                running_odoo_contract.configuration_api_key,
+            ) as concurrent_administrator:
+                return bool(
+                    concurrent_administrator.call(
+                        "stockai.procurement.preference",
+                        "write",
+                        {
+                            "ids": [preference_id],
+                            "vals": {"max_price_premium_percent": premium},
+                        },
+                    )
+                )
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            assert all(executor.map(update_premium, (13.0, 14.0)))
+        concurrent = administrator.call(
+            "stockai.procurement.preference",
+            "read",
+            {"ids": [preference_id], "fields": ["revision"]},
+        )[0]
+        assert concurrent["revision"] == 4
+
+        with pytest.raises(ProbeError) as managed_revision:
+            administrator.call(
+                "stockai.procurement.preference",
+                "write",
+                {"ids": [preference_id], "vals": {"revision": 99}},
+            )
+        assert managed_revision.value.status_code == 422
+        with pytest.raises(ProbeError) as duplicate:
+            administrator.call(
+                "stockai.procurement.preference", "create", {"vals_list": [values]}
+            )
+        assert duplicate.value.status_code == 422
+        with pytest.raises(ProbeError) as invalid_premium:
+            administrator.call(
+                "stockai.procurement.preference",
+                "write",
+                {"ids": [preference_id], "vals": {"max_price_premium_percent": 101}},
+            )
+        assert invalid_premium.value.status_code == 422
+
+    with _client(running_odoo_contract, running_odoo_contract.api_key) as integration:
+        visible = integration.call(
+            "stockai.procurement.preference",
+            "read",
+            {"ids": [preference_id], "fields": ["revision", "enforcement_mode"]},
+        )[0]
+        assert visible["revision"] == 4
+        with pytest.raises(ProbeError) as denied:
+            integration.call(
+                "stockai.procurement.preference",
+                "write",
+                {"ids": [preference_id], "vals": {"enforcement_mode": "hard"}},
+            )
+        assert denied.value.status_code == 403
+
+
 def test_atomic_update_rejects_stale_unauthorized_multi_and_forbidden_changes(
     running_odoo_contract: OdooContractStack,
 ) -> None:

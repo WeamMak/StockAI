@@ -139,6 +139,15 @@ async def test_real_client_discovers_and_calls_the_tool_over_streamable_http() -
                             "cursor": None,
                         },
                     )
+                    preference = await session.call_tool(
+                        "get_procurement_preferences",
+                        arguments={
+                            "environment": "dev",
+                            "company_id": "1",
+                            "category_id": "category-safety",
+                            "product_id": "product-101",
+                        },
+                    )
             metrics_response = await http_client.get(
                 url.removesuffix("/mcp") + "/metrics"
             )
@@ -146,6 +155,7 @@ async def test_real_client_discovers_and_calls_the_tool_over_streamable_http() -
     assert [tool.name for tool in listed.tools] == [
         "list_replenishment_candidates",
         "get_procurement_evidence",
+        "get_procurement_preferences",
     ]
     assert listed.tools[0].inputSchema["additionalProperties"] is False
     assert listed.tools[0].outputSchema is not None
@@ -153,6 +163,10 @@ async def test_real_client_discovers_and_calls_the_tool_over_streamable_http() -
     assert result.structuredContent is not None
     assert result.structuredContent["environment"] == "dev"
     assert result.structuredContent["candidates"][0]["product_id"] == "product-101"
+    assert preference.isError is False
+    assert preference.structuredContent is not None
+    assert preference.structuredContent["scope"] == "company"
+    assert preference.structuredContent["revision"] == 1
     assert metrics_response.status_code == 200
     assert (
         'procurement_mcp_tool_calls_total{status="success",'

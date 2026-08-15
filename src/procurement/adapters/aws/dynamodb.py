@@ -284,6 +284,14 @@ class DynamoApplicationRepository(ApplicationRepository):
         }
         if event.evidence_digest is not None:
             item["evidence_digest"] = {"S": event.evidence_digest}
+        if event.preferences is not None:
+            item["preferences"] = {
+                "S": json.dumps(
+                    event.preferences.to_dict(),
+                    separators=(",", ":"),
+                    sort_keys=True,
+                )
+            }
         try:
             self._client.put_item(
                 TableName=self._table_name,

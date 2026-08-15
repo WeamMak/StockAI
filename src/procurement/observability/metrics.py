@@ -9,7 +9,11 @@ from prometheus_client import CollectorRegistry, Counter, Histogram
 from procurement.domain.errors import ErrorCode
 
 _KNOWN_MCP_TOOLS = frozenset(
-    {"list_replenishment_candidates", "get_procurement_evidence"}
+    {
+        "list_replenishment_candidates",
+        "get_procurement_evidence",
+        "get_procurement_preferences",
+    }
 )
 
 
@@ -30,6 +34,7 @@ class AgentMetrics:
     mcp_timeouts: Counter
     mcp_duration: Histogram
     retries: Counter
+    preference_outcomes: Counter
 
     @staticmethod
     def _safe_tool(tool: str) -> str:
@@ -107,6 +112,18 @@ class AgentMetrics:
             return
         safe_operation = operation if operation in _KNOWN_MCP_TOOLS else "unknown"
         self.retries.labels(operation=safe_operation).inc(count)
+
+    def record_preference_outcome(self, *, scope: str, mode: str, outcome: str) -> None:
+        safe_scope = scope if scope in {"company", "category", "product"} else "unknown"
+        safe_mode = mode if mode in {"advisory", "hard"} else "unknown"
+        safe_outcome = (
+            outcome
+            if outcome in {"within_cap", "advisory_exceeded", "hard_excluded"}
+            else "unknown"
+        )
+        self.preference_outcomes.labels(
+            scope=safe_scope, mode=safe_mode, outcome=safe_outcome
+        ).inc()
 
 
 def create_agent_metrics(
@@ -186,6 +203,12 @@ def create_agent_metrics(
             "procurement_agent_retries",
             "Safe retries observed by the procurement agent.",
             ("operation",),
+            registry=resolved_registry,
+        ),
+        preference_outcomes=Counter(
+            "procurement_preference_offer_outcomes",
+            "Deterministic offer outcomes under the applied preference profile.",
+            ("scope", "mode", "outcome"),
             registry=resolved_registry,
         ),
     )

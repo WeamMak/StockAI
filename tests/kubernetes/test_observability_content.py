@@ -92,6 +92,7 @@ def test_required_dashboard_panels_and_queries_are_present() -> None:
         "LLM input tokens",
         "LLM output tokens",
         "MCP timeouts and retries",
+        "Preference premium outcomes",
     } <= titles["llm-mcp.json"]
     assert {
         "HPA current and desired replicas",
@@ -120,6 +121,7 @@ def test_required_dashboard_panels_and_queries_are_present() -> None:
         "procurement_http_request_duration_seconds_bucket",
         'procurement_llm_tokens_total{direction="input"}',
         'procurement_llm_tokens_total{direction="output"}',
+        "procurement_preference_offer_outcomes_total",
         "kube_horizontalpodautoscaler_status_current_replicas",
         "kube_pod_status_phase",
         "WorkerCleanupOutcome",

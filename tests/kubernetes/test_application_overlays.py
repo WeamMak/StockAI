@@ -205,8 +205,13 @@ def test_stateful_storage_and_finite_odoo_bootstrap(environment: str) -> None:
     assert seed_spec["backoffLimit"] == 6
     assert "ttlSecondsAfterFinished" not in seed_spec
     assert seed_pod["restartPolicy"] == "OnFailure"
-    assert "/opt/stockai/seed.py" in seed_container["args"][0]
-    assert "/opt/stockai/verify_seed.py" in seed_container["args"][0]
+    seed_command = seed_container["args"][0]
+    assert "odoo server --stop-after-init" in seed_command
+    assert "--update=stockai_procurement" in seed_command
+    assert seed_command.index("--update=stockai_procurement") < seed_command.index(
+        "/opt/stockai/seed.py"
+    )
+    assert "/opt/stockai/verify_seed.py" in seed_command
     seed_env = {item["name"]: item for item in seed_container["env"]}
     assert seed_env["STOCKAI_ODOO_SEED_ENVIRONMENT"]["valueFrom"] == {
         "configMapKeyRef": {

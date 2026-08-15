@@ -22,13 +22,17 @@ from procurement.adapters.odoo.mappers import (
     map_candidate_page,
     parse_candidate_cursor,
 )
+from procurement.adapters.odoo.preference_mapper import map_effective_preference
+from procurement.domain.identifiers import Environment
 from procurement.domain.policy.evidence import ProcurementEvidence
+from procurement.domain.policy.preferences import ProcurementPreference
 from procurement.observability.logging import log_event
 from procurement.ports.erp import (
     CandidatePage,
     ErpPort,
     ErpUnavailableError,
     ProcurementEvidenceQuery,
+    ProcurementPreferenceQuery,
     ReplenishmentCandidatesQuery,
 )
 
@@ -61,6 +65,8 @@ _EVIDENCE_OPERATIONS = frozenset(
         "read_evidence_company",
         "read_evidence_currencies",
         "read_evidence_uoms",
+        "read_preferences",
+        "read_preference_priorities",
     }
 )
 
@@ -680,6 +686,61 @@ class OdooErpAdapter(ErpPort):
                 company=company,
                 currencies=currencies,
                 uoms=uoms,
+            )
+        except (OdooMappingError, OdooReadTimeoutError, ErpUnavailableError):
+            raise
+        except (AttributeError, TypeError, ValueError) as error:
+            raise OdooMappingError(error) from None
+
+    async def get_procurement_preferences(
+        self,
+        query: ProcurementPreferenceQuery,
+    ) -> ProcurementPreference:
+        """Resolve and strictly map one current company-bound profile."""
+
+        try:
+            if query.environment not in {Environment.DEV, Environment.PROD}:
+                raise ValueError("invalid preference environment")
+            company_id = int(query.company_id)
+            category_id = int(query.category_id)
+            product_id = int(query.product_id)
+            if company_id != self.company_id or min(category_id, product_id) <= 0:
+                raise ValueError("invalid preference query")
+            profiles = await self.client.search_read_evidence(
+                operation="read_preferences",
+                model="stockai.procurement.preference",
+                domain=[
+                    ["company_id", "=", self.company_id],
+                    ["active", "=", True],
+                ],
+                fields=[
+                    "id",
+                    "company_id",
+                    "scope",
+                    "product_category_id",
+                    "product_id",
+                    "revision",
+                    "max_price_premium_percent",
+                    "enforcement_mode",
+                    "active",
+                    "priority_ids",
+                ],
+                limit=100,
+            )
+            priority_ids = _flat_integer_ids(profiles, "priority_ids")
+            priorities = await self.client.search_read_evidence(
+                operation="read_preference_priorities",
+                model="stockai.procurement.preference.priority",
+                domain=[["id", "in", list(priority_ids)]],
+                fields=["id", "preference_id", "sequence", "criterion"],
+                limit=300,
+            )
+            return map_effective_preference(
+                profiles=profiles,
+                priorities=priorities,
+                company_id=company_id,
+                category_id=category_id,
+                product_id=product_id,
             )
         except (OdooMappingError, OdooReadTimeoutError, ErpUnavailableError):
             raise

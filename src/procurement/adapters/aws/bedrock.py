@@ -250,6 +250,9 @@ class BedrockStructuredLlm(StructuredLlmPort):
                 }
                 for candidate in request.candidates
             ],
+            "validated_preferences": [
+                preference.to_dict() for preference in request.preferences
+            ],
         }
         serialized_evidence = (
             json.dumps(

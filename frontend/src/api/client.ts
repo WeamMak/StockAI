@@ -30,6 +30,27 @@ export interface OfferEvidence {
   performance: VendorPerformanceEvidence;
 }
 
+export interface AppliedPreferences {
+  profile_id: string;
+  company_id: string;
+  category_id: string;
+  product_id: string;
+  scope: "company" | "category" | "product";
+  scope_id: string;
+  revision: number;
+  ordered_criteria: ("price" | "delivery" | "reliability")[];
+  max_price_premium_percent: string;
+  enforcement_mode: "advisory" | "hard";
+  precedence_source: "company" | "category" | "product";
+  cheapest_eligible_cost: string;
+  offer_results: {
+    offer_id: string;
+    premium_percent: string;
+    exceeds_cap: boolean;
+    outcome: "within_cap" | "advisory_exceeded" | "hard_excluded";
+  }[];
+}
+
 export interface ProcurementEvidence {
   environment: "dev" | "prod";
   evidence_id: string;
@@ -66,6 +87,7 @@ export interface ProcurementEvidence {
     exception_required: boolean;
   } | null;
   skip_reason_code: string | null;
+  preferences: AppliedPreferences | null;
 }
 
 export interface ApprovalReadyResult {
@@ -286,6 +308,7 @@ function parseEvidence(value: unknown): ProcurementEvidence {
       exception_required: value.budget.exception_required,
     };
   }
+  const preferences = parsePreferences(value.preferences);
   return {
     environment: value.environment as ProcurementEvidence["environment"],
     evidence_id: stringField(value, "evidence_id"),
@@ -318,6 +341,59 @@ function parseEvidence(value: unknown): ProcurementEvidence {
     offers: parsedOffers,
     budget,
     skip_reason_code: value.skip_reason_code,
+    preferences,
+  };
+}
+
+function parsePreferences(value: unknown): AppliedPreferences | null {
+  if (value === null) {
+    return null;
+  }
+  if (!isRecord(value)) {
+    return invalidResponse();
+  }
+  const criteria = value.ordered_criteria;
+  const offerResults = value.offer_results;
+  if (
+    !["company", "category", "product"].includes(String(value.scope)) ||
+    value.precedence_source !== value.scope ||
+    !Number.isInteger(value.revision) ||
+    (value.revision as number) < 1 ||
+    !Array.isArray(criteria) ||
+    criteria.length !== 3 ||
+    new Set(criteria).size !== 3 ||
+    !criteria.every((criterion) =>
+      ["price", "delivery", "reliability"].includes(String(criterion)),
+    ) ||
+    !["advisory", "hard"].includes(String(value.enforcement_mode)) ||
+    !Array.isArray(offerResults) ||
+    !offerResults.every(
+      (result) =>
+        isRecord(result) &&
+        typeof result.offer_id === "string" &&
+        typeof result.premium_percent === "string" &&
+        typeof result.exceeds_cap === "boolean" &&
+        ["within_cap", "advisory_exceeded", "hard_excluded"].includes(
+          String(result.outcome),
+        ),
+    )
+  ) {
+    return invalidResponse();
+  }
+  return {
+    profile_id: stringField(value, "profile_id"),
+    company_id: stringField(value, "company_id"),
+    category_id: stringField(value, "category_id"),
+    product_id: stringField(value, "product_id"),
+    scope: value.scope as AppliedPreferences["scope"],
+    scope_id: stringField(value, "scope_id"),
+    revision: value.revision as number,
+    ordered_criteria: criteria as AppliedPreferences["ordered_criteria"],
+    max_price_premium_percent: stringField(value, "max_price_premium_percent"),
+    enforcement_mode: value.enforcement_mode as AppliedPreferences["enforcement_mode"],
+    precedence_source: value.precedence_source as AppliedPreferences["precedence_source"],
+    cheapest_eligible_cost: stringField(value, "cheapest_eligible_cost"),
+    offer_results: offerResults as AppliedPreferences["offer_results"],
   };
 }
 

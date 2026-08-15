@@ -54,6 +54,26 @@ receipt_order = (
         limit=1,
     )
 )
+environment_preferences = (
+    env["stockai.procurement.preference"]
+    .sudo()
+    .search(  # noqa: F821
+        [("company_id", "=", company.id), ("active", "=", True)]
+    )
+    .filtered(
+        lambda preference: (
+            preference.scope == "company"
+            or (
+                preference.scope == "category"
+                and preference.product_category_id.name.startswith(prefix)
+            )
+            or (
+                preference.scope == "product"
+                and preference.product_id.default_code.startswith(prefix)
+            )
+        )
+    )
+)
 counts = {
     "budgets": _count(
         "stockai.procurement.budget",
@@ -80,6 +100,7 @@ counts = {
         ],
     ),
     "products": _count("product.template", [("default_code", "like", f"{prefix}-%")]),
+    "preferences": len(environment_preferences),
     "returns": _count(
         "stock.picking",
         [
@@ -92,7 +113,12 @@ counts = {
 }
 if missing:
     raise RuntimeError("seed verification found missing stable references")
-if counts["budgets"] < 2 or counts["products"] < 3 or counts["vendors"] < 3:
+if (
+    counts["budgets"] < 2
+    or counts["preferences"] != 3
+    or counts["products"] < 3
+    or counts["vendors"] < 3
+):
     raise RuntimeError("seed verification found incomplete configuration records")
 if (
     counts["open_purchase_orders"] < 2

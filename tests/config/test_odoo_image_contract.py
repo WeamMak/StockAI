@@ -120,6 +120,7 @@ def test_addon_manifest_has_only_the_approved_dependencies() -> None:
         "security/groups.xml",
         "security/ir.model.access.csv",
         "security/rules.xml",
+        "views/preferences.xml",
     ]
 
 
