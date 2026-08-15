@@ -9,6 +9,7 @@ from decimal import Decimal
 from typing import Protocol
 
 from procurement.domain.identifiers import Environment
+from procurement.domain.policy.evidence import ProcurementEvidence
 
 _IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]*$", re.ASCII)
 _SKIP_CODE_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]*$", re.ASCII)
@@ -118,6 +119,15 @@ class ProcurementMcpPort(Protocol):
         limit: int,
     ) -> CandidatePage:
         """Return one validated candidate page over the configured transport."""
+
+    async def get_procurement_evidence(
+        self,
+        *,
+        environment: Environment,
+        product_id: str,
+        horizon_days: int,
+    ) -> ProcurementEvidence:
+        """Return one validated authoritative evidence record."""
 
 
 class McpReadError(Exception):

@@ -143,7 +143,10 @@ async def test_real_client_discovers_and_calls_the_tool_over_streamable_http() -
                 url.removesuffix("/mcp") + "/metrics"
             )
 
-    assert [tool.name for tool in listed.tools] == ["list_replenishment_candidates"]
+    assert [tool.name for tool in listed.tools] == [
+        "list_replenishment_candidates",
+        "get_procurement_evidence",
+    ]
     assert listed.tools[0].inputSchema["additionalProperties"] is False
     assert listed.tools[0].outputSchema is not None
     assert result.isError is False

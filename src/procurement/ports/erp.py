@@ -7,6 +7,9 @@ from datetime import date
 from decimal import Decimal
 from typing import Protocol
 
+from procurement.domain.identifiers import Environment
+from procurement.domain.policy.evidence import ProcurementEvidence
+
 
 @dataclass(frozen=True, slots=True)
 class ReplenishmentCandidatesQuery:
@@ -39,6 +42,15 @@ class CandidatePage:
     next_cursor: str | None
 
 
+@dataclass(frozen=True, slots=True)
+class ProcurementEvidenceQuery:
+    """Environment-bound request for one product's authoritative evidence."""
+
+    environment: Environment
+    product_id: str
+    horizon_days: int = 14
+
+
 class ErpPort(Protocol):
     """Operations the Procurement MCP server may request from an ERP."""
 
@@ -47,6 +59,12 @@ class ErpPort(Protocol):
         query: ReplenishmentCandidatesQuery,
     ) -> CandidatePage:
         """Return one bounded page of candidate records."""
+
+    async def get_procurement_evidence(
+        self,
+        query: ProcurementEvidenceQuery,
+    ) -> ProcurementEvidence:
+        """Return one complete deterministic evidence record."""
 
 
 class ErpUnavailableError(Exception):

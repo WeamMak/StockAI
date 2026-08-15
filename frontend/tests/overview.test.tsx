@@ -11,6 +11,7 @@ const QUEUED_SCAN = {
   created_at: "2026-08-05T10:00:00Z",
   started_at: null,
   completed_at: null,
+  evidence: [],
   result: null,
   error: null,
 };

@@ -58,6 +58,7 @@ class ScanResponse(BaseModel):
     created_at: datetime
     started_at: datetime | None
     completed_at: datetime | None
+    evidence: tuple[dict[str, object], ...]
     result: ApprovalReadyResponse | None
     error: ScanErrorResponse | None
 
@@ -107,6 +108,7 @@ def scan_response(snapshot: ScanSnapshot) -> ScanResponse:
         created_at=snapshot.created_at,
         started_at=snapshot.started_at,
         completed_at=snapshot.completed_at,
+        evidence=tuple(item.to_dict() for item in snapshot.evidence),
         result=result,
         error=error,
     )

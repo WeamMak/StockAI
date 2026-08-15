@@ -46,7 +46,10 @@ from procurement.bootstrap.api import (  # noqa: E402
     StreamableHttpProcurementMcp,
     create_local_api_app,
 )
+from procurement.bootstrap.mcp import LocalFictionalErp  # noqa: E402
 from procurement.domain.identifiers import Environment  # noqa: E402
+from procurement.domain.policy.evidence import ProcurementEvidence  # noqa: E402
+from procurement.ports.erp import ProcurementEvidenceQuery  # noqa: E402
 from procurement.ports.mcp import (  # noqa: E402
     CandidatePage,
     ReplenishmentCandidate,
@@ -99,7 +102,7 @@ async def _candidate_page(
     limit: int,
 ) -> CandidatePage:
     assert horizon_days == 14
-    assert limit == 25
+    assert limit == 50
     return CandidatePage(
         environment=environment,
         candidates=(
@@ -115,6 +118,35 @@ async def _candidate_page(
             ),
         ),
         next_cursor=None,
+    )
+
+
+async def _procurement_evidence(
+    _self: StreamableHttpProcurementMcp,
+    *,
+    environment: Environment,
+    product_id: str,
+    horizon_days: int,
+) -> ProcurementEvidence:
+    return await LocalFictionalErp(mode="success").get_procurement_evidence(
+        ProcurementEvidenceQuery(
+            environment=environment,
+            product_id=product_id,
+            horizon_days=horizon_days,
+        )
+    )
+
+
+def _patch_mcp(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        StreamableHttpProcurementMcp,
+        "list_replenishment_candidates",
+        _candidate_page,
+    )
+    monkeypatch.setattr(
+        StreamableHttpProcurementMcp,
+        "get_procurement_evidence",
+        _procurement_evidence,
     )
 
 
@@ -334,11 +366,7 @@ async def test_bedrock_mode_runs_api_graph_schema_and_metrics_with_mocked_aws(
             }
         )
     )
-    monkeypatch.setattr(
-        StreamableHttpProcurementMcp,
-        "list_replenishment_candidates",
-        _candidate_page,
-    )
+    _patch_mcp(monkeypatch)
     application = create_local_api_app(
         _settings(LlmMode.BEDROCK),
         bedrock_client_factory=lambda: provider,
@@ -378,11 +406,7 @@ async def test_bedrock_invalid_output_becomes_safe_observable_scan_failure(
         _bedrock_response({"unsafe": "private malformed output"}),
         _bedrock_response({"unsafe": "private malformed output"}),
     )
-    monkeypatch.setattr(
-        StreamableHttpProcurementMcp,
-        "list_replenishment_candidates",
-        _candidate_page,
-    )
+    _patch_mcp(monkeypatch)
     application = create_local_api_app(
         _settings(LlmMode.BEDROCK),
         bedrock_client_factory=lambda: provider,
@@ -426,11 +450,7 @@ async def test_bedrock_unavailable_becomes_safe_retryable_scan_failure(
             "Converse",
         )
     )
-    monkeypatch.setattr(
-        StreamableHttpProcurementMcp,
-        "list_replenishment_candidates",
-        _candidate_page,
-    )
+    _patch_mcp(monkeypatch)
     application = create_local_api_app(
         _settings(LlmMode.BEDROCK),
         bedrock_client_factory=lambda: provider,

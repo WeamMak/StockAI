@@ -310,6 +310,7 @@ async def test_audit_append_is_immutable_and_retained_by_ttl() -> None:
         correlation_id=CASE_ID.value,
         source_revision=Revision(1),
         outcome="queued",
+        evidence_digest="sha256:" + "a" * 64,
     )
 
     await repository.append_audit(event, expires_at=EXPIRES_AT)
@@ -321,6 +322,7 @@ async def test_audit_append_is_immutable_and_retained_by_ttl() -> None:
     assert request["Item"]["PK"] == {"S": "ENV#dev"}
     assert request["Item"]["SK"]["S"].startswith(f"AUDIT#{CASE_ID.value}#")
     assert request["Item"]["ttl"] == {"N": str(int(EXPIRES_AT.value.timestamp()))}
+    assert request["Item"]["evidence_digest"] == {"S": "sha256:" + "a" * 64}
 
     client.queue(
         "put_item",

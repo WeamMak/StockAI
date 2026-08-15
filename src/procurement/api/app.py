@@ -16,6 +16,7 @@ from procurement.api.observability import (
     install_request_logging,
 )
 from procurement.api.routes.auth import router as auth_router
+from procurement.api.routes.cases import router as cases_router
 from procurement.api.routes.health import router as health_router
 from procurement.api.routes.internal import router as internal_router
 from procurement.api.routes.scans import router as scans_router
@@ -94,6 +95,7 @@ def create_app(
     application.include_router(auth_router)
     application.include_router(health_router)
     application.include_router(scans_router)
+    application.include_router(cases_router)
     application.include_router(internal_router)
     return application
 

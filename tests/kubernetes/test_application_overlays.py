@@ -340,6 +340,7 @@ def test_services_ingress_and_network_policies_expose_only_approved_flows(
         for service in services.values()
         for port in service["spec"]["ports"]
     )
+    assert services["procurement-mcp"]["spec"]["sessionAffinity"] == "ClientIP"
 
     ingress = _named(resources, "Ingress", "stockai-public")
     assert ingress["spec"]["ingressClassName"] == "nginx"

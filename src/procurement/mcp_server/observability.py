@@ -8,7 +8,9 @@ from prometheus_client import CollectorRegistry, Counter, Histogram
 
 from procurement.domain.errors import ErrorCode
 
-_KNOWN_MCP_TOOLS = frozenset({"list_replenishment_candidates"})
+_KNOWN_MCP_TOOLS = frozenset(
+    {"list_replenishment_candidates", "get_procurement_evidence"}
+)
 
 
 @dataclass(frozen=True, slots=True)

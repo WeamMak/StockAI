@@ -51,6 +51,10 @@ from procurement.api.observability import create_http_metrics
 from procurement.api.services.scans import ScanWorkflow
 from procurement.domain.errors import ErrorCode
 from procurement.domain.identifiers import Environment
+from procurement.domain.policy.evidence import (
+    ProcurementEvidence,
+    procurement_evidence_from_dict,
+)
 from procurement.observability.logging import configure_json_logging
 from procurement.observability.metrics import create_agent_metrics
 from procurement.ports.llm import (
@@ -72,6 +76,7 @@ from procurement.ports.repositories import (
 )
 
 _MCP_TOOL_NAME = "list_replenishment_candidates"
+_MCP_EVIDENCE_TOOL_NAME = "get_procurement_evidence"
 _MIN_TOKEN_LENGTH = 32
 _MAX_TOKEN_LENGTH = 512
 
@@ -407,6 +412,45 @@ class StreamableHttpProcurementMcp(ProcurementMcpPort):
             raise McpUnavailableError(retry_count=0)
         try:
             return _candidate_page(result.structuredContent)
+        except (InvalidOperation, TypeError, ValueError) as error:
+            raise McpUnavailableError(retry_count=0, private_detail=error) from None
+
+    async def get_procurement_evidence(
+        self,
+        *,
+        environment: Environment,
+        product_id: str,
+        horizon_days: int,
+    ) -> ProcurementEvidence:
+        try:
+            async with httpx.AsyncClient(
+                headers={"Authorization": f"Bearer {self.bearer_token}"},
+                timeout=self.timeout_seconds,
+            ) as http_client:
+                async with streamable_http_client(
+                    self.url,
+                    http_client=http_client,
+                ) as (read_stream, write_stream, _):
+                    async with ClientSession(read_stream, write_stream) as session:
+                        await session.initialize()
+                        result = await session.call_tool(
+                            _MCP_EVIDENCE_TOOL_NAME,
+                            arguments={
+                                "environment": environment.value,
+                                "product_id": product_id,
+                                "horizon_days": horizon_days,
+                            },
+                        )
+        except httpx.TimeoutException:
+            raise McpTimeoutError(retry_count=0) from None
+        except Exception as error:
+            raise McpUnavailableError(retry_count=0, private_detail=error) from None
+        if result.isError:
+            _raise_mcp_error(result)
+        if not isinstance(result.structuredContent, Mapping):
+            raise McpUnavailableError(retry_count=0)
+        try:
+            return procurement_evidence_from_dict(dict(result.structuredContent))
         except (InvalidOperation, TypeError, ValueError) as error:
             raise McpUnavailableError(retry_count=0, private_detail=error) from None
 

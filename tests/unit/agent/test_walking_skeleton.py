@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 from decimal import Decimal
 from io import StringIO
@@ -12,11 +12,13 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import InMemorySaver
 from prometheus_client import generate_latest
 from tests.support.fakes.llm import FakeStructuredLlm
+from tests.unit.mcp_server.test_evidence import _evidence
 
 from procurement.agent.graph import build_walking_skeleton_graph
 from procurement.agent.state import ApprovalReadyResult, UnresolvedResult
 from procurement.domain.errors import ErrorCode
 from procurement.domain.identifiers import Environment
+from procurement.domain.policy.evidence import ProcurementEvidence
 from procurement.observability.logging import configure_json_logging
 from procurement.observability.metrics import create_agent_metrics
 from procurement.ports.llm import (
@@ -49,6 +51,7 @@ class FakeMcp(ProcurementMcpPort):
     page: CandidatePage
     error: Exception | None = None
     requests: list[tuple[Environment, int, int]] = field(default_factory=list)
+    evidence_requests: list[tuple[Environment, str, int]] = field(default_factory=list)
 
     async def list_replenishment_candidates(
         self,
@@ -61,6 +64,23 @@ class FakeMcp(ProcurementMcpPort):
         if self.error is not None:
             raise self.error
         return self.page
+
+    async def get_procurement_evidence(
+        self,
+        *,
+        environment: Environment,
+        product_id: str,
+        horizon_days: int,
+    ) -> ProcurementEvidence:
+        self.evidence_requests.append((environment, product_id, horizon_days))
+        if self.error is not None:
+            raise self.error
+        return replace(
+            _evidence(environment),
+            evidence_id=f"{environment.value}:evidence-{product_id}",
+            product_id=product_id,
+            skip_reason_code=None,
+        )
 
 
 @pytest.mark.anyio
@@ -98,7 +118,8 @@ async def test_graph_returns_one_approval_ready_read_only_result() -> None:
 
     state = await graph.ainvoke({"scan_id": "scan-001", "environment": Environment.DEV})
 
-    assert mcp.requests == [(Environment.DEV, 14, 25)]
+    assert mcp.requests == [(Environment.DEV, 14, 50)]
+    assert mcp.evidence_requests == [(Environment.DEV, "product-101", 14)]
     assert len(llm.requests) == 1
     assert llm.requests[0].candidates == (_candidate(),)
     assert state["result"] == ApprovalReadyResult(
@@ -106,6 +127,12 @@ async def test_graph_returns_one_approval_ready_read_only_result() -> None:
         product_name="Fictional Safety Gloves",
         rationale="Projected stock is below the configured reorder minimum.",
         risk_flags=("LIMITED_WALKING_SKELETON_EVIDENCE",),
+        evidence=replace(
+            _evidence(),
+            evidence_id="dev:evidence-product-101",
+            product_id="product-101",
+            skip_reason_code=None,
+        ),
     )
     assert state["result"].read_only is True
     metric_text = generate_latest(metrics.registry).decode()
@@ -162,6 +189,7 @@ async def test_checkpoint_retains_result_but_not_transient_odoo_data() -> None:
     assert snapshot.values["scan_id"] == "scan-immutable-case-001"
     assert isinstance(snapshot.values["result"], ApprovalReadyResult)
     assert "candidates" not in snapshot.values
+    assert "evidence" not in snapshot.values
     assert "recommendation" not in snapshot.values
 
 

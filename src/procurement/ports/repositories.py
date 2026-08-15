@@ -9,6 +9,7 @@ from typing import Protocol
 from procurement.domain.audit import AuditEvent
 from procurement.domain.identifiers import CaseId, Environment, Revision
 from procurement.domain.models import UtcTimestamp
+from procurement.domain.policy.evidence import ProcurementEvidence
 
 
 class RepositoryConflictError(Exception):
@@ -35,6 +36,7 @@ class RecommendationRecord:
     product_name: str
     rationale: str
     risk_flags: tuple[str, ...]
+    evidence: ProcurementEvidence | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,6 +61,7 @@ class CaseRecord:
     updated_at: UtcTimestamp
     started_at: UtcTimestamp | None = None
     completed_at: UtcTimestamp | None = None
+    evidence: tuple[ProcurementEvidence, ...] = ()
     result: RecommendationRecord | None = None
     error: FailureRecord | None = None
 

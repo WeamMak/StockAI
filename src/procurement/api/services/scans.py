@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
@@ -22,6 +23,7 @@ from procurement.domain.audit import AuditEvent
 from procurement.domain.errors import DomainError, ErrorCode
 from procurement.domain.identifiers import CaseId, Environment, Revision
 from procurement.domain.models import UtcTimestamp
+from procurement.domain.policy.evidence import ProcurementEvidence
 from procurement.observability.logging import log_event
 from procurement.observability.metrics import AgentMetrics, create_agent_metrics
 from procurement.ports.repositories import (
@@ -73,6 +75,7 @@ class ScanSnapshot:
     created_at: datetime
     started_at: datetime | None
     completed_at: datetime | None
+    evidence: tuple[ProcurementEvidence, ...]
     result: ApprovalReadyResult | None
     error: ScanFailure | None
 
@@ -227,7 +230,7 @@ class ScanService:
                             "configurable": {"thread_id": record.case_id.value},
                         },
                     )
-                terminal = self._apply_result(running, state.get("result"))
+                terminal = self._apply_result(running, state)
             except TimeoutError:
                 terminal = self._fail(
                     running,
@@ -323,22 +326,26 @@ class ScanService:
     def _apply_result(
         self,
         record: CaseRecord,
-        result: ScanResult | None,
+        state: ScanState,
     ) -> CaseRecord:
+        result: ScanResult | None = state.get("result")
+        evidence = state.get("evidence", ())
         if isinstance(result, ApprovalReadyResult):
             return replace(
                 record,
                 status=ScanStatus.SUCCEEDED.value,
+                evidence=evidence,
                 result=RecommendationRecord(
                     product_id=result.product_id,
                     product_name=result.product_name,
                     rationale=result.rationale,
                     risk_flags=result.risk_flags,
+                    evidence=result.evidence,
                 ),
             )
         if isinstance(result, UnresolvedResult):
             return self._fail(
-                record,
+                replace(record, evidence=evidence),
                 error_code=result.error_code,
                 message=result.message,
                 retryable=result.retryable,
@@ -381,6 +388,16 @@ class ScanService:
             correlation_id=record.case_id.value,
             source_revision=record.revision,
             outcome=record.status,
+            evidence_digest=(
+                "sha256:"
+                + hashlib.sha256(
+                    b"["
+                    + b",".join(item.canonical_json() for item in record.evidence)
+                    + b"]"
+                ).hexdigest()
+                if record.evidence
+                else None
+            ),
         )
         await self._repository.append_audit(
             event,
@@ -400,6 +417,7 @@ class ScanService:
                 product_name=record.result.product_name,
                 rationale=record.result.rationale,
                 risk_flags=record.result.risk_flags,
+                evidence=record.result.evidence,
             )
             if record.result is not None
             else None
@@ -425,6 +443,7 @@ class ScanService:
             completed_at=(
                 record.completed_at.value if record.completed_at is not None else None
             ),
+            evidence=record.evidence,
             result=result,
             error=error,
         )

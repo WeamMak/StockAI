@@ -6,26 +6,29 @@ import asyncio
 import json
 import logging
 import random
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 from time import perf_counter
 from typing import Any
 
 import httpx
 from prometheus_client import CollectorRegistry, Counter, Histogram
 
+from procurement.adapters.odoo.evidence import build_odoo_evidence
 from procurement.adapters.odoo.mappers import (
     OdooMappingError,
     candidate_product_ids,
     map_candidate_page,
     parse_candidate_cursor,
 )
+from procurement.domain.policy.evidence import ProcurementEvidence
 from procurement.observability.logging import log_event
 from procurement.ports.erp import (
     CandidatePage,
     ErpPort,
     ErpUnavailableError,
+    ProcurementEvidenceQuery,
     ReplenishmentCandidatesQuery,
 )
 
@@ -44,6 +47,22 @@ _ORDERPOINT_FIELDS = [
 _PRODUCT_FIELDS = ["id", "name", "categ_id", "active", "is_storable", "purchase_ok"]
 _TRANSIENT_STATUS_CODES = frozenset({408, 429, 500, 502, 503, 504})
 _DEFAULT_MAX_RESPONSE_BYTES = 1024 * 1024
+_EVIDENCE_OPERATIONS = frozenset(
+    {
+        "read_evidence_product",
+        "read_evidence_orderpoint",
+        "read_evidence_offers",
+        "read_evidence_partners",
+        "read_evidence_orders",
+        "read_evidence_order_lines",
+        "read_evidence_budget",
+        "read_evidence_moves",
+        "read_evidence_locations",
+        "read_evidence_company",
+        "read_evidence_currencies",
+        "read_evidence_uoms",
+    }
+)
 
 Sleep = Callable[[float], Awaitable[None]]
 Jitter = Callable[[float, float], float]
@@ -128,7 +147,12 @@ def create_odoo_metrics(registry: CollectorRegistry | None = None) -> OdooMetric
 def _safe_operation(operation: str) -> str:
     return (
         operation
-        if operation in {"search_candidate_orderpoints", "read_candidate_products"}
+        if operation
+        in {
+            "search_candidate_orderpoints",
+            "read_candidate_products",
+            *_EVIDENCE_OPERATIONS,
+        }
         else "unknown"
     )
 
@@ -225,6 +249,34 @@ class OdooJson2Client:
             model="product.product",
             method="read",
             payload={"ids": list(product_ids), "fields": _PRODUCT_FIELDS},
+        )
+
+    async def search_read_evidence(
+        self,
+        *,
+        operation: str,
+        model: str,
+        domain: list[list[object]],
+        fields: list[str],
+        limit: int = 1000,
+        order: str = "id asc",
+    ) -> Any:
+        """Perform one fixed, bounded evidence read selected by the adapter."""
+
+        if operation not in _EVIDENCE_OPERATIONS:
+            raise ValueError("Odoo evidence operation is not allowed")
+        if not model or not fields or not 1 <= limit <= 1000:
+            raise ValueError("Odoo evidence query is invalid")
+        return await self._post(
+            operation=operation,
+            model=model,
+            method="search_read",
+            payload={
+                "domain": domain,
+                "fields": fields,
+                "limit": limit,
+                "order": order,
+            },
         )
 
     async def _post(
@@ -409,3 +461,264 @@ class OdooErpAdapter(ErpPort):
             raise
         except (AttributeError, TypeError, ValueError) as error:
             raise OdooMappingError(error) from None
+
+    async def get_procurement_evidence(
+        self, query: ProcurementEvidenceQuery
+    ) -> ProcurementEvidence:
+        """Read fixed Odoo source facts and apply deterministic policy."""
+
+        try:
+            if query.horizon_days != 14 or not query.product_id.isascii():
+                raise ValueError("invalid evidence query")
+            product_id = int(query.product_id)
+            captured_at = datetime.now(tz=UTC)
+            horizon_end = captured_at + timedelta(days=14)
+            history_start = captured_at - timedelta(days=365)
+            product = await self.client.search_read_evidence(
+                operation="read_evidence_product",
+                model="product.product",
+                domain=[["id", "=", product_id]],
+                fields=[
+                    "id",
+                    "name",
+                    "categ_id",
+                    "product_tmpl_id",
+                    "qty_available",
+                ],
+                limit=2,
+            )
+            product_row = _single_mapping(product)
+            template_id = _relationship_id(product_row["product_tmpl_id"])
+            orderpoint = await self.client.search_read_evidence(
+                operation="read_evidence_orderpoint",
+                model="stock.warehouse.orderpoint",
+                domain=[
+                    ["product_id", "=", product_id],
+                    ["company_id", "=", self.company_id],
+                    ["active", "=", True],
+                ],
+                fields=[
+                    "id",
+                    "product_min_qty",
+                    "product_max_qty",
+                    "replenishment_uom_id",
+                    "company_id",
+                ],
+                limit=2,
+            )
+            offers = await self.client.search_read_evidence(
+                operation="read_evidence_offers",
+                model="product.supplierinfo",
+                domain=[
+                    ["product_tmpl_id", "=", template_id],
+                    ["company_id", "in", [False, self.company_id]],
+                ],
+                fields=[
+                    "id",
+                    "partner_id",
+                    "product_tmpl_id",
+                    "product_uom_id",
+                    "currency_id",
+                    "price",
+                    "delay",
+                    "min_qty",
+                    "date_start",
+                    "date_end",
+                ],
+            )
+            partner_ids = _relationship_ids(offers, "partner_id")
+            partners = await self.client.search_read_evidence(
+                operation="read_evidence_partners",
+                model="res.partner",
+                domain=[["id", "in", list(partner_ids)]],
+                fields=["id", "name", "category_id"],
+            )
+            tag_ids = _flat_integer_ids(partners, "category_id")
+            tags = await self.client.search_read_evidence(
+                operation="read_evidence_partners",
+                model="res.partner.category",
+                domain=[["id", "in", list(tag_ids)]],
+                fields=["id", "name"],
+            )
+            order_lines = await self.client.search_read_evidence(
+                operation="read_evidence_order_lines",
+                model="purchase.order.line",
+                domain=[
+                    ["product_id", "=", product_id],
+                    ["company_id", "=", self.company_id],
+                    ["order_id.state", "in", ["draft", "sent", "purchase", "done"]],
+                    [
+                        "order_id.date_order",
+                        ">=",
+                        history_start.strftime("%Y-%m-%d %H:%M:%S"),
+                    ],
+                ],
+                fields=[
+                    "id",
+                    "order_id",
+                    "product_qty",
+                    "qty_received",
+                    "date_planned",
+                    "price_subtotal",
+                    "currency_id",
+                    "analytic_distribution",
+                ],
+            )
+            order_ids = _relationship_ids(order_lines, "order_id")
+            orders = await self.client.search_read_evidence(
+                operation="read_evidence_orders",
+                model="purchase.order",
+                domain=[["id", "in", list(order_ids)]],
+                fields=[
+                    "id",
+                    "state",
+                    "partner_id",
+                    "date_order",
+                    "effective_date",
+                    "currency_id",
+                    "company_id",
+                ],
+            )
+            budgets = await self.client.search_read_evidence(
+                operation="read_evidence_budget",
+                model="stockai.procurement.budget",
+                domain=[
+                    ["company_id", "=", self.company_id],
+                    [
+                        "product_category_id",
+                        "=",
+                        _relationship_id(product_row["categ_id"]),
+                    ],
+                    [
+                        "period_start",
+                        "=",
+                        captured_at.date().replace(day=1).isoformat(),
+                    ],
+                    ["active", "=", True],
+                ],
+                fields=[
+                    "id",
+                    "product_category_id",
+                    "analytic_account_id",
+                    "period_start",
+                    "currency_id",
+                    "amount",
+                    "company_id",
+                ],
+                limit=2,
+            )
+            company = await self.client.search_read_evidence(
+                operation="read_evidence_company",
+                model="res.company",
+                domain=[["id", "=", self.company_id]],
+                fields=["id", "currency_id"],
+                limit=2,
+            )
+            company_row = _single_mapping(company)
+            currency_ids = set(_relationship_ids(offers, "currency_id"))
+            currency_ids.update(_relationship_ids(budgets, "currency_id"))
+            currency_ids.add(_relationship_id(company_row["currency_id"]))
+            currencies = await self.client.search_read_evidence(
+                operation="read_evidence_currencies",
+                model="res.currency",
+                domain=[["id", "in", sorted(currency_ids)]],
+                fields=["id", "name", "rate"],
+            )
+            uom_ids = set(_relationship_ids(offers, "product_uom_id"))
+            uom_ids.add(
+                _relationship_id(_single_mapping(orderpoint)["replenishment_uom_id"])
+            )
+            uoms = await self.client.search_read_evidence(
+                operation="read_evidence_uoms",
+                model="uom.uom",
+                domain=[["id", "in", sorted(uom_ids)]],
+                fields=["id", "factor"],
+            )
+            moves = await self.client.search_read_evidence(
+                operation="read_evidence_moves",
+                model="stock.move",
+                domain=[
+                    ["product_id", "=", product_id],
+                    ["company_id", "=", self.company_id],
+                    ["state", "in", ["waiting", "confirmed", "assigned"]],
+                    ["date", ">=", captured_at.strftime("%Y-%m-%d %H:%M:%S")],
+                    ["date", "<=", horizon_end.strftime("%Y-%m-%d %H:%M:%S")],
+                ],
+                fields=[
+                    "id",
+                    "date",
+                    "product_uom_qty",
+                    "location_id",
+                    "location_dest_id",
+                    "purchase_line_id",
+                ],
+            )
+            location_ids = set(_relationship_ids(moves, "location_id")) | set(
+                _relationship_ids(moves, "location_dest_id")
+            )
+            locations = await self.client.search_read_evidence(
+                operation="read_evidence_locations",
+                model="stock.location",
+                domain=[["id", "in", sorted(location_ids)]],
+                fields=["id", "usage"],
+            )
+            return build_odoo_evidence(
+                environment=query.environment,
+                company_id=self.company_id,
+                product_id=product_id,
+                captured_at=captured_at,
+                product=product,
+                orderpoint=orderpoint,
+                offers=offers,
+                partners=partners,
+                tags=tags,
+                orders=orders,
+                order_lines=order_lines,
+                budgets=budgets,
+                moves=moves,
+                locations=locations,
+                company=company,
+                currencies=currencies,
+                uoms=uoms,
+            )
+        except (OdooMappingError, OdooReadTimeoutError, ErpUnavailableError):
+            raise
+        except (AttributeError, TypeError, ValueError) as error:
+            raise OdooMappingError(error) from None
+
+
+def _single_mapping(raw: object) -> Mapping[str, object]:
+    if not isinstance(raw, list) or len(raw) != 1 or not isinstance(raw[0], Mapping):
+        raise ValueError("expected one Odoo record")
+    return raw[0]
+
+
+def _relationship_id(raw: object) -> int:
+    if not isinstance(raw, list) or len(raw) != 2 or type(raw[0]) is not int:
+        raise ValueError("invalid Odoo relationship")
+    return raw[0]
+
+
+def _relationship_ids(raw: object, field_name: str) -> tuple[int, ...]:
+    if not isinstance(raw, list):
+        raise ValueError("invalid Odoo records")
+    return tuple(
+        dict.fromkeys(
+            _relationship_id(row[field_name]) for row in raw if isinstance(row, Mapping)
+        )
+    )
+
+
+def _flat_integer_ids(raw: object, field_name: str) -> tuple[int, ...]:
+    if not isinstance(raw, list):
+        raise ValueError("invalid Odoo records")
+    values: list[int] = []
+    for row in raw:
+        if not isinstance(row, Mapping) or not isinstance(row[field_name], list):
+            raise ValueError("invalid Odoo relationship list")
+        for value in row[field_name]:
+            if type(value) is not int:
+                raise ValueError("invalid Odoo relationship identifier")
+            if value not in values:
+                values.append(value)
+    return tuple(values)

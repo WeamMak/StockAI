@@ -15,6 +15,10 @@ from typing import Literal, cast
 from fastapi import FastAPI, Response
 from pydantic import BaseModel, ConfigDict, Field
 
+from procurement.bootstrap.mcp import _fictional_evidence
+from procurement.domain.identifiers import Environment
+from procurement.ports.erp import ProcurementEvidenceQuery
+
 Scenario = Literal["success", "no_valid_response", "malformed", "timeout"]
 _SUPPORTED_SCENARIOS = frozenset(
     {"success", "no_valid_response", "malformed", "timeout"}
@@ -62,6 +66,14 @@ class CandidatePage(BaseModel):
 
     items: tuple[CandidateRecord, ...]
     next_cursor: str | None
+
+
+class EvidenceQuery(BaseModel):
+    model_config = _STRICT_CONFIG
+
+    environment: Literal["dev", "prod"]
+    product_id: str = Field(min_length=1, max_length=128)
+    horizon_days: Literal[14]
 
 
 def _scenario() -> Scenario:
@@ -121,3 +133,29 @@ async def list_replenishment_candidates(
         ),
         next_cursor=None,
     )
+
+
+@app.post("/test/procurement-evidence", response_model=None)
+async def get_procurement_evidence(
+    query: EvidenceQuery,
+) -> dict[str, object] | Response:
+    """Return deterministic policy evidence for local-stack tests."""
+
+    scenario = _scenario()
+    if scenario == "timeout":
+        await asyncio.sleep(_timeout_seconds())
+    if scenario == "malformed":
+        return Response(content='{"environment":', media_type="application/json")
+    evidence = _fictional_evidence(
+        ProcurementEvidenceQuery(
+            environment=Environment(query.environment),
+            product_id=query.product_id,
+            horizon_days=query.horizon_days,
+        )
+    )
+    if scenario == "no_valid_response":
+        payload = evidence.to_dict()
+        payload["offers"] = []
+        payload["skip_reason_code"] = "NO_VALID_OFFER"
+        return payload
+    return evidence.to_dict()
