@@ -47,6 +47,26 @@ class ApprovalReadyResult:
 
 
 @dataclass(frozen=True, slots=True)
+class LegacyApprovalReadyResult:
+    """Historical success retained without claiming T27 validation."""
+
+    product_id: str
+    product_name: str
+    rationale: str
+    trade_offs: tuple[str, ...]
+    risk_flags: tuple[str, ...]
+    uncertainty: str
+    evidence_limitations: tuple[str, ...]
+    evidence: ProcurementEvidence | None = None
+
+    @property
+    def read_only(self) -> bool:
+        """Historical recommendations remain advisory only."""
+
+        return True
+
+
+@dataclass(frozen=True, slots=True)
 class UnresolvedResult:
     """Safe terminal result when the walking skeleton cannot recommend."""
 
@@ -73,7 +93,12 @@ class ManualReviewResult:
         return True
 
 
-ScanResult = ApprovalReadyResult | ManualReviewResult | UnresolvedResult
+ScanResult = (
+    ApprovalReadyResult
+    | LegacyApprovalReadyResult
+    | ManualReviewResult
+    | UnresolvedResult
+)
 
 
 class ScanState(TypedDict, total=False):

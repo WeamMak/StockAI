@@ -25,6 +25,16 @@ function displayStatus(status: Scan["status"]): string {
   return status.charAt(0).toUpperCase() + status.slice(1);
 }
 
+function displayScanOutcome(scan: Scan): string {
+  if (scan.status === "succeeded" && scan.result?.outcome === "approval_ready") {
+    return "Approval ready";
+  }
+  if (scan.status === "succeeded" && scan.result?.outcome === "manual_review") {
+    return "Manual review";
+  }
+  return displayStatus(scan.status);
+}
+
 function scanCounts(scans: Scan[]) {
   let inProgress = 0;
   let approvalReady = 0;
@@ -32,8 +42,16 @@ function scanCounts(scans: Scan[]) {
   for (const scan of scans) {
     if (scan.status === "queued" || scan.status === "running") {
       inProgress += 1;
-    } else if (scan.status === "succeeded" && scan.result !== null) {
+    } else if (
+      scan.status === "succeeded" &&
+      scan.result?.outcome === "approval_ready"
+    ) {
       approvalReady += 1;
+    } else if (
+      scan.status === "succeeded" &&
+      scan.result?.outcome === "manual_review"
+    ) {
+      needsReview += 1;
     } else if (scan.status === "failed" && scan.error?.retryable === false) {
       needsReview += 1;
     }
@@ -172,7 +190,7 @@ export function OverviewPage({ onSelectScan, view = "home" }: OverviewPageProps)
                   className="scan-link"
                   type="button"
                   onClick={() => onSelectScan(scan.scan_id)}
-                  aria-label={`Open ${scan.scan_id}, ${displayStatus(scan.status)}`}
+                  aria-label={`Open ${scan.scan_id}, ${displayScanOutcome(scan)}`}
                 >
                   <span>
                     <strong>{scan.scan_id}</strong>
@@ -184,7 +202,7 @@ export function OverviewPage({ onSelectScan, view = "home" }: OverviewPageProps)
                     </small>
                   </span>
                   <span className={`status status--${scan.status}`}>
-                    {displayStatus(scan.status)}
+                    {displayScanOutcome(scan)}
                   </span>
                 </button>
               </li>

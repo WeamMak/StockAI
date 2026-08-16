@@ -92,6 +92,7 @@ export interface ProcurementEvidence {
 
 export interface ApprovalReadyResult {
   outcome: "approval_ready";
+  validation_level: "t27";
   product_id: string;
   product_name: string;
   offer_id: string;
@@ -113,6 +114,20 @@ export interface ApprovalReadyResult {
   read_only: true;
 }
 
+export interface LegacyApprovalReadyResult {
+  outcome: "approval_ready";
+  validation_level: "legacy";
+  product_id: string;
+  product_name: string;
+  offer_id: null;
+  rationale: string;
+  trade_offs: string[];
+  risk_flags: string[];
+  uncertainty: string;
+  evidence_limitations: string[];
+  read_only: true;
+}
+
 export interface ManualReviewResult {
   outcome: "manual_review";
   rationale: string;
@@ -123,7 +138,10 @@ export interface ManualReviewResult {
   read_only: true;
 }
 
-export type ScanResult = ApprovalReadyResult | ManualReviewResult;
+export type ScanResult =
+  | ApprovalReadyResult
+  | LegacyApprovalReadyResult
+  | ManualReviewResult;
 
 export interface ScanFailure {
   error_code: string;
@@ -222,7 +240,29 @@ function parseResult(value: unknown): ScanResult | null {
     };
   }
   if (
+    value.outcome === "approval_ready" &&
+    value.validation_level === "legacy" &&
+    typeof value.product_id === "string" &&
+    typeof value.product_name === "string" &&
+    value.offer_id === null
+  ) {
+    return {
+      outcome: "approval_ready",
+      validation_level: "legacy",
+      product_id: value.product_id,
+      product_name: value.product_name,
+      offer_id: null,
+      rationale: value.rationale,
+      trade_offs: value.trade_offs,
+      risk_flags: value.risk_flags,
+      uncertainty: value.uncertainty,
+      evidence_limitations: value.evidence_limitations,
+      read_only: true,
+    };
+  }
+  if (
     value.outcome !== "approval_ready" ||
+    value.validation_level !== "t27" ||
     typeof value.product_id !== "string" ||
     typeof value.product_name !== "string" ||
     typeof value.offer_id !== "string" ||
@@ -248,6 +288,7 @@ function parseResult(value: unknown): ScanResult | null {
   }
   return {
     outcome: "approval_ready",
+    validation_level: "t27",
     product_id: value.product_id,
     product_name: value.product_name,
     offer_id: value.offer_id,

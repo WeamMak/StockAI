@@ -80,6 +80,30 @@ describe("scan API client", () => {
     await expect(getScan("scan-queued")).resolves.toEqual(QUEUED_SCAN);
   });
 
+  it("parses a historical approval without inventing T27 fields", async () => {
+    const legacy = {
+      ...QUEUED_SCAN,
+      status: "succeeded",
+      completed_at: "2026-08-05T10:00:05Z",
+      result: {
+        outcome: "approval_ready",
+        validation_level: "legacy",
+        product_id: "product-legacy",
+        product_name: "Legacy Product",
+        offer_id: null,
+        rationale: "One eligible candidate was available.",
+        trade_offs: ["Authoritative evidence remains available."],
+        risk_flags: ["LEGACY_RECOMMENDATION"],
+        uncertainty: "This recommendation predates T27 validation.",
+        evidence_limitations: ["Offer-level metadata is unavailable."],
+        read_only: true,
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(legacy)));
+
+    await expect(getScan("scan-legacy")).resolves.toEqual(legacy);
+  });
+
   it("rejects malformed success payloads with a safe error", async () => {
     vi.stubGlobal(
       "fetch",
