@@ -2926,6 +2926,20 @@ Bedrock dev smoke, observability queries, and release promotion checks.
 deterministic safe set, and every invalid or unavailable-model path falls back
 without a draft.
 
+##### Approved T27 live-repair and demonstration amendment — 2026-08-16
+
+The user approved the focused design in
+`docs/superpowers/specs/2026-08-16-t27-live-repair-and-demo-design.md`. The
+detailed execution plan is
+`docs/superpowers/plans/2026-08-16-t27-live-repair-and-demo.md`. This amendment
+retains the existing single-result T27 architecture and strict deterministic
+validation while repairing the observed GPT-OSS flat-output/warning/token
+boundary, preserving truthful historical approval-ready presentation, applying
+only the T27-supported portions of the three supplied UI references, and
+reconciling exactly four idempotent fictional Odoo scenarios with three offers
+per product. It adds no draft, approval, confirmation, multi-result scan API,
+or direct production mutation.
+
 #### T28 — Create one idempotent draft and pause for manager decision
 
 **Files**
