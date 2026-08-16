@@ -141,6 +141,12 @@ describe("OverviewPage", () => {
     expect(summary).toHaveTextContent("2Needs review");
     expect(screen.getAllByText(/Completed Aug 5, 2026/)).toHaveLength(3);
     expect(screen.getByText("Manual review")).toBeInTheDocument();
+    const attention = screen.getByRole("region", { name: "What needs attention" });
+    expect(attention).toHaveTextContent("2Needs review");
+    expect(attention).toHaveTextContent("1Approval ready");
+    expect(
+      screen.getByRole("region", { name: "Recent scan activity" }),
+    ).toBeInTheDocument();
   });
 
   it("starts a manual scan from a 202 response", async () => {

@@ -153,105 +153,129 @@ function RecommendationSummary({ scan }: { scan: Scan }) {
       aria-label="Recommendation summary"
       className="panel recommendation-summary"
     >
-      <div className="result-heading">
-        <div>
-          <p className="eyebrow">
-            {isLegacy ? "Historical recommendation" : "Approval ready"}
-          </p>
-          <h2>{scan.result.product_name}</h2>
-          <p className="muted identifier">{scan.result.product_id}</p>
+      <div className="recommendation-hero-grid">
+        <div className="recommendation-overview">
+          <div className="result-heading">
+            <div>
+              <p className="approval-label">
+                <span className="summary-icon summary-icon--green">
+                  <Icon name="coverage" />
+                </span>
+                {isLegacy ? "Historical recommendation" : "Approval ready"}
+              </p>
+              <h2>{scan.result.product_name}</h2>
+              <p className="muted identifier">{scan.result.product_id}</p>
+            </div>
+            <span className="read-only-badge">Read-only recommendation</span>
+          </div>
+
+          {evidence ? (
+            <section aria-label="Decision highlights">
+              <dl className="decision-grid">
+                <div className="decision-card decision-card--coverage">
+                  <dt><span className="summary-icon summary-icon--green"><Icon name="coverage" /></span>Existing coverage</dt>
+                  <dd>
+                    {evidence.coverage.status.charAt(0).toUpperCase() +
+                      evidence.coverage.status.slice(1)}
+                    <small>{formatQuantity(evidence.coverage.covered_quantity)} from existing sources</small>
+                  </dd>
+                </div>
+                <div className="decision-card decision-card--shortage">
+                  <dt><span className="summary-icon summary-icon--amber"><Icon name="shortage" /></span>Uncovered target gap</dt>
+                  <dd title={evidence.coverage.residual_quantity}>
+                    {formatQuantity(evidence.coverage.residual_quantity)}
+                    <small>
+                      At {formatDate(evidence.shortage.need_by_date)} stockout · target{" "}
+                      {formatQuantity(evidence.shortage.reorder_maximum)}
+                    </small>
+                  </dd>
+                </div>
+                <div className="decision-card decision-card--offer">
+                  <dt><span className="summary-icon summary-icon--blue"><Icon name="offer" /></span>Offer</dt>
+                  <dd>
+                    {selectedOffer
+                      ? formatCurrency(
+                          selectedOffer.normalized_cost,
+                          selectedOffer.company_currency,
+                        )
+                      : `${eligibleOfferCount} eligible offers`}
+                    <small>
+                      {eligibleOfferCount} eligible {eligibleOfferCount === 1 ? "offer" : "offers"}
+                      {selectedOffer ? ` · Selected ${selectedOffer.offer_id}` : ""}
+                    </small>
+                  </dd>
+                </div>
+                <div className="decision-card decision-card--recommendation">
+                  <dt><span className="summary-icon summary-icon--green"><Icon name="recommendation" /></span>Recommendation</dt>
+                  <dd>
+                    Approval ready
+                    <small>
+                      {budget
+                        ? `${formatCurrency(budget.proposed_amount, budget.currency)} · ${budget.exception_required ? "Exception required" : "Within budget"}`
+                        : "Budget not available"}
+                    </small>
+                  </dd>
+                </div>
+              </dl>
+            </section>
+          ) : null}
         </div>
-        <span className="read-only-badge">
-          {isLegacy ? "Predates T27 validation" : "Read-only recommendation"}
-        </span>
-      </div>
 
-      {evidence ? (
-        <section aria-label="Decision highlights">
-        <dl className="decision-grid">
-          <div className="decision-card decision-card--coverage">
-            <dt><span className="summary-icon summary-icon--green"><Icon name="coverage" /></span>Existing coverage</dt>
-            <dd>
-              {evidence.coverage.status.charAt(0).toUpperCase() +
-                evidence.coverage.status.slice(1)}
-              <small>{formatQuantity(evidence.coverage.covered_quantity)} from existing sources</small>
-            </dd>
+        <section className="reasoning-panel" aria-labelledby="rationale-title">
+          <div className="reasoning-heading">
+            <h3 id="rationale-title">
+              <span className="summary-icon summary-icon--blue">
+                <Icon name="recommendation" />
+              </span>
+              {isLegacy ? "Historical reasoning" : "AI reasoning"}
+            </h3>
+            <span className={`validation-badge ${isLegacy ? "validation-badge--legacy" : ""}`}>
+              <Icon name={isLegacy ? "document" : "check"} />
+              {isLegacy ? "Predates T27 validation" : "Validated against evidence"}
+            </span>
           </div>
-          <div className="decision-card decision-card--shortage">
-            <dt><span className="summary-icon summary-icon--amber"><Icon name="shortage" /></span>Uncovered target gap</dt>
-            <dd title={evidence.coverage.residual_quantity}>
-              {formatQuantity(evidence.coverage.residual_quantity)}
-              <small>
-                At {formatDate(evidence.shortage.need_by_date)} stockout · target{" "}
-                {formatQuantity(evidence.shortage.reorder_maximum)}
-              </small>
-            </dd>
+          <p className="reasoning-rationale">{scan.result.rationale}</p>
+          <div className="reasoning-details">
+            <section aria-labelledby="tradeoffs-title">
+              <h4 id="tradeoffs-title">Key trade-offs</h4>
+              {scan.result.trade_offs.length > 0 ? (
+                <ul>
+                  {scan.result.trade_offs.map((item) => <li key={item}>{item}</li>)}
+                </ul>
+              ) : (
+                <p>No additional trade-offs recorded.</p>
+              )}
+            </section>
+            <section aria-labelledby="risks-title">
+              <h4 id="risks-title">Risks and limitations</h4>
+              {scan.result.risk_flags.length === 0 ? (
+                <p className="risk-state risk-state--clear">
+                  <span className="summary-icon summary-icon--green"><Icon name="check" /></span>
+                  No risk flags identified
+                </p>
+              ) : (
+                <div className="risk-state risk-state--warning">
+                  <span className="summary-icon summary-icon--amber"><Icon name="alert" /></span>
+                  <ul className="tag-list">
+                    {scan.result.risk_flags.map((flag) => (
+                      <li key={flag}>{flag.replaceAll("_", " ")}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </section>
           </div>
-          <div className="decision-card decision-card--offer">
-            <dt><span className="summary-icon summary-icon--blue"><Icon name="offer" /></span>Offer</dt>
-            <dd>
-              {selectedOffer
-                ? formatCurrency(
-                    selectedOffer.normalized_cost,
-                    selectedOffer.company_currency,
-                  )
-                : `${eligibleOfferCount} eligible offers`}
-              <small>
-                {eligibleOfferCount} eligible {eligibleOfferCount === 1 ? "offer" : "offers"}
-                {selectedOffer ? ` · Selected ${selectedOffer.offer_id}` : ""}
-              </small>
-            </dd>
-          </div>
-          <div className="decision-card decision-card--recommendation">
-            <dt><span className="summary-icon summary-icon--green"><Icon name="recommendation" /></span>Recommendation</dt>
-            <dd>
-              Approval ready
-              <small>
-                {budget
-                  ? `${formatCurrency(budget.proposed_amount, budget.currency)} · ${budget.exception_required ? "Exception required" : "Within budget"}`
-                  : "Budget not available"}
-              </small>
-            </dd>
-          </div>
-        </dl>
-        </section>
-      ) : null}
-
-      <div className="recommendation-copy">
-        <section aria-labelledby="rationale-title">
-          <h3 id="rationale-title">
-            {isLegacy ? "Historical reasoning" : "AI reasoning"}
-          </h3>
-          <p>{scan.result.rationale}</p>
-          <ul>
-            {scan.result.trade_offs.map((item) => <li key={item}>{item}</li>)}
-          </ul>
-        </section>
-        <section aria-labelledby="risks-title">
-          <h3 id="risks-title">Risks and limitations</h3>
-          {scan.result.risk_flags.length === 0 ? (
-            <p className="risk-state risk-state--clear">
-              <span className="summary-icon summary-icon--green"><Icon name="check" /></span>
-              No risk flags identified
-            </p>
-          ) : (
-            <div className="risk-state risk-state--warning">
-              <span className="summary-icon summary-icon--amber"><Icon name="alert" /></span>
-              <ul className="tag-list">
-                {scan.result.risk_flags.map((flag) => (
-                  <li key={flag}>{flag.replaceAll("_", " ")}</li>
+          <div className="uncertainty-block">
+            <h4>Uncertainty</h4>
+            <p>{scan.result.uncertainty}</p>
+            {scan.result.evidence_limitations.length > 0 ? (
+              <ul>
+                {scan.result.evidence_limitations.map((item) => (
+                  <li key={item}>{item}</li>
                 ))}
               </ul>
-            </div>
-          )}
-          <p>{scan.result.uncertainty}</p>
-          {scan.result.evidence_limitations.length > 0 ? (
-            <ul>
-              {scan.result.evidence_limitations.map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
-          ) : null}
+            ) : null}
+          </div>
         </section>
       </div>
     </section>

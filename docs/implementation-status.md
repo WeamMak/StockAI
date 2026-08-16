@@ -6,7 +6,9 @@
 - Implementation plan: approved by the user and course staff.
 - Implementation authorization: explicitly provided by the user on 2026-08-02.
 - T27 offer-level contextual recommendations, historical-result compatibility,
-  reference-led UI states, and the four-scenario Odoo seed are deployed to dev.
+  and the four-scenario Odoo seed are deployed to dev. The approved reference-led
+  dashboard, recommendation reasoning, and evidence layouts are implemented
+  locally; all 27 React tests plus typecheck, lint, and production build pass.
   Local verification and the live seed reconciliation pass; Argo reports the
   exact release `Synced` and `Healthy`. Authenticated `make smoke-dev` and its
   live observability assertions remain pending fresh browser session values.
