@@ -27,16 +27,16 @@ images:
   # before Argo CD is allowed to reconcile the application workloads.
   - name: stockai/frontend
     newName: docker.io/weammakhoul/stockai-frontend
-    digest: sha256:7186056ea42c16ccec16b1ef0015e9688e1fd7b522c9ef378ff431f62142f84b
+    digest: sha256:cba378a02e32162e0e609ec73634a40c60709cc5ecdc753024875af12a7e923a
   - name: stockai/api
     newName: docker.io/weammakhoul/stockai-api
-    digest: sha256:9f11118028a43bf034a0b453ebdc5fcf19ce4048dfb007e9272e58f82a666dea
+    digest: sha256:8461a9227d08af7cfb4a866fd67d95ed8dbfa2a28259220b3e2dd9c38bd5024a
   - name: stockai/mcp
     newName: docker.io/weammakhoul/stockai-mcp
-    digest: sha256:0b5b4cc69c9ec27bc5fdae5036fd192e8aa606d579910c9094ecfd92f578a97b
+    digest: sha256:609a763540dad08ef907fb4412f412f748b02e1ea6a66af0f392117541345d01
   - name: stockai/odoo
     newName: docker.io/weammakhoul/stockai-odoo
-    digest: sha256:a58c7ffa489f9676cbd3982afbd32c15b520131709ad63e15b5c6f3383d1e3d8
+    digest: sha256:75cd5bdb4abb04244ca5d3a334c2c7e60ec9972c2c98f63310adeb27298c0965
 
 replacements:
   - source:
