@@ -154,6 +154,23 @@ def _offer(template, vendor, *, price, delay, sequence):
     return offer
 
 
+def _remove_obsolete_offers(template, allowed_vendors):
+    """Remove superseded supplier configuration without touching order history."""
+    obsolete = (
+        env["product.supplierinfo"]
+        .sudo()
+        .search(  # noqa: F821
+            [
+                ("product_tmpl_id", "=", template.id),
+                ("company_id", "=", company.id),
+                ("partner_id", "not in", allowed_vendors.ids),
+            ]
+        )
+    )
+    if obsolete:
+        obsolete.unlink()
+
+
 def _budget(category, analytic_account, amount):
     month = datetime.date.today().replace(day=1)
     budget = _one_or_create(
@@ -497,6 +514,10 @@ for template, delays in (
     (choice_two_template, (1, 2, 6)),
     (no_offer_template, (5, 6, 7)),
 ):
+    _remove_obsolete_offers(
+        template,
+        fast_vendor | cheap_vendor | steady_vendor,
+    )
     for sequence, (vendor, price, delay) in enumerate(
         zip(
             (fast_vendor, cheap_vendor, steady_vendor),
