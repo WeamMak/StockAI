@@ -38,21 +38,34 @@ def _one_or_create(model_name, domain, values):
 
 
 def _vendor(ref, name, tag):
-    vendor = _one_or_create(
-        "res.partner",
-        [("ref", "=", ref)],
-        {
-            "name": name,
-            "ref": ref,
-            "is_company": True,
-            "supplier_rank": 1,
-            "email": f"{ref.lower()}@example.invalid",
-            "company_id": False,
-        },
+    vendors = (
+        env["res.partner"]
+        .sudo()
+        .with_context(active_test=False)
+        .search([("ref", "=", ref)])  # noqa: F821
+    )
+    if len(vendors) > 1:
+        raise RuntimeError("seed found duplicate res.partner records")
+    vendor = (
+        vendors.ensure_one()
+        if vendors
+        else env["res.partner"]
+        .sudo()
+        .create(  # noqa: F821
+            {
+                "name": name,
+                "ref": ref,
+                "is_company": True,
+                "supplier_rank": 1,
+                "email": f"{ref.lower()}@example.invalid",
+                "company_id": False,
+            }
+        )
     )
     vendor.write(
         {
             "name": name,
+            "active": True,
             "supplier_rank": max(vendor.supplier_rank, 1),
             "category_id": [Command.set(tag.ids)],
         }
@@ -61,21 +74,34 @@ def _vendor(ref, name, tag):
 
 
 def _product(code, name, category):
-    template = _one_or_create(
-        "product.template",
-        [("default_code", "=", code)],
-        {
-            "name": name,
-            "default_code": code,
-            "is_storable": True,
-            "purchase_ok": True,
-            "sale_ok": False,
-            "categ_id": category.id,
-            "uom_id": unit_uom.id,
-        },
+    templates = (
+        env["product.template"]
+        .sudo()
+        .with_context(active_test=False)
+        .search([("default_code", "=", code)])  # noqa: F821
+    )
+    if len(templates) > 1:
+        raise RuntimeError("seed found duplicate product.template records")
+    template = (
+        templates.ensure_one()
+        if templates
+        else env["product.template"]
+        .sudo()
+        .create(  # noqa: F821
+            {
+                "name": name,
+                "default_code": code,
+                "is_storable": True,
+                "purchase_ok": True,
+                "sale_ok": False,
+                "categ_id": category.id,
+                "uom_id": unit_uom.id,
+            }
+        )
     )
     template.write(
         {
+            "active": True,
             "name": name,
             "is_storable": True,
             "purchase_ok": True,
@@ -312,8 +338,8 @@ def _receipt_and_return(origin, vendor, product, analytic_account):
     return order
 
 
-def _inventory_scenario(product):
-    """Keep one idempotent on-hand balance and one dated confirmed demand."""
+def _inventory_scenario(product, *, demand_quantity):
+    """Keep one idempotent on-hand balance and optional confirmed demand."""
     quant = env["stock.quant"].sudo()  # noqa: F821
     current = quant._get_available_quantity(product, warehouse.lot_stock_id)
     difference = 8.0 - current
@@ -338,6 +364,10 @@ def _inventory_scenario(product):
     )
     if len(moves) > 1:
         raise RuntimeError("seed found duplicate forecast demand moves")
+    if demand_quantity == 0:
+        if moves:
+            moves.ensure_one()._action_cancel()
+        return
     demand_date = datetime.datetime.now() + datetime.timedelta(days=3)
     if not moves:
         customer_location = env.ref("stock.stock_location_customers")  # noqa: F821
@@ -348,7 +378,7 @@ def _inventory_scenario(product):
                 {
                     "origin": move_origin,
                     "product_id": product.id,
-                    "product_uom_qty": 8.0,
+                    "product_uom_qty": demand_quantity,
                     "product_uom": unit_uom.id,
                     "location_id": warehouse.lot_stock_id.id,
                     "location_dest_id": customer_location.id,
@@ -359,7 +389,9 @@ def _inventory_scenario(product):
         )
         move._action_confirm()
     else:
-        moves.ensure_one().write({"date": demand_date})
+        moves.ensure_one().write(
+            {"date": demand_date, "product_uom_qty": demand_quantity}
+        )
 
 
 approved_tag = _one_or_create(
@@ -367,35 +399,39 @@ approved_tag = _one_or_create(
     [("name", "=", "Approved Procurement Vendor")],
     {"name": "Approved Procurement Vendor"},
 )
-blocked_tag = _one_or_create(
-    "res.partner.category",
-    [("name", "=", "Blocked Procurement Vendor")],
-    {"name": "Blocked Procurement Vendor"},
+vendor_refs = {
+    f"{prefix}-VENDOR-FAST",
+    f"{prefix}-VENDOR-CHEAP",
+    f"{prefix}-VENDOR-STEADY",
+}
+obsolete_vendors = (
+    env["res.partner"]
+    .sudo()
+    .with_context(active_test=False)
+    .search(  # noqa: F821
+        [
+            ("ref", "like", f"{prefix}-VENDOR-%"),
+            ("ref", "not in", sorted(vendor_refs)),
+            ("active", "=", True),
+        ]
+    )
 )
+if obsolete_vendors:
+    obsolete_vendors.write({"active": False})
 fast_vendor = _vendor(
     f"{prefix}-VENDOR-FAST", f"{label} Fictional Fast Supplies", approved_tag
 )
 cheap_vendor = _vendor(
     f"{prefix}-VENDOR-CHEAP", f"{label} Fictional Value Supplies", approved_tag
 )
-blocked_vendor = _vendor(
-    f"{prefix}-VENDOR-BLOCKED", f"{label} Fictional Blocked Supplies", blocked_tag
+steady_vendor = _vendor(
+    f"{prefix}-VENDOR-STEADY", f"{label} Fictional Steady Supplies", approved_tag
 )
 
-happy_category = _one_or_create(
+demo_category = _one_or_create(
     "product.category",
-    [("name", "=", f"{prefix} Happy Components")],
-    {"name": f"{prefix} Happy Components"},
-)
-over_category = _one_or_create(
-    "product.category",
-    [("name", "=", f"{prefix} Over Budget Components")],
-    {"name": f"{prefix} Over Budget Components"},
-)
-no_offer_category = _one_or_create(
-    "product.category",
-    [("name", "=", f"{prefix} No Valid Offer Components")],
-    {"name": f"{prefix} No Valid Offer Components"},
+    [("name", "=", f"{prefix} Demo Components")],
+    {"name": f"{prefix} Demo Components"},
 )
 analytic_plan = _one_or_create(
     "account.analytic.plan",
@@ -413,65 +449,76 @@ analytic_account = _one_or_create(
     },
 )
 
-happy_template, happy_product = _product(
-    f"{prefix}-HAPPY", f"{label} Fictional Happy-Path Component", happy_category
+scenario_codes = {
+    f"{prefix}-NO-NEED",
+    f"{prefix}-CHOICE-3",
+    f"{prefix}-CHOICE-2",
+    f"{prefix}-NO-OFFER",
+}
+obsolete_templates = (
+    env["product.template"]
+    .sudo()
+    .with_context(active_test=False)
+    .search(  # noqa: F821
+        [
+            ("default_code", "like", f"{prefix}-%"),
+            ("default_code", "not in", sorted(scenario_codes)),
+            ("active", "=", True),
+        ]
+    )
 )
-over_template, over_product = _product(
-    f"{prefix}-OVER", f"{label} Fictional Over-Budget Component", over_category
+if obsolete_templates:
+    obsolete_templates.write({"active": False})
+
+no_need_template, no_need_product = _product(
+    f"{prefix}-NO-NEED",
+    f"{label} Fictional No Replenishment Component",
+    demo_category,
 )
-no_offer_template, _no_offer_product = _product(
+choice_three_template, choice_three_product = _product(
+    f"{prefix}-CHOICE-3",
+    f"{label} Fictional Three Eligible Offers Component",
+    demo_category,
+)
+choice_two_template, choice_two_product = _product(
+    f"{prefix}-CHOICE-2",
+    f"{label} Fictional Two Eligible Offers Component",
+    demo_category,
+)
+no_offer_template, no_offer_product = _product(
     f"{prefix}-NO-OFFER",
     f"{label} Fictional No-Valid-Offer Component",
-    no_offer_category,
+    demo_category,
 )
 _preference("company", ["reliability", "delivery", "price"], 25.0, "advisory")
-_preference(
-    "category",
-    ["delivery", "reliability", "price"],
-    15.0,
-    "hard",
-    category=over_category,
-)
-_preference(
-    "product",
-    ["price", "reliability", "delivery"],
-    10.0,
-    "advisory",
-    product=happy_product,
-)
-_offer(happy_template, fast_vendor, price=19.0, delay=2, sequence=1)
-_offer(happy_template, cheap_vendor, price=16.0, delay=6, sequence=2)
-_offer(happy_template, blocked_vendor, price=8.0, delay=1, sequence=3)
-_offer(over_template, fast_vendor, price=80.0, delay=2, sequence=1)
-_offer(no_offer_template, blocked_vendor, price=5.0, delay=2, sequence=1)
+for template, delays in (
+    (no_need_template, (1, 2, 3)),
+    (choice_three_template, (1, 2, 3)),
+    (choice_two_template, (1, 2, 6)),
+    (no_offer_template, (5, 6, 7)),
+):
+    for sequence, (vendor, price, delay) in enumerate(
+        zip(
+            (fast_vendor, cheap_vendor, steady_vendor),
+            (19.0, 16.0, 18.0),
+            delays,
+            strict=True,
+        ),
+        start=1,
+    ):
+        _offer(template, vendor, price=price, delay=delay, sequence=sequence)
 
-_budget(happy_category, analytic_account, 5000.0)
-_budget(over_category, analytic_account, 100.0)
-_draft_order(
-    f"{prefix}-CASE-HAPPY",
-    cheap_vendor,
-    happy_product,
-    analytic_account,
-    quantity=2.0,
-    price=16.0,
-)
-_draft_order(
-    f"{prefix}-CASE-OVER-BUDGET",
-    fast_vendor,
-    over_product,
-    analytic_account,
-    quantity=5.0,
-    price=80.0,
-)
+_budget(demo_category, analytic_account, 5000.0)
 _receipt_and_return(
     f"{prefix}-CASE-RECEIPT-RETURN",
     fast_vendor,
-    happy_product,
+    choice_three_product,
     analytic_account,
 )
-_inventory_scenario(happy_product)
-_inventory_scenario(over_product)
-_inventory_scenario(_no_offer_product)
+_inventory_scenario(no_need_product, demand_quantity=0.0)
+_inventory_scenario(choice_three_product, demand_quantity=8.0)
+_inventory_scenario(choice_two_product, demand_quantity=8.0)
+_inventory_scenario(no_offer_product, demand_quantity=8.0)
 
 env.cr.commit()  # noqa: F821
 print(

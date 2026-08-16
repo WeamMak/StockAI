@@ -137,6 +137,7 @@ function RecommendationSummary({ scan }: { scan: Scan }) {
     );
   }
   const result = scan.result;
+  const isLegacy = result.validation_level === "legacy";
   const evidence = scan.evidence.find(
     (item) => item.product_id === result.product_id,
   );
@@ -154,11 +155,15 @@ function RecommendationSummary({ scan }: { scan: Scan }) {
     >
       <div className="result-heading">
         <div>
-          <p className="eyebrow">Approval ready</p>
+          <p className="eyebrow">
+            {isLegacy ? "Historical recommendation" : "Approval ready"}
+          </p>
           <h2>{scan.result.product_name}</h2>
           <p className="muted identifier">{scan.result.product_id}</p>
         </div>
-        <span className="read-only-badge">Read-only recommendation</span>
+        <span className="read-only-badge">
+          {isLegacy ? "Predates T27 validation" : "Read-only recommendation"}
+        </span>
       </div>
 
       {evidence ? (
@@ -214,7 +219,9 @@ function RecommendationSummary({ scan }: { scan: Scan }) {
 
       <div className="recommendation-copy">
         <section aria-labelledby="rationale-title">
-          <h3 id="rationale-title">Why this is recommended</h3>
+          <h3 id="rationale-title">
+            {isLegacy ? "Historical reasoning" : "AI reasoning"}
+          </h3>
           <p>{scan.result.rationale}</p>
           <ul>
             {scan.result.trade_offs.map((item) => <li key={item}>{item}</li>)}

@@ -18,6 +18,7 @@ from procurement.ports.llm import (
     RecommendationDecision,
     RecommendationRequest,
     StructuredRecommendation,
+    required_risk_flags,
 )
 
 _REQUIRED_FIELDS = {
@@ -151,29 +152,6 @@ def _normal_text_list(value: object, *, field: str) -> tuple[str, ...]:
     return tuple(value)
 
 
-def _expected_warning_flags(
-    evidence: ProcurementEvidence,
-    offer: OfferEvidence,
-) -> set[str]:
-    expected: set[str] = set()
-    if evidence.budget is None:
-        expected.add("BUDGET_UNAVAILABLE")
-    elif evidence.budget.exception_required:
-        expected.add("BUDGET_EXCEPTION_REQUIRED")
-    if offer.performance.history_status == "limited":
-        expected.add("LIMITED_VENDOR_HISTORY")
-    preferences = evidence.preferences
-    if preferences is not None:
-        result = next(
-            item
-            for item in preferences.offer_results
-            if item.offer_id == offer.offer_id
-        )
-        if result.outcome == "advisory_exceeded":
-            expected.add("ADVISORY_PREMIUM_EXCEEDED")
-    return expected
-
-
 def validate_recommendation_payload(
     payload: Mapping[str, object],
     request: RecommendationRequest,
@@ -276,7 +254,7 @@ def validate_recommendation_payload(
         }
         if any(payload[field] != value for field, value in exact_values.items()):
             raise ValueError("recommendation copied evidence does not match")
-        if not _expected_warning_flags(evidence, offer).issubset(set(risk_flags)):
+        if not set(required_risk_flags(evidence, offer)).issubset(set(risk_flags)):
             raise ValueError("recommendation omitted a required warning")
 
         return StructuredRecommendation(

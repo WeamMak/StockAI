@@ -15,6 +15,7 @@ from uuid import uuid4
 
 from procurement.agent.state import (
     ApprovalReadyResult,
+    LegacyApprovalReadyResult,
     ManualReviewResult,
     ScanResult,
     ScanState,
@@ -77,7 +78,7 @@ class ScanSnapshot:
     started_at: datetime | None
     completed_at: datetime | None
     evidence: tuple[ProcurementEvidence, ...]
-    result: ApprovalReadyResult | ManualReviewResult | None
+    result: ApprovalReadyResult | LegacyApprovalReadyResult | ManualReviewResult | None
     error: ScanFailure | None
 
 
@@ -451,7 +452,9 @@ class ScanService:
     @staticmethod
     def _snapshot(record: CaseRecord) -> ScanSnapshot:
         stored = record.result
-        result: ApprovalReadyResult | ManualReviewResult | None = None
+        result: (
+            ApprovalReadyResult | LegacyApprovalReadyResult | ManualReviewResult | None
+        ) = None
         if stored is not None and stored.outcome == "manual_review":
             result = ManualReviewResult(
                 rationale=stored.rationale,
@@ -475,15 +478,31 @@ class ScanService:
                 stored.premium_outcome,
             )
             if any(value is None for value in required):
-                result = ManualReviewResult(
-                    rationale=stored.rationale,
-                    trade_offs=("Authoritative evidence remains available.",),
-                    risk_flags=("LEGACY_RECOMMENDATION",),
-                    uncertainty="This recommendation predates T27 validation.",
-                    evidence_limitations=(
-                        "Offer-level validation metadata is unavailable.",
-                    ),
-                )
+                if stored.product_id is not None and stored.product_name is not None:
+                    result = LegacyApprovalReadyResult(
+                        product_id=stored.product_id,
+                        product_name=stored.product_name,
+                        rationale=stored.rationale,
+                        trade_offs=("Authoritative evidence remains available.",),
+                        risk_flags=tuple(
+                            dict.fromkeys((*stored.risk_flags, "LEGACY_RECOMMENDATION"))
+                        ),
+                        uncertainty="This recommendation predates T27 validation.",
+                        evidence_limitations=(
+                            "Offer-level validation metadata is unavailable.",
+                        ),
+                        evidence=stored.evidence,
+                    )
+                else:
+                    result = ManualReviewResult(
+                        rationale=stored.rationale,
+                        trade_offs=("Authoritative evidence remains available.",),
+                        risk_flags=("LEGACY_RECOMMENDATION",),
+                        uncertainty="This recommendation predates T27 validation.",
+                        evidence_limitations=(
+                            "Offer-level validation metadata is unavailable.",
+                        ),
+                    )
             else:
                 assert stored.product_id is not None
                 assert stored.product_name is not None

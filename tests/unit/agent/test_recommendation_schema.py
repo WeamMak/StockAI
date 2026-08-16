@@ -33,6 +33,15 @@ def test_valid_recommendation_uses_exact_offer_evidence_and_tokens() -> None:
     assert recommendation.output_tokens == 27
 
 
+def test_decision_wrapper_is_not_accepted_as_structured_output() -> None:
+    request = t27_request()
+
+    with pytest.raises(LlmOutputInvalidError):
+        validate_recommendation_payload(
+            {"recommend": t27_payload(request)}, request, 12, 8
+        )
+
+
 def test_valid_manual_review_selects_no_offer() -> None:
     recommendation = validate_recommendation_payload(
         t27_manual_review_payload(), t27_request(), 10, 5

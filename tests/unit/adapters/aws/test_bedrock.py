@@ -140,6 +140,14 @@ async def test_only_the_approved_gpt_oss_model_can_be_invoked() -> None:
         "jsonSchema"
     ]["schema"]
     assert '"additionalProperties":false' in schema
+    assert client.requests[0]["inferenceConfig"]["maxTokens"] == 2_048
+    user_text = client.requests[0]["messages"][0]["content"][0]["text"]
+    assert '"required_risk_flags":["LIMITED_VENDOR_HISTORY"]' in user_text
+    assert '"preference_profile_id":"preference-1"' in user_text
+    assert '"priority_order":["reliability","delivery","price"]' in user_text
+    assert '"recommendation_fields":{' in user_text
+    assert '"top_level_decision_field":"decision"' in user_text
+    assert '"forbidden_wrapper_fields":["recommend","manual_review"]' in user_text
 
     with pytest.raises(ValueError, match="approved Bedrock model"):
         _adapter(
@@ -246,6 +254,9 @@ async def test_one_schema_repair_attempt_then_safe_invalid_output_fallback() -> 
     assert len(repaired_client.requests) == 2
     repair_message = repaired_client.requests[1]["messages"][-1]["content"][0]["text"]
     assert "previous response was invalid" in repair_message.lower()
+    assert "top-level `decision` field" in repair_message
+    assert "never create a `recommend` wrapper" in repair_message
+    assert "required_risk_flags" in repair_message
     assert private_invalid_output not in repair_message
 
     invalid_client = FakeBedrockRuntimeClient(

@@ -99,6 +99,7 @@ const BASE_SCAN = {
   ],
   result: {
     outcome: "approval_ready",
+    validation_level: "t27",
     product_id: "product-101",
     product_name: "Fictional Safety Gloves",
     offer_id: "offer-101",
@@ -474,6 +475,44 @@ describe("ScanPage", () => {
     expect(
       screen.getByRole("heading", { name: "Deterministic procurement evidence" }),
     ).toBeInTheDocument();
+  });
+
+  it("keeps historical successful recommendations approval-ready", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          ...BASE_SCAN,
+          result: {
+            outcome: "approval_ready",
+            validation_level: "legacy",
+            product_id: "product-101",
+            product_name: "Fictional Safety Gloves",
+            offer_id: null,
+            rationale: "One eligible candidate was available.",
+            trade_offs: ["Authoritative evidence remains available."],
+            risk_flags: ["LEGACY_RECOMMENDATION"],
+            uncertainty: "This recommendation predates T27 validation.",
+            evidence_limitations: [
+              "Offer-level validation metadata is unavailable.",
+            ],
+            read_only: true,
+          },
+        }),
+      ),
+    );
+
+    render(<ScanPage scanId="scan-101" onBack={vi.fn()} />);
+
+    const summary = await screen.findByRole("region", {
+      name: "Recommendation summary",
+    });
+    expect(summary).toHaveTextContent("Approval ready");
+    expect(summary).toHaveTextContent("Predates T27 validation");
+    expect(summary).not.toHaveTextContent("Selected offer-101");
+    expect(
+      screen.queryByRole("region", { name: "Manual review summary" }),
+    ).not.toBeInTheDocument();
   });
 
   it("stops scheduled polling when the page unmounts", async () => {
