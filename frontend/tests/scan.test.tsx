@@ -99,10 +99,25 @@ const BASE_SCAN = {
   ],
   result: {
     outcome: "approval_ready",
+    validation_level: "t27",
     product_id: "product-101",
     product_name: "Fictional Safety Gloves",
+    offer_id: "offer-101",
     rationale: "Projected stock is below the reorder minimum.",
+    trade_offs: ["Reliable delivery is favored."],
     risk_flags: ["LIMITED_EVIDENCE"],
+    uncertainty: "Vendor history is limited.",
+    evidence_limitations: ["No quality evidence is available."],
+    evidence_digest: `sha256:${"a".repeat(64)}`,
+    quantity: "35.000000",
+    unit_price: "12.500000",
+    normalized_cost: "437.500000",
+    budget_status: "within_budget",
+    preference_profile_id: "preference-3",
+    preference_scope: "product",
+    preference_revision: 6,
+    priority_order: ["price", "reliability", "delivery"],
+    premium_outcome: "within_cap",
     read_only: true,
   },
   error: null,
@@ -152,9 +167,6 @@ describe("ScanPage", () => {
     expect(screen.getByText("14-day inventory projection")).toBeInTheDocument();
     expect(screen.getByRole("table")).toBeInTheDocument();
 
-    await user.click(
-      screen.getByText("Applied preferences", { selector: "summary > span" }),
-    );
     expect(
       screen.getByRole("heading", { name: "Applied preferences" }),
     ).toBeInTheDocument();
@@ -179,6 +191,14 @@ describe("ScanPage", () => {
     expect(summary).toHaveTextContent("1 eligible offer");
     expect(summary).toHaveTextContent("$437.50");
     expect(summary).toHaveTextContent("Within budget");
+    const reasoning = screen.getByRole("region", { name: "AI reasoning" });
+    expect(reasoning).toHaveTextContent("Validated against evidence");
+    expect(reasoning).toHaveTextContent("Key trade-offs");
+    expect(reasoning).toHaveTextContent("Risks and limitations");
+
+    expect(
+      screen.getByRole("region", { name: "Evidence details" }),
+    ).toBeInTheDocument();
 
     const inventory = screen
       .getByText("View daily values")
@@ -208,7 +228,7 @@ describe("ScanPage", () => {
       "Uncovered target gap35 unitsAt Aug 12, 2026 stockout · target 40 units",
     );
     expect(highlights).toHaveTextContent("Offer$437.50");
-    expect(highlights).toHaveTextContent("Only eligible offer");
+    expect(highlights).toHaveTextContent("Selected offer-101");
     expect(highlights).toHaveTextContent("RecommendationApproval ready");
 
     const risks = screen.getByRole("region", {
@@ -291,16 +311,13 @@ describe("ScanPage", () => {
   });
 
   it("presents applied preferences as ordered policy information", async () => {
-    const user = userEvent.setup();
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(BASE_SCAN)));
 
     render(<ScanPage scanId="scan-101" onBack={vi.fn()} />);
 
-    await user.click(
-      await screen.findByText("Applied preferences", {
-        selector: "summary > span",
-      }),
-    );
+    await screen.findByText("Applied preferences", {
+      selector: "summary > span",
+    });
 
     expect(screen.getByText("Product scope")).toBeInTheDocument();
     expect(
@@ -430,6 +447,74 @@ describe("ScanPage", () => {
     );
     expect(screen.getByText("POLL_LIMIT_REACHED")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("shows deterministic evidence with a safe manual-review fallback", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          ...BASE_SCAN,
+          result: {
+            outcome: "manual_review",
+            rationale: "Contextual model judgment could not be safely accepted.",
+            trade_offs: ["Compare the eligible offers manually."],
+            risk_flags: ["LLM_OUTPUT_INVALID"],
+            uncertainty: "No validated model recommendation is available.",
+            evidence_limitations: ["The model response was invalid."],
+            read_only: true,
+          },
+        }),
+      ),
+    );
+
+    render(<ScanPage scanId="scan-101" onBack={vi.fn()} />);
+
+    expect(
+      await screen.findByRole("region", { name: "Manual review summary" }),
+    ).toHaveTextContent("No draft created");
+    expect(screen.getByText("Compare the eligible offers manually.")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Deterministic procurement evidence" }),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps historical successful recommendations approval-ready", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          ...BASE_SCAN,
+          result: {
+            outcome: "approval_ready",
+            validation_level: "legacy",
+            product_id: "product-101",
+            product_name: "Fictional Safety Gloves",
+            offer_id: null,
+            rationale: "One eligible candidate was available.",
+            trade_offs: ["Authoritative evidence remains available."],
+            risk_flags: ["LEGACY_RECOMMENDATION"],
+            uncertainty: "This recommendation predates T27 validation.",
+            evidence_limitations: [
+              "Offer-level validation metadata is unavailable.",
+            ],
+            read_only: true,
+          },
+        }),
+      ),
+    );
+
+    render(<ScanPage scanId="scan-101" onBack={vi.fn()} />);
+
+    const summary = await screen.findByRole("region", {
+      name: "Recommendation summary",
+    });
+    expect(summary).toHaveTextContent("Approval ready");
+    expect(summary).toHaveTextContent("Predates T27 validation");
+    expect(summary).not.toHaveTextContent("Selected offer-101");
+    expect(
+      screen.queryByRole("region", { name: "Manual review summary" }),
+    ).not.toBeInTheDocument();
   });
 
   it("stops scheduled polling when the page unmounts", async () => {

@@ -3,24 +3,28 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import UTC, datetime
 from typing import cast
 
 import anyio
 import pytest
 from httpx2 import ASGITransport, AsyncClient
 from tests.support.local_identity import LocalIdentityProvider, sign_in
+from tests.support.recommendations import t27_approval_result
 
-from procurement.agent.state import ApprovalReadyResult, ScanState
+from procurement.agent.state import ScanState
 from procurement.api.app import create_app
 from procurement.api.auth.session import UserRole
 from procurement.api.config import ApiSettings
+from procurement.api.routes.scans import scan_response
 from procurement.api.services.scans import ScanService, ScanTrigger
 from procurement.domain.errors import DomainError, ErrorCode
-from procurement.domain.identifiers import Environment, Revision
+from procurement.domain.identifiers import CaseId, Environment, Revision
 from procurement.domain.models import UtcTimestamp
 from procurement.ports.repositories import (
     CaseRecord,
     InMemoryApplicationRepository,
+    RecommendationRecord,
     RevisionConflictError,
 )
 
@@ -40,12 +44,7 @@ class SuccessfulWorkflow:
         self.configs.append(config)
         return {
             **state,
-            "result": ApprovalReadyResult(
-                product_id="product-101",
-                product_name="Fictional Safety Gloves",
-                rationale="Projected stock is below the reorder minimum.",
-                risk_flags=("LIMITED_WALKING_SKELETON_EVIDENCE",),
-            ),
+            "result": t27_approval_result(),
         }
 
 
@@ -141,14 +140,16 @@ async def test_manual_scan_returns_202_and_can_be_polled_to_completion() -> None
     assert accepted_body["status"] == "queued"
     assert finished["status"] == "succeeded"
     assert finished["trigger"] == "manual"
-    assert finished["result"] == {
-        "outcome": "approval_ready",
-        "product_id": "product-101",
-        "product_name": "Fictional Safety Gloves",
-        "rationale": "Projected stock is below the reorder minimum.",
-        "risk_flags": ["LIMITED_WALKING_SKELETON_EVIDENCE"],
-        "read_only": True,
-    }
+    result = cast(dict[str, object], finished["result"])
+    assert result["outcome"] == "approval_ready"
+    assert result["validation_level"] == "t27"
+    assert result["product_id"] == "product-101"
+    assert result["offer_id"] == "offer-101"
+    assert result["quantity"] == "35.000000"
+    assert result["normalized_cost"] == "437.500000"
+    assert result["budget_status"] == "within_budget"
+    assert result["preference_revision"] == 1
+    assert result["read_only"] is True
     assert finished["error"] is None
     assert listed.status_code == 200
     assert listed.json()["scans"][0]["scan_id"] == scan_id
@@ -161,6 +162,34 @@ async def test_manual_scan_returns_202_and_can_be_polled_to_completion() -> None
     assert workflow.configs == [
         {"configurable": {"thread_id": scan_id}},
     ]
+
+
+def test_historical_success_remains_approval_ready_without_t27_claims() -> None:
+    timestamp = UtcTimestamp(datetime(2026, 8, 15, 19, 5, tzinfo=UTC))
+    record = CaseRecord(
+        case_id=CaseId(Environment.DEV, "scan-legacy"),
+        revision=Revision(2),
+        status="succeeded",
+        trigger="manual",
+        created_at=timestamp,
+        updated_at=timestamp,
+        completed_at=timestamp,
+        result=RecommendationRecord(
+            product_id="product-legacy",
+            product_name="Legacy Product",
+            rationale="One eligible candidate was available.",
+            risk_flags=(),
+        ),
+    )
+
+    response = scan_response(ScanService._snapshot(record)).model_dump()
+    result = cast(dict[str, object], response["result"])
+
+    assert result["outcome"] == "approval_ready"
+    assert result["validation_level"] == "legacy"
+    assert result["offer_id"] is None
+    assert result["product_name"] == "Legacy Product"
+    assert result["risk_flags"] == ("LEGACY_RECOMMENDATION",)
 
 
 @pytest.mark.anyio

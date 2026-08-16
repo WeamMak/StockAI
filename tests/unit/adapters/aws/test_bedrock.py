@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
-from decimal import Decimal
+import json
 from time import sleep as blocking_sleep
 from typing import Any
 
@@ -11,6 +10,11 @@ import pytest
 from botocore.exceptions import (  # type: ignore[import-untyped]
     ClientError,
     EndpointConnectionError,
+)
+from tests.support.recommendations import (
+    t27_manual_review_payload,
+    t27_payload,
+    t27_request,
 )
 
 from procurement.adapters.aws.bedrock import (
@@ -23,13 +27,11 @@ from procurement.agent.recommendation_schema import (
     load_procurement_system_prompt,
     validate_recommendation_payload,
 )
-from procurement.domain.identifiers import Environment
 from procurement.ports.llm import (
     LlmOutputInvalidError,
     LlmUnavailableError,
     RecommendationRequest,
 )
-from procurement.ports.mcp import ReplenishmentCandidate
 
 
 class FakeBedrockRuntimeClient:
@@ -61,21 +63,11 @@ class SlowBedrockRuntimeClient:
 
 
 def _request() -> RecommendationRequest:
-    return RecommendationRequest(
-        environment=Environment.DEV,
-        candidates=(
-            ReplenishmentCandidate(
-                product_id="product-101",
-                product_name="Fictional Safety Gloves",
-                category_id="category-safety",
-                reorder_minimum=Decimal("10.000000"),
-                reorder_maximum=Decimal("40.000000"),
-                projected_quantity=Decimal("8.000000"),
-                projected_trigger_date=date(2026, 8, 9),
-                skip_reason_code=None,
-            ),
-        ),
-    )
+    return t27_request()
+
+
+def _valid_text(request: RecommendationRequest | None = None) -> str:
+    return json.dumps(t27_payload(request or _request()))
 
 
 def _response(text: str) -> dict[str, Any]:
@@ -134,17 +126,7 @@ def test_boto_client_disables_sdk_retries_and_uses_the_approved_region(
 
 @pytest.mark.anyio
 async def test_only_the_approved_gpt_oss_model_can_be_invoked() -> None:
-    client = FakeBedrockRuntimeClient(
-        _response(
-            """{
-                "decision": "recommend",
-                "product_id": "product-101",
-                "rationale": "Stock is below the configured reorder minimum.",
-                "risk_flags": ["LIMITED_WALKING_SKELETON_EVIDENCE"],
-                "budget_acknowledgement": "not_evaluated"
-            }"""
-        )
-    )
+    client = FakeBedrockRuntimeClient(_response(_valid_text()))
     adapter = _adapter(client)
 
     recommendation = await adapter.recommend(_request())
@@ -158,6 +140,14 @@ async def test_only_the_approved_gpt_oss_model_can_be_invoked() -> None:
         "jsonSchema"
     ]["schema"]
     assert '"additionalProperties":false' in schema
+    assert client.requests[0]["inferenceConfig"]["maxTokens"] == 2_048
+    user_text = client.requests[0]["messages"][0]["content"][0]["text"]
+    assert '"required_risk_flags":["LIMITED_VENDOR_HISTORY"]' in user_text
+    assert '"preference_profile_id":"preference-1"' in user_text
+    assert '"priority_order":["reliability","delivery","price"]' in user_text
+    assert '"recommendation_fields":{' in user_text
+    assert '"top_level_decision_field":"decision"' in user_text
+    assert '"forbidden_wrapper_fields":["recommend","manual_review"]' in user_text
 
     with pytest.raises(ValueError, match="approved Bedrock model"):
         _adapter(
@@ -175,15 +165,7 @@ async def test_transient_failures_retry_twice_with_bounded_backoff() -> None:
     client = FakeBedrockRuntimeClient(
         throttled,
         throttled,
-        _response(
-            """{
-                "decision": "recommend",
-                "product_id": "product-101",
-                "rationale": "Stock is below the configured reorder minimum.",
-                "risk_flags": [],
-                "budget_acknowledgement": "not_evaluated"
-            }"""
-        ),
+        _response(_valid_text()),
     )
     delays: list[float] = []
 
@@ -212,15 +194,7 @@ async def test_transient_connection_failures_use_the_same_retry_bound() -> None:
     client = FakeBedrockRuntimeClient(
         disconnected,
         disconnected,
-        _response(
-            """{
-                "decision": "manual_review",
-                "product_id": null,
-                "rationale": "Provider connectivity recovered after retries.",
-                "risk_flags": ["PROVIDER_RETRY"],
-                "budget_acknowledgement": "not_evaluated"
-            }"""
-        ),
+        _response(json.dumps(t27_manual_review_payload())),
     )
 
     recommendation = await _adapter(client, retry_delay_seconds=0).recommend(_request())
@@ -268,13 +242,7 @@ async def test_permanent_bedrock_error_is_not_retried_or_exposed() -> None:
 @pytest.mark.anyio
 async def test_one_schema_repair_attempt_then_safe_invalid_output_fallback() -> None:
     private_invalid_output = "private malformed model output"
-    valid_output = """{
-        "decision": "recommend",
-        "product_id": "product-101",
-        "rationale": "Stock is below the configured reorder minimum.",
-        "risk_flags": [],
-        "budget_acknowledgement": "not_evaluated"
-    }"""
+    valid_output = _valid_text()
     repaired_client = FakeBedrockRuntimeClient(
         _response(private_invalid_output),
         _response(valid_output),
@@ -286,6 +254,9 @@ async def test_one_schema_repair_attempt_then_safe_invalid_output_fallback() -> 
     assert len(repaired_client.requests) == 2
     repair_message = repaired_client.requests[1]["messages"][-1]["content"][0]["text"]
     assert "previous response was invalid" in repair_message.lower()
+    assert "top-level `decision` field" in repair_message
+    assert "never create a `recommend` wrapper" in repair_message
+    assert "required_risk_flags" in repair_message
     assert private_invalid_output not in repair_message
 
     invalid_client = FakeBedrockRuntimeClient(
@@ -303,12 +274,7 @@ async def test_one_schema_repair_attempt_then_safe_invalid_output_fallback() -> 
 
 @pytest.mark.anyio
 async def test_one_gpt_oss_leading_quote_is_normalized_before_validation() -> None:
-    live_text = (
-        '"{ "budget_acknowledgement":"not_evaluated", '
-        '"decision":"recommend", "product_id":"product-101", '
-        '"rationale":"Eligible product selected; budget not evaluated." '
-        '\t,"risk_flags":[] }\n'
-    )
+    live_text = '"' + _valid_text() + "\n"
     response = _response(live_text)
     response["output"]["message"]["content"].insert(
         0,
@@ -324,12 +290,7 @@ async def test_one_gpt_oss_leading_quote_is_normalized_before_validation() -> No
 
 @pytest.mark.anyio
 async def test_gpt_oss_extra_object_prefix_is_normalized_before_validation() -> None:
-    live_text = (
-        '{"{ "budget_acknowledgement":"not_evaluated", '
-        '"decision":"recommend", "product_id":"product-101", '
-        '"rationale":"Only eligible candidate; budget not evaluated." '
-        '\t,"risk_flags":[] }\n'
-    )
+    live_text = '{"' + _valid_text() + "\n"
     client = FakeBedrockRuntimeClient(_response(live_text), _response(live_text))
 
     recommendation = await _adapter(client).recommend(_request())
@@ -373,6 +334,8 @@ async def test_leading_quote_normalization_rejects_every_broader_case(
 @pytest.mark.anyio
 async def test_reasoning_content_is_ignored_and_never_returned() -> None:
     hidden_reasoning = "private hidden reasoning content"
+    payload = t27_payload()
+    payload["rationale"] = "Use bounded supplied evidence."
     client = FakeBedrockRuntimeClient(
         {
             "output": {
@@ -383,15 +346,7 @@ async def test_reasoning_content_is_ignored_and_never_returned() -> None:
                                 "reasoningText": {"text": hidden_reasoning}
                             }
                         },
-                        {
-                            "text": (
-                                '{"decision":"recommend",'
-                                '"product_id":"product-101",'
-                                '"rationale":"Use bounded supplied evidence.",'
-                                '"risk_flags":[],"budget_acknowledgement":'
-                                '"not_evaluated"}'
-                            )
-                        },
+                        {"text": json.dumps(payload)},
                     ]
                 }
             },

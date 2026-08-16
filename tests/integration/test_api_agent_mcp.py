@@ -34,10 +34,6 @@ from procurement.mcp_server.server import create_mcp_server
 from procurement.observability.metrics import create_agent_metrics
 from procurement.ports.erp import CandidatePage as ErpCandidatePage
 from procurement.ports.erp import ReplenishmentCandidateRecord
-from procurement.ports.llm import (
-    RecommendationDecision,
-    StructuredRecommendation,
-)
 from procurement.ports.mcp import (
     CandidatePage,
     McpUnavailableError,
@@ -45,7 +41,7 @@ from procurement.ports.mcp import (
     ReplenishmentCandidate,
 )
 from tests.support.fake_odoo.adapter import FakeOdooAdapter
-from tests.support.fakes.llm import FakeStructuredLlm
+from tests.support.fakes.llm import EvidenceAwareFakeStructuredLlm
 from tests.support.local_identity import LocalIdentityProvider, sign_in
 
 BEARER_TOKEN = "fictional-dev-mcp-token-at-least-32-characters"
@@ -256,16 +252,7 @@ def _candidate_page(payload: Mapping[str, object]) -> CandidatePage:
 async def test_api_scan_runs_langgraph_and_real_mcp_transport() -> None:
     http_metrics = create_http_metrics()
     agent_metrics = create_agent_metrics(http_metrics.registry)
-    llm = FakeStructuredLlm(
-        response=StructuredRecommendation(
-            decision=RecommendationDecision.RECOMMEND,
-            product_id="product-101",
-            rationale="Projected stock is below the configured reorder minimum.",
-            risk_flags=("LIMITED_WALKING_SKELETON_EVIDENCE",),
-            input_tokens=48,
-            output_tokens=19,
-        )
-    )
+    llm = EvidenceAwareFakeStructuredLlm()
 
     async with _running_mcp_server() as (mcp_url, mcp_metrics_url):
         graph = build_walking_skeleton_graph(

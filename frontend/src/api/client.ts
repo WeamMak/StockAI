@@ -92,12 +92,56 @@ export interface ProcurementEvidence {
 
 export interface ApprovalReadyResult {
   outcome: "approval_ready";
+  validation_level: "t27";
   product_id: string;
   product_name: string;
+  offer_id: string;
   rationale: string;
+  trade_offs: string[];
   risk_flags: string[];
+  uncertainty: string;
+  evidence_limitations: string[];
+  evidence_digest: string;
+  quantity: string;
+  unit_price: string;
+  normalized_cost: string;
+  budget_status: "within_budget" | "exception_required" | "unavailable";
+  preference_profile_id: string;
+  preference_scope: "company" | "category" | "product";
+  preference_revision: number;
+  priority_order: ("price" | "delivery" | "reliability")[];
+  premium_outcome: "within_cap" | "advisory_exceeded" | "hard_excluded";
   read_only: true;
 }
+
+export interface LegacyApprovalReadyResult {
+  outcome: "approval_ready";
+  validation_level: "legacy";
+  product_id: string;
+  product_name: string;
+  offer_id: null;
+  rationale: string;
+  trade_offs: string[];
+  risk_flags: string[];
+  uncertainty: string;
+  evidence_limitations: string[];
+  read_only: true;
+}
+
+export interface ManualReviewResult {
+  outcome: "manual_review";
+  rationale: string;
+  trade_offs: string[];
+  risk_flags: string[];
+  uncertainty: string;
+  evidence_limitations: string[];
+  read_only: true;
+}
+
+export type ScanResult =
+  | ApprovalReadyResult
+  | LegacyApprovalReadyResult
+  | ManualReviewResult;
 
 export interface ScanFailure {
   error_code: string;
@@ -114,7 +158,7 @@ export interface Scan {
   started_at: string | null;
   completed_at: string | null;
   evidence: ProcurementEvidence[];
-  result: ApprovalReadyResult | null;
+  result: ScanResult | null;
   error: ScanFailure | null;
 }
 
@@ -165,28 +209,104 @@ function invalidResponse(): never {
   );
 }
 
-function parseResult(value: unknown): ApprovalReadyResult | null {
+function stringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function parseResult(value: unknown): ScanResult | null {
   if (value === null) {
     return null;
   }
   if (
     !isRecord(value) ||
+    typeof value.rationale !== "string" ||
+    !stringArray(value.trade_offs) ||
+    !stringArray(value.risk_flags) ||
+    typeof value.uncertainty !== "string" ||
+    !stringArray(value.evidence_limitations) ||
+    value.read_only !== true
+  ) {
+    return invalidResponse();
+  }
+  if (value.outcome === "manual_review") {
+    return {
+      outcome: "manual_review",
+      rationale: value.rationale,
+      trade_offs: value.trade_offs,
+      risk_flags: value.risk_flags,
+      uncertainty: value.uncertainty,
+      evidence_limitations: value.evidence_limitations,
+      read_only: true,
+    };
+  }
+  if (
+    value.outcome === "approval_ready" &&
+    value.validation_level === "legacy" &&
+    typeof value.product_id === "string" &&
+    typeof value.product_name === "string" &&
+    value.offer_id === null
+  ) {
+    return {
+      outcome: "approval_ready",
+      validation_level: "legacy",
+      product_id: value.product_id,
+      product_name: value.product_name,
+      offer_id: null,
+      rationale: value.rationale,
+      trade_offs: value.trade_offs,
+      risk_flags: value.risk_flags,
+      uncertainty: value.uncertainty,
+      evidence_limitations: value.evidence_limitations,
+      read_only: true,
+    };
+  }
+  if (
     value.outcome !== "approval_ready" ||
+    value.validation_level !== "t27" ||
     typeof value.product_id !== "string" ||
     typeof value.product_name !== "string" ||
-    typeof value.rationale !== "string" ||
-    !Array.isArray(value.risk_flags) ||
-    !value.risk_flags.every((flag) => typeof flag === "string") ||
-    value.read_only !== true
+    typeof value.offer_id !== "string" ||
+    typeof value.evidence_digest !== "string" ||
+    typeof value.quantity !== "string" ||
+    typeof value.unit_price !== "string" ||
+    typeof value.normalized_cost !== "string" ||
+    !["within_budget", "exception_required", "unavailable"].includes(
+      String(value.budget_status),
+    ) ||
+    typeof value.preference_profile_id !== "string" ||
+    !["company", "category", "product"].includes(String(value.preference_scope)) ||
+    !Number.isInteger(value.preference_revision) ||
+    !stringArray(value.priority_order) ||
+    !value.priority_order.every((item) =>
+      ["price", "delivery", "reliability"].includes(item),
+    ) ||
+    !["within_cap", "advisory_exceeded", "hard_excluded"].includes(
+      String(value.premium_outcome),
+    )
   ) {
     return invalidResponse();
   }
   return {
     outcome: "approval_ready",
+    validation_level: "t27",
     product_id: value.product_id,
     product_name: value.product_name,
+    offer_id: value.offer_id,
     rationale: value.rationale,
+    trade_offs: value.trade_offs,
     risk_flags: value.risk_flags,
+    uncertainty: value.uncertainty,
+    evidence_limitations: value.evidence_limitations,
+    evidence_digest: value.evidence_digest,
+    quantity: value.quantity,
+    unit_price: value.unit_price,
+    normalized_cost: value.normalized_cost,
+    budget_status: value.budget_status as ApprovalReadyResult["budget_status"],
+    preference_profile_id: value.preference_profile_id,
+    preference_scope: value.preference_scope as ApprovalReadyResult["preference_scope"],
+    preference_revision: value.preference_revision as number,
+    priority_order: value.priority_order as ApprovalReadyResult["priority_order"],
+    premium_outcome: value.premium_outcome as ApprovalReadyResult["premium_outcome"],
     read_only: true,
   };
 }

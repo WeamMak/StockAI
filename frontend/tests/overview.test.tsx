@@ -23,10 +23,41 @@ const SUCCEEDED_SCAN = {
   completed_at: "2026-08-05T10:00:05Z",
   result: {
     outcome: "approval_ready",
+    validation_level: "t27",
     product_id: "product-101",
     product_name: "Fictional Safety Gloves",
+    offer_id: "offer-101",
     rationale: "Replenishment is required.",
+    trade_offs: ["Reliable delivery is favored."],
     risk_flags: [],
+    uncertainty: "No material uncertainty.",
+    evidence_limitations: [],
+    evidence_digest: `sha256:${"a".repeat(64)}`,
+    quantity: "35.000000",
+    unit_price: "12.500000",
+    normalized_cost: "437.500000",
+    budget_status: "within_budget",
+    preference_profile_id: "preference-3",
+    preference_scope: "product",
+    preference_revision: 6,
+    priority_order: ["price", "reliability", "delivery"],
+    premium_outcome: "within_cap",
+    read_only: true,
+  },
+};
+
+const MANUAL_REVIEW_SCAN = {
+  ...QUEUED_SCAN,
+  scan_id: "scan-manual-review",
+  status: "succeeded",
+  completed_at: "2026-08-05T10:00:07Z",
+  result: {
+    outcome: "manual_review",
+    rationale: "Compare eligible offers manually.",
+    trade_offs: ["Authoritative evidence remains available."],
+    risk_flags: ["LLM_OUTPUT_INVALID"],
+    uncertainty: "No validated model recommendation is available.",
+    evidence_limitations: ["The model response was invalid."],
     read_only: true,
   },
 };
@@ -94,6 +125,7 @@ describe("OverviewPage", () => {
             QUEUED_SCAN,
             { ...QUEUED_SCAN, scan_id: "scan-running", status: "running" },
             SUCCEEDED_SCAN,
+            MANUAL_REVIEW_SCAN,
             FAILED_SCAN,
           ],
         }),
@@ -103,11 +135,18 @@ describe("OverviewPage", () => {
     render(<OverviewPage onSelectScan={vi.fn()} />);
 
     const summary = await screen.findByRole("region", { name: "Scan summary" });
-    expect(summary).toHaveTextContent("4Total");
+    expect(summary).toHaveTextContent("5Total");
     expect(summary).toHaveTextContent("2In progress");
     expect(summary).toHaveTextContent("1Approval ready");
-    expect(summary).toHaveTextContent("1Needs review");
-    expect(screen.getAllByText(/Completed Aug 5, 2026/)).toHaveLength(2);
+    expect(summary).toHaveTextContent("2Needs review");
+    expect(screen.getAllByText(/Completed Aug 5, 2026/)).toHaveLength(3);
+    expect(screen.getByText("Manual review")).toBeInTheDocument();
+    const attention = screen.getByRole("region", { name: "What needs attention" });
+    expect(attention).toHaveTextContent("2Needs review");
+    expect(attention).toHaveTextContent("1Approval ready");
+    expect(
+      screen.getByRole("region", { name: "Recent scan activity" }),
+    ).toBeInTheDocument();
   });
 
   it("starts a manual scan from a 202 response", async () => {

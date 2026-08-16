@@ -49,14 +49,15 @@ def test_local_processes_run_langgraph_over_real_mcp_transport(
     assert accepted.status_code == 202
     assert detail.status_code == 200
     assert detail.json()["status"] == "succeeded"
-    assert detail.json()["result"] == {
-        "outcome": "approval_ready",
-        "product_id": "product-101",
-        "product_name": "Fictional Safety Gloves",
-        "rationale": "Projected stock is below the configured reorder minimum.",
-        "risk_flags": ["LIMITED_WALKING_SKELETON_EVIDENCE"],
-        "read_only": True,
-    }
+    result = detail.json()["result"]
+    assert result["outcome"] == "approval_ready"
+    assert result["product_id"] == "product-101"
+    assert result["offer_id"] == "offer-101"
+    assert result["quantity"] == "35.000000"
+    assert result["normalized_cost"] == "437.500000"
+    assert result["budget_status"] == "within_budget"
+    assert result["preference_revision"] == 1
+    assert result["read_only"] is True
     assert "agent_mcp_call_completed" in api_logs
     assert "llm_call_completed" in api_logs
     assert "mcp_tool_completed" in mcp_logs

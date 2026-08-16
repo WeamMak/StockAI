@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from collections.abc import Callable, Mapping
@@ -52,6 +53,7 @@ from procurement.api.services.scans import ScanWorkflow
 from procurement.domain.errors import ErrorCode
 from procurement.domain.identifiers import Environment
 from procurement.domain.policy.evidence import (
+    EvidenceStatus,
     ProcurementEvidence,
     procurement_evidence_from_dict,
 )
@@ -262,12 +264,58 @@ class LocalStructuredLlm(StructuredLlmPort):
         self,
         request: RecommendationRequest,
     ) -> StructuredRecommendation:
-        candidate = request.candidates[0]
+        evidence = request.evidence[0]
+        offer = next(
+            item for item in evidence.offers if item.status is EvidenceStatus.ELIGIBLE
+        )
+        preferences = evidence.preferences
+        if preferences is None:
+            raise ValueError("local recommendation requires validated preferences")
+        premium = next(
+            item
+            for item in preferences.offer_results
+            if item.offer_id == offer.offer_id
+        )
+        risk_flags: list[str] = []
+        if evidence.budget is None:
+            risk_flags.append("BUDGET_UNAVAILABLE")
+        elif evidence.budget.exception_required:
+            risk_flags.append("BUDGET_EXCEPTION_REQUIRED")
+        if offer.performance.history_status == "limited":
+            risk_flags.append("LIMITED_VENDOR_HISTORY")
+        if premium.outcome == "advisory_exceeded":
+            risk_flags.append("ADVISORY_PREMIUM_EXCEEDED")
         return StructuredRecommendation(
             decision=RecommendationDecision.RECOMMEND,
-            product_id=candidate.product_id,
-            rationale="Projected stock is below the configured reorder minimum.",
-            risk_flags=("LIMITED_WALKING_SKELETON_EVIDENCE",),
+            product_id=evidence.product_id,
+            offer_id=offer.offer_id,
+            rationale="The eligible offer balances the configured priorities.",
+            trade_offs=("The recommendation uses only authoritative evidence.",),
+            risk_flags=tuple(risk_flags),
+            uncertainty="Vendor history is limited to completed Odoo orders.",
+            evidence_limitations=("No quality or return evidence is available.",),
+            evidence_id=evidence.evidence_id,
+            evidence_digest="sha256:"
+            + hashlib.sha256(evidence.canonical_json()).hexdigest(),
+            quantity=offer.quantity,
+            unit_price=offer.unit_price,
+            normalized_cost=offer.normalized_cost,
+            budget_status=(
+                "unavailable"
+                if evidence.budget is None
+                else (
+                    "exception_required"
+                    if evidence.budget.exception_required
+                    else "within_budget"
+                )
+            ),
+            preference_profile_id=preferences.profile.profile_id,
+            preference_scope=preferences.profile.scope.value,
+            preference_revision=preferences.profile.revision,
+            priority_order=tuple(
+                item.value for item in preferences.profile.ordered_criteria
+            ),
+            premium_outcome=premium.outcome,
             input_tokens=48,
             output_tokens=19,
         )

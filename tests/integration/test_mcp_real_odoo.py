@@ -18,13 +18,9 @@ from procurement.agent.graph import build_walking_skeleton_graph
 from procurement.agent.state import ApprovalReadyResult
 from procurement.bootstrap.mcp import LocalMcpSettings, create_local_mcp_app
 from procurement.domain.identifiers import Environment
-from procurement.ports.llm import (
-    RecommendationDecision,
-    StructuredRecommendation,
-)
 from tests.contract.conftest import OdooContractStack, _run, running_odoo_contract
 from tests.integration.test_api_agent_mcp import RealTransportMcpClient
-from tests.support.fakes.llm import FakeStructuredLlm
+from tests.support.fakes.llm import EvidenceAwareFakeStructuredLlm
 
 BEARER_TOKEN = "fictional-real-odoo-mcp-token-at-least-32-characters"
 
@@ -159,7 +155,7 @@ async def test_seeded_odoo_candidate_reaches_the_walking_skeleton_over_real_mcp(
                 candidate
                 for candidate in candidates
                 if isinstance(candidate, Mapping)
-                and "Happy" in str(candidate.get("product_name", ""))
+                and "Three Eligible" in str(candidate.get("product_name", ""))
             ),
             None,
         )
@@ -191,9 +187,10 @@ async def test_seeded_odoo_candidate_reaches_the_walking_skeleton_over_real_mcp(
             )
             resolved_scopes[candidate_code] = profile.scope.value
         assert resolved_scopes == {
-            "STOCKAI-DEV-HAPPY": "product",
+            "STOCKAI-DEV-CHOICE-2": "company",
+            "STOCKAI-DEV-CHOICE-3": "company",
+            "STOCKAI-DEV-NO-NEED": "company",
             "STOCKAI-DEV-NO-OFFER": "company",
-            "STOCKAI-DEV-OVER": "category",
         }
         evidence = await transport.get_procurement_evidence(
             environment=Environment.DEV,
@@ -201,18 +198,10 @@ async def test_seeded_odoo_candidate_reaches_the_walking_skeleton_over_real_mcp(
             horizon_days=14,
         )
         assert evidence.skip_reason_code is None, evidence.to_dict()
-        assert evidence.offers
+        assert len(evidence.offers) == 3
+        assert sum(offer.status.value == "eligible" for offer in evidence.offers) == 3
 
-        llm = FakeStructuredLlm(
-            response=StructuredRecommendation(
-                decision=RecommendationDecision.RECOMMEND,
-                product_id=product_id,
-                rationale="Projected stock is below the configured reorder minimum.",
-                risk_flags=("LIMITED_WALKING_SKELETON_EVIDENCE",),
-                input_tokens=48,
-                output_tokens=19,
-            )
-        )
+        llm = EvidenceAwareFakeStructuredLlm()
         graph = build_walking_skeleton_graph(
             mcp=transport,
             llm=llm,

@@ -9,6 +9,7 @@ from time import perf_counter
 
 from procurement.agent.state import (
     ApprovalReadyResult,
+    ManualReviewResult,
     ScanState,
     UnresolvedResult,
 )
@@ -227,35 +228,44 @@ class WalkingSkeletonNodes:
                         if item.skip_reason_code is None
                         and item.preferences is not None
                     ),
+                    evidence=tuple(
+                        item
+                        for item in state["evidence"]
+                        if item.skip_reason_code is None
+                    ),
                 )
             )
-        except LlmUnavailableError:
+        except LlmUnavailableError as error:
             self._record_llm_completion(
                 state=state,
                 started_at=started_at,
                 status="error",
                 error_code=ErrorCode.LLM_UNAVAILABLE,
+                retry_count=error.retry_count,
             )
+            self.metrics.record_llm_fallback(reason="unavailable")
             return {
-                "result": UnresolvedResult(
-                    error_code=ErrorCode.LLM_UNAVAILABLE,
-                    message="The recommendation model is unavailable.",
-                    retryable=True,
-                )
+                "result": self._fallback(
+                    risk_flag="LLM_UNAVAILABLE",
+                    limitation="Contextual model judgment is currently unavailable.",
+                ),
             }
-        except (LlmOutputInvalidError, ValueError):
+        except LlmOutputInvalidError as error:
             self._record_llm_completion(
                 state=state,
                 started_at=started_at,
                 status="error",
                 error_code=ErrorCode.LLM_OUTPUT_INVALID,
+                retry_count=error.retry_count,
             )
+            if error.repair_attempted:
+                self.metrics.record_llm_repair()
+            self.metrics.record_llm_fallback(reason="invalid")
             return {
-                "result": UnresolvedResult(
-                    error_code=ErrorCode.LLM_OUTPUT_INVALID,
-                    message="The recommendation model returned an invalid result.",
-                    retryable=False,
-                )
+                "result": self._fallback(
+                    risk_flag="LLM_OUTPUT_INVALID",
+                    limitation="The model response could not be safely validated.",
+                ),
             }
         except Exception:
             self._record_llm_completion(
@@ -264,12 +274,12 @@ class WalkingSkeletonNodes:
                 status="error",
                 error_code=ErrorCode.LLM_UNAVAILABLE,
             )
+            self.metrics.record_llm_fallback(reason="unavailable")
             return {
-                "result": UnresolvedResult(
-                    error_code=ErrorCode.LLM_UNAVAILABLE,
-                    message="The recommendation model is unavailable.",
-                    retryable=True,
-                )
+                "result": self._fallback(
+                    risk_flag="LLM_UNAVAILABLE",
+                    limitation="Contextual model judgment is currently unavailable.",
+                ),
             }
 
         self._record_llm_completion(
@@ -278,7 +288,10 @@ class WalkingSkeletonNodes:
             status="success",
             input_tokens=recommendation.input_tokens,
             output_tokens=recommendation.output_tokens,
+            retry_count=recommendation.retry_count,
         )
+        if recommendation.repair_attempted:
+            self.metrics.record_llm_repair()
         selected = next(
             (
                 candidate
@@ -287,25 +300,77 @@ class WalkingSkeletonNodes:
             ),
             None,
         )
-        if (
-            recommendation.decision is not RecommendationDecision.RECOMMEND
-            or selected is None
-        ):
+        if recommendation.decision is not RecommendationDecision.RECOMMEND:
+            self.metrics.record_llm_fallback(reason="model_declined")
             return {
                 "recommendation": recommendation,
-                "result": UnresolvedResult(
-                    error_code=ErrorCode.LLM_OUTPUT_INVALID,
-                    message="The model could not produce an approval-ready result.",
-                    retryable=False,
+                "result": ManualReviewResult(
+                    rationale=recommendation.rationale,
+                    trade_offs=recommendation.trade_offs,
+                    risk_flags=recommendation.risk_flags,
+                    uncertainty=recommendation.uncertainty,
+                    evidence_limitations=recommendation.evidence_limitations,
                 ),
             }
+        if selected is None:
+            self.metrics.record_llm_fallback(reason="invalid")
+            return {
+                "result": self._fallback(
+                    risk_flag="LLM_OUTPUT_INVALID",
+                    limitation="The selected product could not be matched to evidence.",
+                )
+            }
+        if any(
+            value is None
+            for value in (
+                recommendation.offer_id,
+                recommendation.evidence_digest,
+                recommendation.quantity,
+                recommendation.unit_price,
+                recommendation.normalized_cost,
+                recommendation.preference_profile_id,
+                recommendation.preference_scope,
+                recommendation.preference_revision,
+                recommendation.premium_outcome,
+            )
+        ):
+            self.metrics.record_llm_fallback(reason="invalid")
+            return {
+                "result": self._fallback(
+                    risk_flag="LLM_OUTPUT_INVALID",
+                    limitation="The recommendation omitted validated evidence fields.",
+                )
+            }
+        assert recommendation.offer_id is not None
+        assert recommendation.evidence_digest is not None
+        assert recommendation.quantity is not None
+        assert recommendation.unit_price is not None
+        assert recommendation.normalized_cost is not None
+        assert recommendation.preference_profile_id is not None
+        assert recommendation.preference_scope is not None
+        assert recommendation.preference_revision is not None
+        assert recommendation.premium_outcome is not None
         return {
             "recommendation": recommendation,
             "result": ApprovalReadyResult(
                 product_id=selected.product_id,
                 product_name=selected.product_name,
+                offer_id=recommendation.offer_id,
                 rationale=recommendation.rationale,
+                trade_offs=recommendation.trade_offs,
                 risk_flags=recommendation.risk_flags,
+                uncertainty=recommendation.uncertainty,
+                evidence_limitations=recommendation.evidence_limitations,
+                evidence_digest=recommendation.evidence_digest,
+                quantity=recommendation.quantity,
+                unit_price=recommendation.unit_price,
+                normalized_cost=recommendation.normalized_cost,
+                budget_status=recommendation.budget_status,
+                preference_profile_id=recommendation.preference_profile_id,
+                preference_scope=recommendation.preference_scope,
+                preference_revision=recommendation.preference_revision,
+                priority_order=recommendation.priority_order,
+                premium_outcome=recommendation.premium_outcome,
                 evidence=next(
                     item
                     for item in state["evidence"]
@@ -313,6 +378,19 @@ class WalkingSkeletonNodes:
                 ),
             ),
         }
+
+    @staticmethod
+    def _fallback(*, risk_flag: str, limitation: str) -> ManualReviewResult:
+        return ManualReviewResult(
+            rationale=(
+                "Contextual model judgment could not be safely accepted. "
+                "Compare the eligible offers manually."
+            ),
+            trade_offs=("Authoritative eligible-offer evidence remains available.",),
+            risk_flags=(risk_flag,),
+            uncertainty="No validated model recommendation is available.",
+            evidence_limitations=(limitation,),
+        )
 
     async def resolve_preferences(self, state: ScanState) -> dict[str, object]:
         """Resolve and enforce one immutable typed profile per eligible record."""
@@ -438,6 +516,7 @@ class WalkingSkeletonNodes:
         input_tokens: int = 0,
         output_tokens: int = 0,
         error_code: ErrorCode | None = None,
+        retry_count: int = 0,
     ) -> None:
         duration_seconds = perf_counter() - started_at
         self.metrics.observe_llm_call(
@@ -447,6 +526,7 @@ class WalkingSkeletonNodes:
             output_tokens=output_tokens,
             error_code=error_code,
         )
+        self.metrics.record_retries(operation="bedrock", count=retry_count)
         fields: dict[str, object] = {
             "scan_id": state["scan_id"],
             "model_id": "structured-llm-port",
@@ -454,6 +534,7 @@ class WalkingSkeletonNodes:
             "status": status,
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
+            "retry_count": retry_count,
         }
         if error_code is not None:
             fields["error_code"] = error_code.value

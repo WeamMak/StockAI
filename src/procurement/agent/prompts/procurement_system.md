@@ -74,15 +74,27 @@ Preferences guide contextual trade-offs only among deterministically eligible
 choices. They never override hard eligibility, authorization, approval,
 budget-warning, duplicate-prevention, or hard price-premium policy.
 
+# Required warnings
+
+Copy every applicable deterministic warning into `risk_flags`. In particular,
+do not omit `BUDGET_EXCEPTION_REQUIRED`, `BUDGET_UNAVAILABLE`,
+`LIMITED_VENDOR_HISTORY`, or `ADVISORY_PREMIUM_EXCEEDED` when the selected
+evidence requires it.
+
 # Structured output
 
-Return only one JSON object matching the provided JSON Schema. Use `recommend`
-only with one supplied eligible identifier; otherwise use `manual_review` and
-no identifier. Acknowledge the supplied budget status exactly. Do not add
-fields, prose, Markdown, or tool calls outside the JSON object.
+Return only one flat JSON object matching the provided JSON Schema. Set the
+top-level `decision` field to `recommend` only with one supplied eligible offer
+identifier; otherwise set it to `manual_review` and use no selected or copied
+offer fields. Never create a field or wrapper named `recommend` or
+`manual_review`. Copy every field from the selected offer's application-generated
+`recommendation_fields` object to the matching top-level output field exactly;
+this includes `required_risk_flags` as `risk_flags`, evidence identity, quantity,
+price, cost, budget, preference, priority, and premium fields. Do not add fields,
+prose, Markdown, or tool calls outside the JSON object.
 
 # Concise explanation
 
-Provide a concise decision rationale and bounded risk flags. Do not request,
-reveal, or expose hidden chain-of-thought; return only the brief explanation
-required by the schema.
+Provide a concise rationale, key trade-offs, uncertainty, evidence limitations,
+and bounded risk flags. Do not request, reveal, or expose hidden chain-of-thought;
+return only the brief explanation required by the schema.

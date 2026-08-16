@@ -91,7 +91,7 @@ def test_required_dashboard_panels_and_queries_are_present() -> None:
     assert {
         "LLM input tokens",
         "LLM output tokens",
-        "MCP timeouts and retries",
+        "Retries, repairs, and safe fallbacks",
         "Preference premium outcomes",
     } <= titles["llm-mcp.json"]
     assert {
@@ -122,6 +122,8 @@ def test_required_dashboard_panels_and_queries_are_present() -> None:
         'procurement_llm_tokens_total{direction="input"}',
         'procurement_llm_tokens_total{direction="output"}',
         "procurement_preference_offer_outcomes_total",
+        "procurement_llm_repairs_total",
+        "procurement_llm_fallbacks_total",
         "kube_horizontalpodautoscaler_status_current_replicas",
         "kube_pod_status_phase",
         "WorkerCleanupOutcome",

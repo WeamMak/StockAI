@@ -8,6 +8,11 @@ from typing import Literal
 from fastapi import APIRouter, Depends, Request, Response, status
 from pydantic import BaseModel, ConfigDict
 
+from procurement.agent.state import (
+    ApprovalReadyResult,
+    LegacyApprovalReadyResult,
+    ManualReviewResult,
+)
 from procurement.api.auth.rbac import require_csrf, require_officer
 from procurement.api.services.scans import (
     ScanService,
@@ -29,10 +34,57 @@ class ApprovalReadyResponse(BaseModel):
     model_config = _RESPONSE_CONFIG
 
     outcome: Literal["approval_ready"] = "approval_ready"
+    validation_level: Literal["t27"] = "t27"
     product_id: str
     product_name: str
+    offer_id: str
     rationale: str
+    trade_offs: tuple[str, ...]
     risk_flags: tuple[str, ...]
+    uncertainty: str
+    evidence_limitations: tuple[str, ...]
+    evidence_digest: str
+    quantity: str
+    unit_price: str
+    normalized_cost: str
+    budget_status: str
+    preference_profile_id: str
+    preference_scope: str
+    preference_revision: int
+    priority_order: tuple[str, ...]
+    premium_outcome: str
+    read_only: Literal[True] = True
+
+
+class LegacyApprovalReadyResponse(BaseModel):
+    """Historical success without unavailable T27 validation metadata."""
+
+    model_config = _RESPONSE_CONFIG
+
+    outcome: Literal["approval_ready"] = "approval_ready"
+    validation_level: Literal["legacy"] = "legacy"
+    product_id: str
+    product_name: str
+    offer_id: None = None
+    rationale: str
+    trade_offs: tuple[str, ...]
+    risk_flags: tuple[str, ...]
+    uncertainty: str
+    evidence_limitations: tuple[str, ...]
+    read_only: Literal[True] = True
+
+
+class ManualReviewResponse(BaseModel):
+    """Safe model-declined or deterministic fallback result."""
+
+    model_config = _RESPONSE_CONFIG
+
+    outcome: Literal["manual_review"] = "manual_review"
+    rationale: str
+    trade_offs: tuple[str, ...]
+    risk_flags: tuple[str, ...]
+    uncertainty: str
+    evidence_limitations: tuple[str, ...]
     read_only: Literal[True] = True
 
 
@@ -59,7 +111,12 @@ class ScanResponse(BaseModel):
     started_at: datetime | None
     completed_at: datetime | None
     evidence: tuple[dict[str, object], ...]
-    result: ApprovalReadyResponse | None
+    result: (
+        ApprovalReadyResponse
+        | LegacyApprovalReadyResponse
+        | ManualReviewResponse
+        | None
+    )
     error: ScanErrorResponse | None
 
 
@@ -81,16 +138,51 @@ def scan_service_from(request: Request) -> ScanService:
 def scan_response(snapshot: ScanSnapshot) -> ScanResponse:
     """Map an internal snapshot to the filtered public response model."""
 
-    result = (
-        ApprovalReadyResponse(
+    result: (
+        ApprovalReadyResponse
+        | LegacyApprovalReadyResponse
+        | ManualReviewResponse
+        | None
+    ) = None
+    if isinstance(snapshot.result, ApprovalReadyResult):
+        result = ApprovalReadyResponse(
+            product_id=snapshot.result.product_id,
+            product_name=snapshot.result.product_name,
+            offer_id=snapshot.result.offer_id,
+            rationale=snapshot.result.rationale,
+            trade_offs=snapshot.result.trade_offs,
+            risk_flags=snapshot.result.risk_flags,
+            uncertainty=snapshot.result.uncertainty,
+            evidence_limitations=snapshot.result.evidence_limitations,
+            evidence_digest=snapshot.result.evidence_digest,
+            quantity=format(snapshot.result.quantity, "f"),
+            unit_price=format(snapshot.result.unit_price, "f"),
+            normalized_cost=format(snapshot.result.normalized_cost, "f"),
+            budget_status=snapshot.result.budget_status,
+            preference_profile_id=snapshot.result.preference_profile_id,
+            preference_scope=snapshot.result.preference_scope,
+            preference_revision=snapshot.result.preference_revision,
+            priority_order=snapshot.result.priority_order,
+            premium_outcome=snapshot.result.premium_outcome,
+        )
+    elif isinstance(snapshot.result, LegacyApprovalReadyResult):
+        result = LegacyApprovalReadyResponse(
             product_id=snapshot.result.product_id,
             product_name=snapshot.result.product_name,
             rationale=snapshot.result.rationale,
+            trade_offs=snapshot.result.trade_offs,
             risk_flags=snapshot.result.risk_flags,
+            uncertainty=snapshot.result.uncertainty,
+            evidence_limitations=snapshot.result.evidence_limitations,
         )
-        if snapshot.result is not None
-        else None
-    )
+    elif isinstance(snapshot.result, ManualReviewResult):
+        result = ManualReviewResponse(
+            rationale=snapshot.result.rationale,
+            trade_offs=snapshot.result.trade_offs,
+            risk_flags=snapshot.result.risk_flags,
+            uncertainty=snapshot.result.uncertainty,
+            evidence_limitations=snapshot.result.evidence_limitations,
+        )
     error = (
         ScanErrorResponse(
             error_code=snapshot.error.error_code.value,

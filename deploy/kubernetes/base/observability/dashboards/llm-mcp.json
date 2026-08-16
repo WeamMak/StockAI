@@ -72,9 +72,11 @@
         {"expr": "sum by (tool) (increase(procurement_agent_mcp_timeouts_total[1h]))", "legendFormat": "agent timeout {{tool}}", "refId": "A"},
         {"expr": "sum by (operation) (increase(procurement_agent_retries_total[1h]))", "legendFormat": "agent retry {{operation}}", "refId": "B"},
         {"expr": "sum by (tool) (increase(procurement_mcp_tool_timeouts_total[1h]))", "legendFormat": "server timeout {{tool}}", "refId": "C"},
-        {"expr": "sum by (tool) (increase(procurement_mcp_tool_retries_total[1h]))", "legendFormat": "server retry {{tool}}", "refId": "D"}
+        {"expr": "sum by (tool) (increase(procurement_mcp_tool_retries_total[1h]))", "legendFormat": "server retry {{tool}}", "refId": "D"},
+        {"expr": "sum(increase(procurement_llm_repairs_total[1h]))", "legendFormat": "LLM schema repair", "refId": "E"},
+        {"expr": "sum by (reason) (increase(procurement_llm_fallbacks_total[1h]))", "legendFormat": "LLM fallback {{reason}}", "refId": "F"}
       ],
-      "title": "MCP timeouts and retries",
+      "title": "Retries, repairs, and safe fallbacks",
       "type": "timeseries"
     },
     {

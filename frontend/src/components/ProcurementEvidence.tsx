@@ -85,6 +85,8 @@ export function ProcurementEvidence({ evidence }: { evidence: Evidence[] }) {
             )}
           </div>
 
+          <div className="evidence-detail-grid" role="region" aria-label="Evidence details">
+          <div className="evidence-main">
           <dl className="evidence-grid evidence-overview">
             <div>
               <dt>Reorder trigger</dt>
@@ -177,11 +179,12 @@ export function ProcurementEvidence({ evidence }: { evidence: Evidence[] }) {
               ) : null}
             </section>
           </div>
+          </div>
 
-          <div className="evidence-disclosures">
+          <aside className="evidence-disclosures" aria-label="Evidence policy details">
 
             {item.budget ? (
-              <details className="disclosure">
+              <details className="disclosure" open>
                 <summary>
                   <span>Budget calculation</span>
                   <small>
@@ -221,7 +224,7 @@ export function ProcurementEvidence({ evidence }: { evidence: Evidence[] }) {
             ) : null}
 
             {item.preferences ? (
-              <details className="disclosure">
+              <details className="disclosure" open>
                 <summary>
                   <span>Applied preferences</span>
                   <small>Revision {item.preferences.revision}</small>
@@ -231,6 +234,7 @@ export function ProcurementEvidence({ evidence }: { evidence: Evidence[] }) {
                 </div>
               </details>
             ) : null}
+          </aside>
           </div>
           <footer className="evidence-footer">
             <span className="identifier">Evidence ID: {item.evidence_id}</span>

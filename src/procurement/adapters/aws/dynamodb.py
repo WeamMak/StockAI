@@ -7,6 +7,7 @@ import hashlib
 import json
 import re
 from collections.abc import Mapping
+from decimal import Decimal
 from typing import Any, Protocol, cast
 
 import boto3  # type: ignore[import-untyped]
@@ -463,11 +464,39 @@ class DynamoApplicationRepository(ApplicationRepository):
                 values[name] = {"S": timestamp.value.isoformat()}
         if record.result is not None:
             result_values: dict[str, Any] = {
-                "product_id": {"S": record.result.product_id},
-                "product_name": {"S": record.result.product_name},
+                "outcome": {"S": record.result.outcome},
                 "rationale": {"S": record.result.rationale},
                 "risk_flags": {"L": [{"S": flag} for flag in record.result.risk_flags]},
+                "trade_offs": {"L": [{"S": item} for item in record.result.trade_offs]},
+                "uncertainty": {"S": record.result.uncertainty},
+                "evidence_limitations": {
+                    "L": [{"S": item} for item in record.result.evidence_limitations]
+                },
+                "budget_status": {"S": record.result.budget_status},
+                "priority_order": {
+                    "L": [{"S": item} for item in record.result.priority_order]
+                },
             }
+            for name in (
+                "product_id",
+                "product_name",
+                "offer_id",
+                "evidence_digest",
+                "preference_profile_id",
+                "preference_scope",
+                "premium_outcome",
+            ):
+                value = getattr(record.result, name)
+                if value is not None:
+                    result_values[name] = {"S": value}
+            for name in ("quantity", "unit_price", "normalized_cost"):
+                value = getattr(record.result, name)
+                if value is not None:
+                    result_values[name] = {"S": format(value, "f")}
+            if record.result.preference_revision is not None:
+                result_values["preference_revision"] = {
+                    "N": str(record.result.preference_revision)
+                }
             if record.result.evidence is not None:
                 result_values["evidence"] = {
                     "S": record.result.evidence.canonical_json().decode("utf-8")
@@ -511,8 +540,16 @@ class DynamoApplicationRepository(ApplicationRepository):
             ),
             result=(
                 RecommendationRecord(
-                    product_id=self._string(result_item, "product_id"),
-                    product_name=self._string(result_item, "product_name"),
+                    product_id=(
+                        self._string(result_item, "product_id")
+                        if "product_id" in result_item
+                        else None
+                    ),
+                    product_name=(
+                        self._string(result_item, "product_name")
+                        if "product_name" in result_item
+                        else None
+                    ),
                     rationale=self._string(result_item, "rationale"),
                     risk_flags=tuple(
                         cast(Mapping[str, str], entry)["S"]
@@ -523,6 +560,80 @@ class DynamoApplicationRepository(ApplicationRepository):
                             json.loads(self._string(result_item, "evidence"))
                         )
                         if "evidence" in result_item
+                        else None
+                    ),
+                    outcome=(
+                        self._string(result_item, "outcome")
+                        if "outcome" in result_item
+                        else "approval_ready"
+                    ),
+                    offer_id=(
+                        self._string(result_item, "offer_id")
+                        if "offer_id" in result_item
+                        else None
+                    ),
+                    trade_offs=tuple(
+                        cast(Mapping[str, str], entry)["S"]
+                        for entry in result_item.get("trade_offs", {}).get("L", [])
+                    ),
+                    uncertainty=(
+                        self._string(result_item, "uncertainty")
+                        if "uncertainty" in result_item
+                        else "No additional uncertainty identified."
+                    ),
+                    evidence_limitations=tuple(
+                        cast(Mapping[str, str], entry)["S"]
+                        for entry in result_item.get("evidence_limitations", {}).get(
+                            "L", []
+                        )
+                    ),
+                    evidence_digest=(
+                        self._string(result_item, "evidence_digest")
+                        if "evidence_digest" in result_item
+                        else None
+                    ),
+                    quantity=(
+                        Decimal(self._string(result_item, "quantity"))
+                        if "quantity" in result_item
+                        else None
+                    ),
+                    unit_price=(
+                        Decimal(self._string(result_item, "unit_price"))
+                        if "unit_price" in result_item
+                        else None
+                    ),
+                    normalized_cost=(
+                        Decimal(self._string(result_item, "normalized_cost"))
+                        if "normalized_cost" in result_item
+                        else None
+                    ),
+                    budget_status=(
+                        self._string(result_item, "budget_status")
+                        if "budget_status" in result_item
+                        else "not_evaluated"
+                    ),
+                    preference_profile_id=(
+                        self._string(result_item, "preference_profile_id")
+                        if "preference_profile_id" in result_item
+                        else None
+                    ),
+                    preference_scope=(
+                        self._string(result_item, "preference_scope")
+                        if "preference_scope" in result_item
+                        else None
+                    ),
+                    preference_revision=(
+                        self._number(result_item, "preference_revision")
+                        if "preference_revision" in result_item
+                        else None
+                    ),
+                    priority_order=tuple(
+                        cast(Mapping[str, str], entry)["S"]
+                        for entry in result_item.get("priority_order", {}).get("L", [])
+                    ),
+                    premium_outcome=(
+                        self._string(result_item, "premium_outcome")
+                        if "premium_outcome" in result_item
                         else None
                     ),
                 )

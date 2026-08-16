@@ -15,6 +15,8 @@ from uuid import uuid4
 
 from procurement.agent.state import (
     ApprovalReadyResult,
+    LegacyApprovalReadyResult,
+    ManualReviewResult,
     ScanResult,
     ScanState,
     UnresolvedResult,
@@ -76,7 +78,7 @@ class ScanSnapshot:
     started_at: datetime | None
     completed_at: datetime | None
     evidence: tuple[ProcurementEvidence, ...]
-    result: ApprovalReadyResult | None
+    result: ApprovalReadyResult | LegacyApprovalReadyResult | ManualReviewResult | None
     error: ScanFailure | None
 
 
@@ -273,8 +275,8 @@ class ScanService:
                 ),
                 duration_seconds=duration_seconds,
                 outcome=(
-                    "approval_ready"
-                    if terminal.status == ScanStatus.SUCCEEDED.value
+                    terminal.result.outcome
+                    if terminal.result is not None
                     else "unresolved"
                 ),
                 error_code=error_code,
@@ -338,9 +340,39 @@ class ScanService:
                 result=RecommendationRecord(
                     product_id=result.product_id,
                     product_name=result.product_name,
+                    offer_id=result.offer_id,
                     rationale=result.rationale,
+                    trade_offs=result.trade_offs,
                     risk_flags=result.risk_flags,
+                    uncertainty=result.uncertainty,
+                    evidence_limitations=result.evidence_limitations,
+                    evidence_digest=result.evidence_digest,
+                    quantity=result.quantity,
+                    unit_price=result.unit_price,
+                    normalized_cost=result.normalized_cost,
+                    budget_status=result.budget_status,
+                    preference_profile_id=result.preference_profile_id,
+                    preference_scope=result.preference_scope,
+                    preference_revision=result.preference_revision,
+                    priority_order=result.priority_order,
+                    premium_outcome=result.premium_outcome,
                     evidence=result.evidence,
+                ),
+            )
+        if isinstance(result, ManualReviewResult):
+            return replace(
+                record,
+                status=ScanStatus.SUCCEEDED.value,
+                evidence=evidence,
+                result=RecommendationRecord(
+                    outcome="manual_review",
+                    product_id=None,
+                    product_name=None,
+                    rationale=result.rationale,
+                    trade_offs=result.trade_offs,
+                    risk_flags=result.risk_flags,
+                    uncertainty=result.uncertainty,
+                    evidence_limitations=result.evidence_limitations,
                 ),
             )
         if isinstance(result, UnresolvedResult):
@@ -419,17 +451,91 @@ class ScanService:
 
     @staticmethod
     def _snapshot(record: CaseRecord) -> ScanSnapshot:
-        result = (
-            ApprovalReadyResult(
-                product_id=record.result.product_id,
-                product_name=record.result.product_name,
-                rationale=record.result.rationale,
-                risk_flags=record.result.risk_flags,
-                evidence=record.result.evidence,
+        stored = record.result
+        result: (
+            ApprovalReadyResult | LegacyApprovalReadyResult | ManualReviewResult | None
+        ) = None
+        if stored is not None and stored.outcome == "manual_review":
+            result = ManualReviewResult(
+                rationale=stored.rationale,
+                trade_offs=stored.trade_offs,
+                risk_flags=stored.risk_flags,
+                uncertainty=stored.uncertainty,
+                evidence_limitations=stored.evidence_limitations,
             )
-            if record.result is not None
-            else None
-        )
+        elif stored is not None:
+            required = (
+                stored.product_id,
+                stored.product_name,
+                stored.offer_id,
+                stored.evidence_digest,
+                stored.quantity,
+                stored.unit_price,
+                stored.normalized_cost,
+                stored.preference_profile_id,
+                stored.preference_scope,
+                stored.preference_revision,
+                stored.premium_outcome,
+            )
+            if any(value is None for value in required):
+                if stored.product_id is not None and stored.product_name is not None:
+                    result = LegacyApprovalReadyResult(
+                        product_id=stored.product_id,
+                        product_name=stored.product_name,
+                        rationale=stored.rationale,
+                        trade_offs=("Authoritative evidence remains available.",),
+                        risk_flags=tuple(
+                            dict.fromkeys((*stored.risk_flags, "LEGACY_RECOMMENDATION"))
+                        ),
+                        uncertainty="This recommendation predates T27 validation.",
+                        evidence_limitations=(
+                            "Offer-level validation metadata is unavailable.",
+                        ),
+                        evidence=stored.evidence,
+                    )
+                else:
+                    result = ManualReviewResult(
+                        rationale=stored.rationale,
+                        trade_offs=("Authoritative evidence remains available.",),
+                        risk_flags=("LEGACY_RECOMMENDATION",),
+                        uncertainty="This recommendation predates T27 validation.",
+                        evidence_limitations=(
+                            "Offer-level validation metadata is unavailable.",
+                        ),
+                    )
+            else:
+                assert stored.product_id is not None
+                assert stored.product_name is not None
+                assert stored.offer_id is not None
+                assert stored.evidence_digest is not None
+                assert stored.quantity is not None
+                assert stored.unit_price is not None
+                assert stored.normalized_cost is not None
+                assert stored.preference_profile_id is not None
+                assert stored.preference_scope is not None
+                assert stored.preference_revision is not None
+                assert stored.premium_outcome is not None
+                result = ApprovalReadyResult(
+                    product_id=stored.product_id,
+                    product_name=stored.product_name,
+                    offer_id=stored.offer_id,
+                    rationale=stored.rationale,
+                    trade_offs=stored.trade_offs,
+                    risk_flags=stored.risk_flags,
+                    uncertainty=stored.uncertainty,
+                    evidence_limitations=stored.evidence_limitations,
+                    evidence_digest=stored.evidence_digest,
+                    quantity=stored.quantity,
+                    unit_price=stored.unit_price,
+                    normalized_cost=stored.normalized_cost,
+                    budget_status=stored.budget_status,
+                    preference_profile_id=stored.preference_profile_id,
+                    preference_scope=stored.preference_scope,
+                    preference_revision=stored.preference_revision,
+                    priority_order=stored.priority_order,
+                    premium_outcome=stored.premium_outcome,
+                    evidence=stored.evidence,
+                )
         error = (
             ScanFailure(
                 error_code=ErrorCode(record.error.error_code),
