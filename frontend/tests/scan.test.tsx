@@ -167,9 +167,6 @@ describe("ScanPage", () => {
     expect(screen.getByText("14-day inventory projection")).toBeInTheDocument();
     expect(screen.getByRole("table")).toBeInTheDocument();
 
-    await user.click(
-      screen.getByText("Applied preferences", { selector: "summary > span" }),
-    );
     expect(
       screen.getByRole("heading", { name: "Applied preferences" }),
     ).toBeInTheDocument();
@@ -194,6 +191,14 @@ describe("ScanPage", () => {
     expect(summary).toHaveTextContent("1 eligible offer");
     expect(summary).toHaveTextContent("$437.50");
     expect(summary).toHaveTextContent("Within budget");
+    const reasoning = screen.getByRole("region", { name: "AI reasoning" });
+    expect(reasoning).toHaveTextContent("Validated against evidence");
+    expect(reasoning).toHaveTextContent("Key trade-offs");
+    expect(reasoning).toHaveTextContent("Risks and limitations");
+
+    expect(
+      screen.getByRole("region", { name: "Evidence details" }),
+    ).toBeInTheDocument();
 
     const inventory = screen
       .getByText("View daily values")
@@ -306,16 +311,13 @@ describe("ScanPage", () => {
   });
 
   it("presents applied preferences as ordered policy information", async () => {
-    const user = userEvent.setup();
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(BASE_SCAN)));
 
     render(<ScanPage scanId="scan-101" onBack={vi.fn()} />);
 
-    await user.click(
-      await screen.findByText("Applied preferences", {
-        selector: "summary > span",
-      }),
-    );
+    await screen.findByText("Applied preferences", {
+      selector: "summary > span",
+    });
 
     expect(screen.getByText("Product scope")).toBeInTheDocument();
     expect(
