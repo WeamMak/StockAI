@@ -78,7 +78,7 @@ class ScanSnapshot:
     started_at: datetime | None
     completed_at: datetime | None
     evidence: tuple[ProcurementEvidence, ...]
-    result: ApprovalReadyResult | ManualReviewResult | None
+    result: ApprovalReadyResult | LegacyApprovalReadyResult | ManualReviewResult | None
     error: ScanFailure | None
 
 
