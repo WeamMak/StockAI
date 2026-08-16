@@ -36,7 +36,7 @@ images:
     digest: sha256:609a763540dad08ef907fb4412f412f748b02e1ea6a66af0f392117541345d01
   - name: stockai/odoo
     newName: docker.io/weammakhoul/stockai-odoo
-    digest: sha256:75cd5bdb4abb04244ca5d3a334c2c7e60ec9972c2c98f63310adeb27298c0965
+    digest: sha256:61050671c7ae00a86029206314f805204f71e09dcc6a007b6e60ac4b5d341b3c
 
 replacements:
   - source:
