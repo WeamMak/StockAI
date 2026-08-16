@@ -212,20 +212,20 @@ def test_seed_and_verification_are_stable_across_reruns(
         for reference in references.values()
     )
     assert set(scenarios) == {
-        "happy",
+        "no-replenishment",
         "no-valid-offer",
-        "over-budget",
-        "receipt-return",
+        "three-eligible",
+        "two-eligible",
     }
-    for key, minimum in {
-        "budgets": 2,
-        "open_purchase_orders": 2,
-        "completed_receipts": 1,
-        "returns": 1,
-    }.items():
-        value = counts[key]
-        assert isinstance(value, int)
-        assert value >= minimum
+    assert first["scenario_outcomes"] == {
+        "no-replenishment": "skipped",
+        "three-eligible": "llm_safe_set_3",
+        "two-eligible": "llm_safe_set_2",
+        "no-valid-offer": "no_valid_offer",
+    }
+    assert counts["active_products"] == 4
+    assert counts["offers"] == 12
+    assert first["offers_per_product"] == 3
 
 
 __all__ = ["running_odoo_contract"]
