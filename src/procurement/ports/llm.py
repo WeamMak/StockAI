@@ -9,7 +9,7 @@ from enum import StrEnum
 from typing import Protocol
 
 from procurement.domain.identifiers import Environment
-from procurement.domain.policy.evidence import ProcurementEvidence
+from procurement.domain.policy.evidence import OfferEvidence, ProcurementEvidence
 from procurement.domain.policy.preferences import AppliedPreferences
 from procurement.ports.mcp import ReplenishmentCandidate
 
@@ -23,6 +23,31 @@ class RecommendationDecision(StrEnum):
 
     RECOMMEND = "recommend"
     MANUAL_REVIEW = "manual_review"
+
+
+def required_risk_flags(
+    evidence: ProcurementEvidence,
+    offer: OfferEvidence,
+) -> tuple[str, ...]:
+    """Return application-owned warnings the model must acknowledge."""
+
+    flags: set[str] = set()
+    if evidence.budget is None:
+        flags.add("BUDGET_UNAVAILABLE")
+    elif evidence.budget.exception_required:
+        flags.add("BUDGET_EXCEPTION_REQUIRED")
+    if offer.performance.history_status == "limited":
+        flags.add("LIMITED_VENDOR_HISTORY")
+    preferences = evidence.preferences
+    if preferences is not None:
+        premium = next(
+            result
+            for result in preferences.offer_results
+            if result.offer_id == offer.offer_id
+        )
+        if premium.outcome == "advisory_exceeded":
+            flags.add("ADVISORY_PREMIUM_EXCEEDED")
+    return tuple(sorted(flags))
 
 
 @dataclass(frozen=True, slots=True)

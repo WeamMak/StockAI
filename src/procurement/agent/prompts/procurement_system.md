@@ -83,12 +83,15 @@ evidence requires it.
 
 # Structured output
 
-Return only one JSON object matching the provided JSON Schema. Use `recommend`
-only with one supplied eligible offer identifier; otherwise use `manual_review`
-and no selected or copied offer fields. Copy the evidence identifier, evidence
-digest, quantity, unit price, normalized cost, budget status, preference
-identity and revision, priority order, and premium outcome exactly. Do not add
-fields, prose, Markdown, or tool calls outside the JSON object.
+Return only one flat JSON object matching the provided JSON Schema. Set the
+top-level `decision` field to `recommend` only with one supplied eligible offer
+identifier; otherwise set it to `manual_review` and use no selected or copied
+offer fields. Never create a field or wrapper named `recommend` or
+`manual_review`. Copy every field from the selected offer's application-generated
+`recommendation_fields` object to the matching top-level output field exactly;
+this includes `required_risk_flags` as `risk_flags`, evidence identity, quantity,
+price, cost, budget, preference, priority, and premium fields. Do not add fields,
+prose, Markdown, or tool calls outside the JSON object.
 
 # Concise explanation
 

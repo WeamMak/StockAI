@@ -83,4 +83,17 @@ async def test_injection_like_business_text_remains_delimited_untrusted_data() -
     assert '"profile_id":"preference-1"' in user_text
     assert '"revision":1' in user_text
     assert '"offer_id":"offer-101"' in user_text
+    assert '"required_risk_flags":["LIMITED_VENDOR_HISTORY"]' in user_text
+    assert '"recommendation_fields":{' in user_text
+    assert '"priority_order":["reliability","delivery","price"]' in user_text
+    assert '"top_level_decision_field":"decision"' in user_text
     assert '"status":"rejected"' not in user_text
+
+
+def test_system_prompt_requires_one_flat_decision_object() -> None:
+    prompt = load_procurement_system_prompt()
+
+    assert "top-level `decision` field" in prompt
+    assert "Never create a field or wrapper named `recommend`" in prompt
+    assert "application-generated" in prompt
+    assert "`required_risk_flags` as `risk_flags`" in prompt
