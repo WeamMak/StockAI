@@ -9,6 +9,8 @@ from botocore.exceptions import ClientError  # type: ignore[import-untyped]
 
 from procurement.bootstrap.cognito import (
     CognitoBootstrapSettings,
+    CognitoSmokeUserSettings,
+    bootstrap_smoke_user,
     bootstrap_users,
 )
 
@@ -27,7 +29,9 @@ class StatefulCognitoAdmin:
         self.groups: set[str] = set()
         self.users: set[str] = set()
         self.create_user_requests: list[dict[str, Any]] = []
+        self.password_requests: list[dict[str, Any]] = []
         self.memberships: list[tuple[str, str]] = []
+        self.removals: list[tuple[str, str]] = []
 
     def describe_user_pool(self, **request: Any) -> dict[str, Any]:
         return {
@@ -60,6 +64,14 @@ class StatefulCognitoAdmin:
 
     def admin_add_user_to_group(self, **request: Any) -> dict[str, Any]:
         self.memberships.append((str(request["Username"]), str(request["GroupName"])))
+        return {}
+
+    def admin_set_user_password(self, **request: Any) -> dict[str, Any]:
+        self.password_requests.append(request)
+        return {}
+
+    def admin_remove_user_from_group(self, **request: Any) -> dict[str, Any]:
+        self.removals.append((str(request["Username"]), str(request["GroupName"])))
         return {}
 
 
@@ -121,3 +133,37 @@ def test_bootstrap_refuses_a_pool_with_self_service_signup() -> None:
 
     assert client.groups == set()
     assert client.users == set()
+
+
+def test_smoke_user_bootstrap_is_idempotent_permanent_and_officer_only(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    client = StatefulCognitoAdmin()
+    settings = CognitoSmokeUserSettings(
+        user_pool_id="us-east-1_fictional",
+        username="prod-smoke-officer",
+        email="prod-smoke@example.invalid",
+        password="Smoke-Fictional-Password-42!",
+    )
+
+    bootstrap_smoke_user(settings, client=client)
+    bootstrap_smoke_user(settings, client=client)
+
+    assert client.users == {"prod-smoke-officer"}
+    assert len(client.create_user_requests) == 1
+    assert set(client.memberships) == {
+        ("prod-smoke-officer", "stockai-procurement-officer")
+    }
+    assert set(client.removals) == {
+        ("prod-smoke-officer", "stockai-procurement-manager")
+    }
+    assert len(client.password_requests) == 2
+    assert all(request["Permanent"] is True for request in client.password_requests)
+    assert all(
+        request["Password"] == "Smoke-Fictional-Password-42!"
+        for request in client.password_requests
+    )
+    assert settings.password not in repr(settings)
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""

@@ -141,6 +141,11 @@ def test_rotation_uses_finite_tokens_without_disclosing_the_command() -> None:
     assert "set -x" not in script
     assert 'echo "$join_command"' not in script
     assert "StandardOutput=journal" in service
+    assert "StartLimitIntervalSec=120" in service
+    assert "StartLimitBurst=5" in service
+    assert "Restart=on-failure" in service
+    assert "RestartSec=15s" in service
+    assert "OnBootSec=1min" in timer
     assert "OnUnitActiveSec=12h" in timer
     assert "Persistent=true" in timer
 

@@ -3,12 +3,15 @@ Description=Rotate the finite StockAI kubeadm worker join token
 After=network-online.target kubelet.service
 Wants=network-online.target
 ConditionPathExists=/etc/kubernetes/admin.conf
+StartLimitIntervalSec=120
+StartLimitBurst=5
 
 [Service]
 Type=oneshot
 EnvironmentFile=/etc/stockai/cluster-bootstrap
 ExecStart=/usr/local/sbin/stockai-rotate-join-token
+Restart=on-failure
+RestartSec=15s
 UMask=0077
 StandardOutput=journal
 StandardError=journal
-

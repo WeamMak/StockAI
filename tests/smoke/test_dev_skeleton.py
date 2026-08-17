@@ -16,6 +16,17 @@ from scripts.release.verify_manifest import IMAGE_NAMES, load_manifest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 TERMINAL_STATUSES = {"succeeded", "failed"}
+METRIC_QUERIES = (
+    'sum(procurement_llm_calls_total{status="success"})',
+    'sum(procurement_agent_mcp_calls_total{status="success"})',
+    'sum(procurement_agent_mcp_calls_total{tool="get_procurement_preferences",status="success"})',
+    'sum(procurement_mcp_tool_calls_total{status="success"})',
+    'sum(procurement_odoo_calls_total{status="success"})',
+)
+EXPECTED_METRIC_JOBS = {"stockai-agent-api", "stockai-procurement-mcp"}
+TARGET_HEALTH_QUERY = (
+    'min by (job) (up{job=~"stockai-agent-api|stockai-procurement-mcp"})'
+)
 
 
 def _required(name: str, *, environment: str) -> str:
@@ -151,19 +162,37 @@ def _grafana_query(
     return payload
 
 
-def _metric_has_value(payload: dict[str, Any]) -> bool:
+def _metric_total(payload: dict[str, Any]) -> float:
     results = payload.get("data", {}).get("result", [])
-    return any(float(result["value"][1]) > 0 for result in results)
+    return sum(float(result["value"][1]) for result in results)
 
 
-def _wait_for_metrics(client: httpx.Client, queries: tuple[str, ...]) -> None:
-    deadline = time.monotonic() + 90
-    missing = set(queries)
+def _targets_are_up(payload: dict[str, Any]) -> bool:
+    results = payload.get("data", {}).get("result", [])
+    jobs = {
+        str(result.get("metric", {}).get("job")): float(result["value"][1])
+        for result in results
+    }
+    return set(jobs) == EXPECTED_METRIC_JOBS and all(
+        value == 1 for value in jobs.values()
+    )
+
+
+def _wait_for_metric_deltas(
+    client: httpx.Client,
+    baselines: dict[str, float],
+    *,
+    timeout_seconds: float = 90,
+    poll_seconds: float = 5,
+) -> None:
+    deadline = time.monotonic() + timeout_seconds
+    missing = set(baselines)
+    targets_up = False
     while time.monotonic() < deadline:
         missing = {
             query
-            for query in queries
-            if not _metric_has_value(
+            for query, baseline in baselines.items()
+            if _metric_total(
                 _grafana_query(
                     client,
                     "stockai-prometheus",
@@ -171,11 +200,23 @@ def _wait_for_metrics(client: httpx.Client, queries: tuple[str, ...]) -> None:
                     {"query": query},
                 )
             )
+            <= baseline
         }
-        if not missing:
+        targets_up = _targets_are_up(
+            _grafana_query(
+                client,
+                "stockai-prometheus",
+                "api/v1/query",
+                {"query": TARGET_HEALTH_QUERY},
+            )
+        )
+        if not missing and targets_up:
             return
-        time.sleep(5)
-    raise AssertionError(f"missing expected live metric series: {sorted(missing)}")
+        time.sleep(poll_seconds)
+    raise AssertionError(
+        "missing current-run metric deltas: "
+        f"{sorted(missing)}; all application targets up: {targets_up}"
+    )
 
 
 def _wait_for_logs(
@@ -235,6 +276,25 @@ def run_exact_walking_skeleton(environment: str) -> None:
         f"STOCKAI_{upper_environment}_CSRF_TOKEN", environment=environment
     )
     started_at = datetime.now(UTC)
+    grafana_password = _grafana_password(environment)
+    with httpx.Client(
+        base_url=f"https://grafana.{environment}.stockai.fursa.click",
+        auth=("admin", grafana_password),
+        timeout=30,
+    ) as grafana:
+        health = grafana.get("/api/health")
+        health.raise_for_status()
+        metric_baselines = {
+            query: _metric_total(
+                _grafana_query(
+                    grafana,
+                    "stockai-prometheus",
+                    "api/v1/query",
+                    {"query": query},
+                )
+            )
+            for query in METRIC_QUERIES
+        }
     cookies = {
         "stockai_session": session_token,
         "stockai_csrf": csrf_token,
@@ -320,7 +380,6 @@ def run_exact_walking_skeleton(environment: str) -> None:
     )["Items"]
     assert checkpoints
 
-    grafana_password = _grafana_password(environment)
     with httpx.Client(
         base_url=f"https://grafana.{environment}.stockai.fursa.click",
         auth=("admin", grafana_password),
@@ -328,16 +387,7 @@ def run_exact_walking_skeleton(environment: str) -> None:
     ) as grafana:
         health = grafana.get("/api/health")
         health.raise_for_status()
-        _wait_for_metrics(
-            grafana,
-            (
-                'increase(procurement_llm_calls_total{status="success"}[10m])',
-                'increase(procurement_agent_mcp_calls_total{status="success"}[10m])',
-                'increase(procurement_agent_mcp_calls_total{tool="get_procurement_preferences",status="success"}[10m])',
-                'increase(procurement_mcp_tool_calls_total{status="success"}[10m])',
-                'increase(procurement_odoo_calls_total{status="success"}[10m])',
-            ),
-        )
+        _wait_for_metric_deltas(grafana, metric_baselines)
         logs = _wait_for_logs(
             grafana,
             environment=environment,

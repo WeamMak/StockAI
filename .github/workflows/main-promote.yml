@@ -9,6 +9,8 @@ on:
       - deploy/kubernetes/cluster/argocd/prod-application.yaml
       - scripts/release/**
       - scripts/smoke/prod.sh
+      - scripts/smoke/authenticated_prod.py
+      - src/procurement/bootstrap/cognito.py
       - tests/smoke/test_prod_skeleton.py
       - .github/workflows/main-promote.yml
 
@@ -41,6 +43,9 @@ jobs:
         with:
           kustomize-version: "5.8.0"
 
+      - name: Install pinned headless Chromium
+        run: uv run --frozen playwright install --with-deps chromium
+
       - name: Configure keyless AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
         with:
@@ -69,9 +74,11 @@ jobs:
 
       - name: Run public exact-release prod smoke
         env:
-          STOCKAI_PROD_SESSION_TOKEN: ${{ secrets.STOCKAI_PROD_SESSION_TOKEN }}
-          STOCKAI_PROD_CSRF_TOKEN: ${{ secrets.STOCKAI_PROD_CSRF_TOKEN }}
-        run: make smoke-prod
+          STOCKAI_PROD_COGNITO_USER_POOL_ID: ${{ secrets.STOCKAI_PROD_COGNITO_USER_POOL_ID }}
+          STOCKAI_PROD_SMOKE_USERNAME: ${{ secrets.STOCKAI_PROD_SMOKE_USERNAME }}
+          STOCKAI_PROD_SMOKE_EMAIL: ${{ secrets.STOCKAI_PROD_SMOKE_EMAIL }}
+          STOCKAI_PROD_SMOKE_PASSWORD: ${{ secrets.STOCKAI_PROD_SMOKE_PASSWORD }}
+        run: uv run --frozen python -m scripts.smoke.authenticated_prod
 
       - name: Retain sanitized prod smoke evidence
         if: always()
