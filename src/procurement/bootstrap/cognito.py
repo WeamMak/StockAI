@@ -29,6 +29,10 @@ class CognitoAdminClient(Protocol):
 
     def admin_add_user_to_group(self, **request: Any) -> Mapping[str, Any]: ...
 
+    def admin_remove_user_from_group(self, **request: Any) -> Mapping[str, Any]: ...
+
+    def admin_set_user_password(self, **request: Any) -> Mapping[str, Any]: ...
+
 
 @dataclass(frozen=True, slots=True)
 class CognitoBootstrapSettings:
@@ -100,6 +104,27 @@ class CognitoBootstrapSettings:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class CognitoSmokeUserSettings:
+    """Dedicated least-privilege identity for the protected live smoke."""
+
+    user_pool_id: str
+    username: str
+    email: str
+    password: str = field(repr=False)
+
+    def __post_init__(self) -> None:
+        for name, value, limit in (
+            ("user pool ID", self.user_pool_id, 256),
+            ("username", self.username, 128),
+            ("email", self.email, 320),
+        ):
+            if not value or len(value) > limit or not value.isascii():
+                raise ValueError(f"Cognito smoke user {name} is invalid")
+        if not 12 <= len(self.password) <= 256:
+            raise ValueError("Cognito smoke user password is invalid")
+
+
 def create_cognito_admin_client(*, region: str) -> CognitoAdminClient:
     client = boto3.client(
         "cognito-idp",
@@ -157,6 +182,51 @@ def bootstrap_users(
         UserPoolId=settings.user_pool_id,
         Username=settings.manager_username,
         GroupName=MANAGER_GROUP,
+    )
+
+
+def bootstrap_smoke_user(
+    settings: CognitoSmokeUserSettings,
+    *,
+    client: CognitoAdminClient,
+) -> None:
+    """Reconcile one permanent officer-only smoke identity without output."""
+
+    pool = client.describe_user_pool(UserPoolId=settings.user_pool_id).get(
+        "UserPool",
+        {},
+    )
+    admin_config = (
+        pool.get("AdminCreateUserConfig", {}) if isinstance(pool, Mapping) else {}
+    )
+    if not isinstance(admin_config, Mapping) or not admin_config.get(
+        "AllowAdminCreateUserOnly"
+    ):
+        raise RuntimeError("Cognito self-service signup must be disabled")
+
+    _ensure_group(client, user_pool_id=settings.user_pool_id, group=OFFICER_GROUP)
+    _ensure_user(
+        client,
+        user_pool_id=settings.user_pool_id,
+        username=settings.username,
+        email=settings.email,
+        temporary_password=settings.password,
+    )
+    client.admin_set_user_password(
+        UserPoolId=settings.user_pool_id,
+        Username=settings.username,
+        Password=settings.password,
+        Permanent=True,
+    )
+    client.admin_remove_user_from_group(
+        UserPoolId=settings.user_pool_id,
+        Username=settings.username,
+        GroupName=MANAGER_GROUP,
+    )
+    client.admin_add_user_to_group(
+        UserPoolId=settings.user_pool_id,
+        Username=settings.username,
+        GroupName=OFFICER_GROUP,
     )
 
 

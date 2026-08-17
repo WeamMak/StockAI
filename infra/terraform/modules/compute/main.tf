@@ -7,6 +7,28 @@ locals {
       subnet_id             = var.worker_subnet_ids[environment]
     }
   }
+  worker_shutdown_schedules = {
+    dev_afternoon = {
+      environment = "dev"
+      name        = "afternoon"
+      recurrence  = "45 15 * * *"
+    }
+    dev_night = {
+      environment = "dev"
+      name        = "night"
+      recurrence  = "45 23 * * *"
+    }
+    prod_afternoon = {
+      environment = "prod"
+      name        = "afternoon"
+      recurrence  = "45 15 * * *"
+    }
+    prod_night = {
+      environment = "prod"
+      name        = "night"
+      recurrence  = "45 23 * * *"
+    }
+  }
 }
 
 resource "aws_instance" "control_plane" {
@@ -167,4 +189,16 @@ resource "aws_autoscaling_group" "worker" {
     propagate_at_launch = true
     value               = var.owner_name
   }
+}
+
+resource "aws_autoscaling_schedule" "worker_shutdown" {
+  for_each = local.worker_shutdown_schedules
+
+  autoscaling_group_name = aws_autoscaling_group.worker[each.value.environment].name
+  desired_capacity       = 0
+  max_size               = 3
+  min_size               = 0
+  recurrence             = each.value.recurrence
+  scheduled_action_name  = "${var.cluster_name}-${each.value.environment}-worker-shutdown-${each.value.name}"
+  time_zone              = "Asia/Jerusalem"
 }

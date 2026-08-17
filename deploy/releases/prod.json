@@ -1,55 +1,55 @@
 {
-  "applicationIdentity": "sha256:4934d2919cb0ac5c33d3fc1dc89bed40e66321842b63ab7b734f3009d6408ba3",
+  "applicationIdentity": "sha256:9d5514d2e1c23201f0137eaa695626b1d8418d5e73fad00aeb93e8cd8c642d65",
   "buildInputs": {
-    "api": "sha256:a28fa78c357982151eb21b2c3cd22b80661f8247dfae9fe136e00a5fde038c09",
+    "api": "sha256:24f5f7df3ae723ae3f68c60e5be4e0edba7458d7ec169b0c5b142eebf3d10eff",
     "frontend": "sha256:34953f4b40e15ba2d633a8e20b29548eeab98a74ef46d20e0cf83c6fd782f275",
-    "mcp": "sha256:f327103101c40c142fa0e4db2b8b3ef8d46f47096a2e06e78774057ce7a63221",
+    "mcp": "sha256:5bfec9494748b8c3144902f8232fcc4d7223addbc45cecf765599c7b90f6b5de",
     "odoo": "sha256:d7d3b94a06be1dc7a47d8085d57226c66e0280d7fe3e1ca6f2f67442048b721c"
   },
-  "createdAt": "2026-08-16T08:19:56Z",
+  "createdAt": "2026-08-17T17:20:03Z",
   "devValidation": {
     "attempts": [
       {
-        "argoRevision": "4a3b8aa7d783e03509544401d009f30ef77938ec",
-        "evidenceDigest": "sha256:7a37b245f500b86770d3e45ddb2456e6e7fb7fc6c00052426a1acccb1b247e2c",
+        "argoRevision": "c3f0dd8a01d8dc687437bf69c0a4db04f31a4b11",
+        "evidenceDigest": "sha256:400f143f68ccd650da4e9a0e5260311ad8f5ed5d563d536a4332ebb6389c5913",
         "images": {
-          "api": "sha256:8461a9227d08af7cfb4a866fd67d95ed8dbfa2a28259220b3e2dd9c38bd5024a",
+          "api": "sha256:7dd46f67ec9b68d30c3e0275828c9fc26266f15c66dab64556d460fdde77d045",
           "frontend": "sha256:c1d8d006afd4b25d72609fa7d08efd6b244c31c5138750aa2d3770b7dfc22934",
-          "mcp": "sha256:609a763540dad08ef907fb4412f412f748b02e1ea6a66af0f392117541345d01",
+          "mcp": "sha256:c729e00e31ad3b53e2d73f9a39dbd9f18a8d4d49fcfc22d248bbb3874c1992cd",
           "odoo": "sha256:61050671c7ae00a86029206314f805204f71e09dcc6a007b6e60ac4b5d341b3c"
         },
-        "releaseId": "sha256:028b9b053a1a1271d3c6af79c49c435067de5d6a072204b235306d684ff80960",
+        "releaseId": "sha256:9f0c26d944dd3ff04019b994700310109965f70503815109b5f80f6d562fc53f",
         "result": "passed",
-        "smokeRunId": "dev-smoke-20260816T092556Z",
-        "timestamp": "2026-08-16T09:26:39Z"
+        "smokeRunId": "dev-smoke-20260817T172657Z",
+        "timestamp": "2026-08-17T17:27:30Z"
       }
     ],
     "status": "passed"
   },
   "images": {
-    "api": "sha256:8461a9227d08af7cfb4a866fd67d95ed8dbfa2a28259220b3e2dd9c38bd5024a",
+    "api": "sha256:7dd46f67ec9b68d30c3e0275828c9fc26266f15c66dab64556d460fdde77d045",
     "frontend": "sha256:c1d8d006afd4b25d72609fa7d08efd6b244c31c5138750aa2d3770b7dfc22934",
-    "mcp": "sha256:609a763540dad08ef907fb4412f412f748b02e1ea6a66af0f392117541345d01",
+    "mcp": "sha256:c729e00e31ad3b53e2d73f9a39dbd9f18a8d4d49fcfc22d248bbb3874c1992cd",
     "odoo": "sha256:61050671c7ae00a86029206314f805204f71e09dcc6a007b6e60ac4b5d341b3c"
   },
   "integrity": {
     "algorithm": "sha256",
-    "digest": "sha256:fba04d5cbdfae3d943788281efed8007a6845a62a13552603baf8a28997358ce"
+    "digest": "sha256:c7e21d0feda4379f1b47033c7682ea5a57371308630eb49349fd278065910eb5"
   },
   "provenance": {
-    "api": "sha256:4ee06a898ddb6f2a301bd56f0c45ee7eae02881de4637725aad7e5cee60e8ec2",
+    "api": "sha256:93b088cc81cb3f33b8140b67fafef1f44c0bc365bad1f50b293af678c4922e91",
     "frontend": "sha256:62bac355366e7b1cb72cdf810304ec289ee05c1ab454f5145251019996c88f58",
-    "mcp": "sha256:9804eafbf6245c6025c2cbdf585abb9380e8b8a13e6a4d9c9b5600f5cc4492ef",
+    "mcp": "sha256:5a99a5ce9a050b61a9e373b27aa7296d23c7e954f70cae5467a0237614709df7",
     "odoo": "sha256:cadfdff0e276c0a4fb48e8e9758a3573dbe80b0b885072c516cb034e85279fd5"
   },
-  "releaseId": "sha256:028b9b053a1a1271d3c6af79c49c435067de5d6a072204b235306d684ff80960",
+  "releaseId": "sha256:9f0c26d944dd3ff04019b994700310109965f70503815109b5f80f6d562fc53f",
   "schemaVersion": 1,
   "scout": {
-    "reportDigest": "sha256:8f5374330cd9f1a33363284f3e925e41e59a69f8e92fa0f9925703ebf9cf8134",
+    "reportDigest": "sha256:6e69b577af33a0538e4b0d6c40867193fc62537f603612851b589b8c32ca0469",
     "status": "findings"
   },
   "source": {
-    "commit": "5d4fc2603f0fe9bfd2aa0f4fc0cb70b893d6334e",
-    "tree": "7a3026d0efbe73c4a0ed2de198e56cc523746a9b"
+    "commit": "7c5ae12ca733422736c4ca0c80b3687e094ea18c",
+    "tree": "7da9d4dc6365147d8b7c884fd746d6835c15b4a0"
   }
 }

@@ -511,7 +511,6 @@ metadata:
 spec:
   activeDeadlineSeconds: 300
   backoffLimit: 6
-  ttlSecondsAfterFinished: 86400
   template:
     metadata:
       labels:
@@ -709,6 +708,7 @@ metadata:
 spec:
   schedule: "0 5 * * *"
   timeZone: UTC
+  startingDeadlineSeconds: 300
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 1
   failedJobsHistoryLimit: 2

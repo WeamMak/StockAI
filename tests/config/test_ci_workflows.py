@@ -304,7 +304,16 @@ def test_main_promotion_verifies_observes_and_smokes_without_rebuild() -> None:
     assert "--promoted-from" in source
     assert "+refs/heads/dev:refs/remotes/origin/dev" in source
     assert "scripts.release.observe_argocd" in source
-    assert "make smoke-prod" in source
+    assert "playwright install --with-deps chromium" in source
+    assert "python -m scripts.smoke.authenticated_prod" in source
+    assert "STOCKAI_PROD_COGNITO_USER_POOL_ID" in source
+    assert "STOCKAI_PROD_SMOKE_USERNAME" in source
+    assert "STOCKAI_PROD_SMOKE_EMAIL" in source
+    assert "STOCKAI_PROD_SMOKE_PASSWORD" in source
+    assert "STOCKAI_PROD_SESSION_TOKEN" not in source
+    assert "STOCKAI_PROD_CSRF_TOKEN" not in source
+    assert "screenshot" not in source.lower()
+    assert "trace" not in source.lower()
     assert "AWS_TERRAFORM_APPLY_ROLE_ARN" in source
     for forbidden in (
         "docker build",

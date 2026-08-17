@@ -98,6 +98,17 @@ Do not stop an ASG-managed worker instance directly: its ASG will replace it.
 The supported inactive worker state is `min = 0`, `desired = 0`, `max = 3` in
 the T16 platform root.
 
+Terraform schedules both worker ASGs to enter that inactive state at **15:45**
+and **23:45 Asia/Jerusalem**, 15 minutes before the staff shutdown windows. The
+existing termination lifecycle hook drains and deletes each worker Node while
+the control plane is still available, allowing retained volumes to detach.
+Later staff capacity changes to the same `0/0/3` state are harmless. Startup is
+not scheduled: start the control plane and restore worker capacity manually as
+described below.
+
+The schedule cannot protect against an earlier or simultaneous shutdown. Use
+the recovery checks in this runbook after any uncoordinated interruption.
+
 After T18A/T18B bootstrap and termination cleanup are deployed and healthy:
 
 1. Confirm there is no scan, approval, Odoo write, bootstrap Job, rollout, or
