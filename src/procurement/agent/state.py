@@ -77,6 +77,22 @@ class UnresolvedResult:
 
 
 @dataclass(frozen=True, slots=True)
+class NoValidOfferResult:
+    """A candidate correctly evaluated with zero eligible vendor offers."""
+
+    product_id: str
+    product_name: str
+    rationale: str
+    evidence_limitations: tuple[str, ...] = ()
+
+    @property
+    def read_only(self) -> bool:
+        """No draft can be created without an eligible offer."""
+
+        return True
+
+
+@dataclass(frozen=True, slots=True)
 class ManualReviewResult:
     """Safe deterministic comparison when model judgment cannot be accepted."""
 
@@ -97,6 +113,7 @@ ScanResult = (
     ApprovalReadyResult
     | LegacyApprovalReadyResult
     | ManualReviewResult
+    | NoValidOfferResult
     | UnresolvedResult
 )
 
