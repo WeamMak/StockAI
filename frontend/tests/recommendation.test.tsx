@@ -499,9 +499,17 @@ describe("RecommendationPage", () => {
 
     render(<RecommendationPage scanId="scan-101" onBack={vi.fn()} />);
 
+    const summary = await screen.findByRole("region", {
+      name: "Recommendation summary",
+    });
+    expect(summary).toHaveTextContent("Manual review");
+    expect(summary).toHaveTextContent("No draft created");
     expect(
-      await screen.findByRole("region", { name: "Manual review summary" }),
-    ).toHaveTextContent("No draft created");
+      screen.getByRole("heading", { name: "Compare eligible offers" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Contextual model judgment could not be safely accepted."),
+    ).toBeInTheDocument();
     expect(screen.getByText("Compare the eligible offers manually.")).toBeInTheDocument();
     expect(
       screen.queryByRole("heading", { name: "Deterministic procurement evidence" }),
