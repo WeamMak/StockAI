@@ -125,6 +125,7 @@ class ScanRecord:
     started_at: UtcTimestamp | None = None
     completed_at: UtcTimestamp | None = None
     case_summaries: tuple[CaseSummary, ...] = ()
+    error: FailureRecord | None = None
 
 
 @dataclass(frozen=True, slots=True)

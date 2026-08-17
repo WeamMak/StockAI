@@ -651,11 +651,7 @@ class DynamoApplicationRepository(ApplicationRepository):
                             else {}
                         ),
                         **(
-                            {
-                                "need_by_date": {
-                                    "S": summary.need_by_date.isoformat()
-                                }
-                            }
+                            {"need_by_date": {"S": summary.need_by_date.isoformat()}}
                             if summary.need_by_date is not None
                             else {}
                         ),
@@ -664,6 +660,15 @@ class DynamoApplicationRepository(ApplicationRepository):
                 for summary in record.case_summaries
             ]
         }
+        if record.error is not None:
+            values["error"] = {
+                "M": {
+                    "error_code": {"S": record.error.error_code},
+                    "message": {"S": record.error.message},
+                    "retryable": {"BOOL": record.error.retryable},
+                    "retry_count": {"N": str(record.error.retry_count)},
+                }
+            }
         return values
 
     def _scan_from_item(self, item: Mapping[str, Any]) -> ScanRecord:
@@ -684,14 +689,13 @@ class DynamoApplicationRepository(ApplicationRepository):
                         else None
                     ),
                     need_by_date=(
-                        date.fromisoformat(
-                            self._string(summary_item, "need_by_date")
-                        )
+                        date.fromisoformat(self._string(summary_item, "need_by_date"))
                         if "need_by_date" in summary_item
                         else None
                     ),
                 )
             )
+        error_item = cast(Mapping[str, Any] | None, item.get("error", {}).get("M"))
         return ScanRecord(
             scan_id=ScanId(self._environment, self._string(item, "scan_id")),
             revision=Revision(self._number(item, "revision")),
@@ -702,6 +706,16 @@ class DynamoApplicationRepository(ApplicationRepository):
             started_at=self._optional_timestamp(item, "started_at"),
             completed_at=self._optional_timestamp(item, "completed_at"),
             case_summaries=tuple(summaries),
+            error=(
+                FailureRecord(
+                    error_code=self._string(error_item, "error_code"),
+                    message=self._string(error_item, "message"),
+                    retryable=bool(error_item["retryable"]["BOOL"]),
+                    retry_count=self._number(error_item, "retry_count"),
+                )
+                if error_item is not None
+                else None
+            ),
         )
 
     def _case_item(

@@ -29,9 +29,9 @@ class CaseEvidenceResponse(BaseModel):
 async def get_case(case_id: str, request: Request) -> CaseEvidenceResponse:
     """Return immutable deterministic evidence, including skipped reasons."""
 
-    snapshot = await scan_service_from(request).get_scan(case_id)
+    snapshot = await scan_service_from(request).get_case(case_id)
     return CaseEvidenceResponse(
-        case_id=snapshot.scan_id,
+        case_id=snapshot.case_id,
         status=snapshot.status.value,
         evidence=tuple(item.to_dict() for item in snapshot.evidence),
     )

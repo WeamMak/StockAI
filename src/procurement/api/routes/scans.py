@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Request, Response, status
@@ -12,13 +12,17 @@ from procurement.agent.state import (
     ApprovalReadyResult,
     LegacyApprovalReadyResult,
     ManualReviewResult,
+    NoValidOfferResult,
 )
 from procurement.api.auth.rbac import require_csrf, require_officer
 from procurement.api.services.scans import (
+    ScanAggregateSnapshot,
+    ScanFailure,
     ScanService,
     ScanSnapshot,
     ScanTrigger,
 )
+from procurement.domain.errors import DomainError, ErrorCode
 
 router = APIRouter(
     prefix="/api/v1/scans",
@@ -88,6 +92,37 @@ class ManualReviewResponse(BaseModel):
     read_only: Literal[True] = True
 
 
+class NoValidOfferResponse(BaseModel):
+    """A candidate correctly evaluated with zero eligible vendor offers."""
+
+    model_config = _RESPONSE_CONFIG
+
+    outcome: Literal["no_valid_offer"] = "no_valid_offer"
+    product_id: str
+    product_name: str
+    rationale: str
+    evidence_limitations: tuple[str, ...]
+    read_only: Literal[True] = True
+
+
+class ConfirmedResponse(BaseModel):
+    """Placeholder shape for a manager-confirmed purchase order.
+
+    No code path in this repository produces this outcome yet -- it
+    exists so a future manager-decision task only needs to start
+    returning it, with no API contract change required then.
+    """
+
+    model_config = _RESPONSE_CONFIG
+
+    outcome: Literal["confirmed"] = "confirmed"
+    product_id: str
+    product_name: str
+    po_reference: str
+    po_amount: str
+    read_only: Literal[True] = True
+
+
 class ScanErrorResponse(BaseModel):
     """Safe terminal failure returned by polling."""
 
@@ -99,12 +134,13 @@ class ScanErrorResponse(BaseModel):
     retry_count: int
 
 
-class ScanResponse(BaseModel):
-    """Public representation of one asynchronous scan."""
+class CaseResponse(BaseModel):
+    """Public representation of one case within a scan."""
 
     model_config = _RESPONSE_CONFIG
 
     scan_id: str
+    case_id: str
     status: str
     trigger: str
     created_at: datetime
@@ -115,8 +151,38 @@ class ScanResponse(BaseModel):
         ApprovalReadyResponse
         | LegacyApprovalReadyResponse
         | ManualReviewResponse
+        | NoValidOfferResponse
         | None
     )
+    error: ScanErrorResponse | None
+
+
+class CaseSummaryResponse(BaseModel):
+    """One case's result, enough to render a scan's results table."""
+
+    model_config = _RESPONSE_CONFIG
+
+    case_id: str
+    product_id: str
+    product_name: str
+    outcome: str
+    amount: str | None
+    need_by_date: date | None
+
+
+class ScanAggregateResponse(BaseModel):
+    """Public representation of one scan and every case it produced."""
+
+    model_config = _RESPONSE_CONFIG
+
+    scan_id: str
+    status: str
+    trigger: str
+    created_at: datetime
+    started_at: datetime | None
+    completed_at: datetime | None
+    results: tuple[CaseSummaryResponse, ...]
+    outcome_counts: dict[str, int]
     error: ScanErrorResponse | None
 
 
@@ -125,7 +191,7 @@ class ScanListResponse(BaseModel):
 
     model_config = _RESPONSE_CONFIG
 
-    scans: tuple[ScanResponse, ...]
+    scans: tuple[ScanAggregateResponse, ...]
 
 
 def scan_service_from(request: Request) -> ScanService:
@@ -135,13 +201,25 @@ def scan_service_from(request: Request) -> ScanService:
     return service
 
 
-def scan_response(snapshot: ScanSnapshot) -> ScanResponse:
-    """Map an internal snapshot to the filtered public response model."""
+def _error_response(error: ScanFailure | None) -> ScanErrorResponse | None:
+    if error is None:
+        return None
+    return ScanErrorResponse(
+        error_code=error.error_code.value,
+        message=error.message,
+        retryable=error.retryable,
+        retry_count=error.retry_count,
+    )
+
+
+def case_response(snapshot: ScanSnapshot) -> CaseResponse:
+    """Map an internal case snapshot to the filtered public response model."""
 
     result: (
         ApprovalReadyResponse
         | LegacyApprovalReadyResponse
         | ManualReviewResponse
+        | NoValidOfferResponse
         | None
     ) = None
     if isinstance(snapshot.result, ApprovalReadyResult):
@@ -183,18 +261,16 @@ def scan_response(snapshot: ScanSnapshot) -> ScanResponse:
             uncertainty=snapshot.result.uncertainty,
             evidence_limitations=snapshot.result.evidence_limitations,
         )
-    error = (
-        ScanErrorResponse(
-            error_code=snapshot.error.error_code.value,
-            message=snapshot.error.message,
-            retryable=snapshot.error.retryable,
-            retry_count=snapshot.error.retry_count,
+    elif isinstance(snapshot.result, NoValidOfferResult):
+        result = NoValidOfferResponse(
+            product_id=snapshot.result.product_id,
+            product_name=snapshot.result.product_name,
+            rationale=snapshot.result.rationale,
+            evidence_limitations=snapshot.result.evidence_limitations,
         )
-        if snapshot.error is not None
-        else None
-    )
-    return ScanResponse(
+    return CaseResponse(
         scan_id=snapshot.scan_id,
+        case_id=snapshot.case_id,
         status=snapshot.status.value,
         trigger=snapshot.trigger.value,
         created_at=snapshot.created_at,
@@ -202,7 +278,36 @@ def scan_response(snapshot: ScanSnapshot) -> ScanResponse:
         completed_at=snapshot.completed_at,
         evidence=tuple(item.to_dict() for item in snapshot.evidence),
         result=result,
-        error=error,
+        error=_error_response(snapshot.error),
+    )
+
+
+def scan_aggregate_response(snapshot: ScanAggregateSnapshot) -> ScanAggregateResponse:
+    """Map an internal scan snapshot to the filtered public response model."""
+
+    outcome_counts: dict[str, int] = {}
+    for row in snapshot.results:
+        outcome_counts[row.outcome] = outcome_counts.get(row.outcome, 0) + 1
+    return ScanAggregateResponse(
+        scan_id=snapshot.scan_id,
+        status=snapshot.status.value,
+        trigger=snapshot.trigger.value,
+        created_at=snapshot.created_at,
+        started_at=snapshot.started_at,
+        completed_at=snapshot.completed_at,
+        results=tuple(
+            CaseSummaryResponse(
+                case_id=row.case_id,
+                product_id=row.product_id,
+                product_name=row.product_name,
+                outcome=row.outcome,
+                amount=format(row.amount, "f") if row.amount is not None else None,
+                need_by_date=row.need_by_date,
+            )
+            for row in snapshot.results
+        ),
+        outcome_counts=outcome_counts,
+        error=_error_response(snapshot.error),
     )
 
 
@@ -211,12 +316,14 @@ def scan_response(snapshot: ScanSnapshot) -> ScanResponse:
     status_code=status.HTTP_202_ACCEPTED,
     dependencies=[Depends(require_csrf)],
 )
-async def create_manual_scan(request: Request, response: Response) -> ScanResponse:
+async def create_manual_scan(
+    request: Request, response: Response
+) -> ScanAggregateResponse:
     """Schedule an authorized manual scan without holding the request open."""
 
     snapshot = await scan_service_from(request).start_scan(trigger=ScanTrigger.MANUAL)
     response.headers["Location"] = f"/api/v1/scans/{snapshot.scan_id}"
-    return scan_response(snapshot)
+    return scan_aggregate_response(snapshot)
 
 
 @router.get("")
@@ -225,14 +332,26 @@ async def list_scans(request: Request) -> ScanListResponse:
 
     return ScanListResponse(
         scans=tuple(
-            scan_response(snapshot)
+            scan_aggregate_response(snapshot)
             for snapshot in await scan_service_from(request).list_scans()
         )
     )
 
 
 @router.get("/{scan_id}")
-async def get_scan(scan_id: str, request: Request) -> ScanResponse:
+async def get_scan(scan_id: str, request: Request) -> ScanAggregateResponse:
     """Return current progress or the terminal result for one scan."""
 
-    return scan_response(await scan_service_from(request).get_scan(scan_id))
+    return scan_aggregate_response(await scan_service_from(request).get_scan(scan_id))
+
+
+@router.get("/{scan_id}/cases/{case_id}")
+async def get_case(scan_id: str, case_id: str, request: Request) -> CaseResponse:
+    """Return one case's full detail, scoped to its owning scan."""
+
+    if not case_id.startswith(f"{scan_id}:"):
+        raise DomainError(
+            error_code=ErrorCode.VALIDATION_FAILED,
+            safe_message="The requested case was not found.",
+        )
+    return case_response(await scan_service_from(request).get_case(case_id))
