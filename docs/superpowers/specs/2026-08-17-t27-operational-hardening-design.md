@@ -1,6 +1,6 @@
 # T27 Operational Hardening Design
 
-**Status:** Approved in conversation on 2026-08-17; written review pending.
+**Status:** Approved in conversation and reviewed on 2026-08-17.
 
 ## Purpose and scope
 
@@ -137,4 +137,3 @@ hardening results truthfully. No unexecuted validation is reported as passed.
   pass using an earlier run; before/after counters directly prove this run.
 - Long-lived cookies and authentication bypasses are less secure than obtaining
   short-lived cookies through the real login flow.
-
