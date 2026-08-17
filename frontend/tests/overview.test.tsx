@@ -11,8 +11,8 @@ const QUEUED_SCAN = {
   created_at: "2026-08-05T10:00:00Z",
   started_at: null,
   completed_at: null,
-  evidence: [],
-  result: null,
+  results: [],
+  outcome_counts: {},
   error: null,
 };
 
@@ -21,29 +21,17 @@ const SUCCEEDED_SCAN = {
   scan_id: "scan-succeeded",
   status: "succeeded",
   completed_at: "2026-08-05T10:00:05Z",
-  result: {
-    outcome: "approval_ready",
-    validation_level: "t27",
-    product_id: "product-101",
-    product_name: "Fictional Safety Gloves",
-    offer_id: "offer-101",
-    rationale: "Replenishment is required.",
-    trade_offs: ["Reliable delivery is favored."],
-    risk_flags: [],
-    uncertainty: "No material uncertainty.",
-    evidence_limitations: [],
-    evidence_digest: `sha256:${"a".repeat(64)}`,
-    quantity: "35.000000",
-    unit_price: "12.500000",
-    normalized_cost: "437.500000",
-    budget_status: "within_budget",
-    preference_profile_id: "preference-3",
-    preference_scope: "product",
-    preference_revision: 6,
-    priority_order: ["price", "reliability", "delivery"],
-    premium_outcome: "within_cap",
-    read_only: true,
-  },
+  results: [
+    {
+      case_id: "scan-succeeded:product-101",
+      product_id: "product-101",
+      product_name: "Fictional Safety Gloves",
+      outcome: "approval_ready",
+      amount: "437.500000",
+      need_by_date: "2026-08-12",
+    },
+  ],
+  outcome_counts: { approval_ready: 1 },
 };
 
 const MANUAL_REVIEW_SCAN = {
@@ -51,15 +39,17 @@ const MANUAL_REVIEW_SCAN = {
   scan_id: "scan-manual-review",
   status: "succeeded",
   completed_at: "2026-08-05T10:00:07Z",
-  result: {
-    outcome: "manual_review",
-    rationale: "Compare eligible offers manually.",
-    trade_offs: ["Authoritative evidence remains available."],
-    risk_flags: ["LLM_OUTPUT_INVALID"],
-    uncertainty: "No validated model recommendation is available.",
-    evidence_limitations: ["The model response was invalid."],
-    read_only: true,
-  },
+  results: [
+    {
+      case_id: "scan-manual-review:product-102",
+      product_id: "product-102",
+      product_name: "Fictional Cable Ties",
+      outcome: "manual_review",
+      amount: null,
+      need_by_date: null,
+    },
+  ],
+  outcome_counts: { manual_review: 1 },
 };
 
 const FAILED_SCAN = {

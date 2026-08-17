@@ -6,6 +6,7 @@ import { RecommendationPage } from "../src/pages/RecommendationPage";
 
 const BASE_SCAN = {
   scan_id: "scan-101",
+  case_id: "scan-101:product-101",
   status: "succeeded",
   trigger: "manual",
   created_at: "2026-08-05T10:00:00Z",
@@ -152,7 +153,7 @@ describe("RecommendationPage", () => {
       ),
     );
 
-    render(<RecommendationPage scanId="scan-101" onBack={vi.fn()} />);
+    render(<RecommendationPage scanId="scan-101" caseId="scan-101:product-101" onBack={vi.fn()} />);
 
     expect(
       await screen.findByRole("heading", { name: "Deterministic procurement evidence" }),
@@ -170,7 +171,7 @@ describe("RecommendationPage", () => {
     });
     vi.stubGlobal("fetch", vi.fn().mockReturnValue(request));
 
-    render(<RecommendationPage scanId="scan-101" onBack={vi.fn()} />);
+    render(<RecommendationPage scanId="scan-101" caseId="scan-101:product-101" onBack={vi.fn()} />);
 
     expect(screen.getByRole("status")).toHaveTextContent("Loading scan");
     resolveRequest?.(jsonResponse(BASE_SCAN));
@@ -207,7 +208,7 @@ describe("RecommendationPage", () => {
     const user = userEvent.setup();
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(BASE_SCAN)));
 
-    render(<RecommendationPage scanId="scan-101" onBack={vi.fn()} />);
+    render(<RecommendationPage scanId="scan-101" caseId="scan-101:product-101" onBack={vi.fn()} />);
 
     const summary = await screen.findByRole("region", {
       name: "Recommendation summary",
@@ -243,7 +244,7 @@ describe("RecommendationPage", () => {
   it("shows truthful icon-card highlights and risk status", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(BASE_SCAN)));
 
-    render(<RecommendationPage scanId="scan-101" onBack={vi.fn()} />);
+    render(<RecommendationPage scanId="scan-101" caseId="scan-101:product-101" onBack={vi.fn()} />);
 
     const highlights = await screen.findByRole("region", {
       name: "Decision highlights",
@@ -275,7 +276,7 @@ describe("RecommendationPage", () => {
       ),
     );
 
-    render(<RecommendationPage scanId="scan-101" onBack={vi.fn()} />);
+    render(<RecommendationPage scanId="scan-101" caseId="scan-101:product-101" onBack={vi.fn()} />);
 
     const risks = await screen.findByRole("region", {
       name: "Risks and limitations",
@@ -311,7 +312,7 @@ describe("RecommendationPage", () => {
       ),
     );
 
-    render(<RecommendationPage scanId="scan-101" onBack={vi.fn()} />);
+    render(<RecommendationPage scanId="scan-101" caseId="scan-101:product-101" onBack={vi.fn()} />);
 
     expect(
       await screen.findByRole("img", {
@@ -335,7 +336,7 @@ describe("RecommendationPage", () => {
   it("presents applied preferences as ordered policy information", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(BASE_SCAN)));
 
-    render(<RecommendationPage scanId="scan-101" onBack={vi.fn()} />);
+    render(<RecommendationPage scanId="scan-101" caseId="scan-101:product-101" onBack={vi.fn()} />);
 
     await screen.findByRole("heading", { name: "Applied preferences" });
     expect(
@@ -376,7 +377,7 @@ describe("RecommendationPage", () => {
       ),
     );
 
-    render(<RecommendationPage scanId="scan-101" onBack={vi.fn()} />);
+    render(<RecommendationPage scanId="scan-101" caseId="scan-101:product-101" onBack={vi.fn()} />);
 
     expect(
       await screen.findByRole("heading", { name: "Manual review required" }),
@@ -402,7 +403,7 @@ describe("RecommendationPage", () => {
       ),
     );
 
-    render(<RecommendationPage scanId="scan-101" onBack={vi.fn()} />);
+    render(<RecommendationPage scanId="scan-101" caseId="scan-101:product-101" onBack={vi.fn()} />);
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "The procurement source timed out.",
@@ -427,6 +428,7 @@ describe("RecommendationPage", () => {
     render(
       <RecommendationPage
         scanId="scan-101"
+        caseId="scan-101:product-101"
         onBack={vi.fn()}
         pollIntervalMs={20}
         maxPollAttempts={2}
@@ -459,6 +461,7 @@ describe("RecommendationPage", () => {
     render(
       <RecommendationPage
         scanId="scan-101"
+        caseId="scan-101:product-101"
         onBack={vi.fn()}
         pollIntervalMs={1}
         maxPollAttempts={2}
@@ -491,7 +494,7 @@ describe("RecommendationPage", () => {
       ),
     );
 
-    render(<RecommendationPage scanId="scan-101" onBack={vi.fn()} />);
+    render(<RecommendationPage scanId="scan-101" caseId="scan-101:product-101" onBack={vi.fn()} />);
 
     const summary = await screen.findByRole("region", {
       name: "Recommendation summary",
@@ -535,7 +538,7 @@ describe("RecommendationPage", () => {
       ),
     );
 
-    render(<RecommendationPage scanId="scan-101" onBack={vi.fn()} />);
+    render(<RecommendationPage scanId="scan-101" caseId="scan-101:product-101" onBack={vi.fn()} />);
 
     const summary = await screen.findByRole("region", {
       name: "Recommendation summary",
@@ -562,6 +565,7 @@ describe("RecommendationPage", () => {
     const view = render(
       <RecommendationPage
         scanId="scan-101"
+        caseId="scan-101:product-101"
         onBack={vi.fn()}
         pollIntervalMs={20}
         maxPollAttempts={5}

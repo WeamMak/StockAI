@@ -5,7 +5,7 @@ import {
   createManualScan,
   isAbortError,
   listScans,
-  type Scan,
+  type ScanAggregate,
 } from "../api/client";
 import { Icon } from "../components/Icon";
 import { formatDateTime } from "../presentation";
@@ -21,37 +21,50 @@ function safeMessage(error: unknown): string {
     : "The request could not be completed.";
 }
 
-function displayStatus(status: Scan["status"]): string {
+function displayStatus(status: ScanAggregate["status"]): string {
   return status.charAt(0).toUpperCase() + status.slice(1);
 }
 
-function displayScanOutcome(scan: Scan): string {
-  if (scan.status === "succeeded" && scan.result?.outcome === "approval_ready") {
-    return "Approval ready";
+/** One scan can now produce several outcomes; pick the most attention-worthy
+ * one to represent it in the list, deferring any richer per-outcome
+ * breakdown to the scan-detail page. */
+function representativeOutcome(scan: ScanAggregate): "manual_review" | "approval_ready" | null {
+  if ((scan.outcomeCounts.manual_review ?? 0) > 0) {
+    return "manual_review";
   }
-  if (scan.status === "succeeded" && scan.result?.outcome === "manual_review") {
-    return "Manual review";
+  if ((scan.outcomeCounts.approval_ready ?? 0) > 0) {
+    return "approval_ready";
+  }
+  return null;
+}
+
+function displayScanOutcome(scan: ScanAggregate): string {
+  if (scan.status === "succeeded") {
+    const outcome = representativeOutcome(scan);
+    if (outcome === "approval_ready") {
+      return "Approval ready";
+    }
+    if (outcome === "manual_review") {
+      return "Manual review";
+    }
   }
   return displayStatus(scan.status);
 }
 
-function scanCounts(scans: Scan[]) {
+function scanCounts(scans: ScanAggregate[]) {
   let inProgress = 0;
   let approvalReady = 0;
   let needsReview = 0;
   for (const scan of scans) {
     if (scan.status === "queued" || scan.status === "running") {
       inProgress += 1;
-    } else if (
-      scan.status === "succeeded" &&
-      scan.result?.outcome === "approval_ready"
-    ) {
-      approvalReady += 1;
-    } else if (
-      scan.status === "succeeded" &&
-      scan.result?.outcome === "manual_review"
-    ) {
-      needsReview += 1;
+    } else if (scan.status === "succeeded") {
+      const outcome = representativeOutcome(scan);
+      if (outcome === "approval_ready") {
+        approvalReady += 1;
+      } else if (outcome === "manual_review") {
+        needsReview += 1;
+      }
     } else if (scan.status === "failed" && scan.error?.retryable === false) {
       needsReview += 1;
     }
@@ -59,18 +72,21 @@ function scanCounts(scans: Scan[]) {
   return { approvalReady, inProgress, needsReview, total: scans.length };
 }
 
-function outcomeClass(scan: Scan): string {
-  if (scan.status === "succeeded" && scan.result?.outcome === "approval_ready") {
-    return "approval";
-  }
-  if (scan.status === "succeeded" && scan.result?.outcome === "manual_review") {
-    return "review";
+function outcomeClass(scan: ScanAggregate): string {
+  if (scan.status === "succeeded") {
+    const outcome = representativeOutcome(scan);
+    if (outcome === "approval_ready") {
+      return "approval";
+    }
+    if (outcome === "manual_review") {
+      return "review";
+    }
   }
   return scan.status;
 }
 
 export function OverviewPage({ onSelectScan, view = "home" }: OverviewPageProps) {
-  const [scans, setScans] = useState<Scan[] | null>(null);
+  const [scans, setScans] = useState<ScanAggregate[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
   const [isStarting, setIsStarting] = useState(false);

@@ -2,10 +2,10 @@ import { useEffect, useState } from "react";
 
 import {
   ApiError,
-  getScan,
+  getCase,
   isAbortError,
+  type CaseDetail,
   type ProcurementEvidence as ProcurementEvidenceRecord,
-  type Scan,
   type ScanFailure,
 } from "../api/client";
 import { ProcurementEvidence } from "../components/ProcurementEvidence";
@@ -18,6 +18,7 @@ const DEFAULT_MAX_POLL_ATTEMPTS = 130;
 
 interface RecommendationPageProps {
   scanId: string;
+  caseId: string;
   onBack: () => void;
   pollIntervalMs?: number;
   maxPollAttempts?: number;
@@ -95,7 +96,7 @@ function ScanHeading({
   );
 }
 
-function findRecommendedEvidence(scan: Scan): ProcurementEvidenceRecord | null {
+function findRecommendedEvidence(scan: CaseDetail): ProcurementEvidenceRecord | null {
   const result = scan.result;
   if (result === null || result.outcome !== "approval_ready") {
     return null;
@@ -107,7 +108,7 @@ function RecommendationSummary({
   scan,
   evidence,
 }: {
-  scan: Scan;
+  scan: CaseDetail;
   evidence: ProcurementEvidenceRecord | null;
 }) {
   if (scan.result === null) {
@@ -116,6 +117,12 @@ function RecommendationSummary({
   const result = scan.result;
   const isLegacy =
     result.outcome === "approval_ready" && result.validation_level === "legacy";
+  const rationale = "rationale" in result ? result.rationale : null;
+  const tradeOffs = "trade_offs" in result ? result.trade_offs : null;
+  const riskFlags = "risk_flags" in result ? result.risk_flags : null;
+  const uncertainty = "uncertainty" in result ? result.uncertainty : null;
+  const evidenceLimitations =
+    "evidence_limitations" in result ? result.evidence_limitations : [];
 
   return (
     <section
@@ -138,48 +145,58 @@ function RecommendationSummary({
               {isLegacy ? "Predates T27 validation" : "Validated against evidence"}
             </span>
           </div>
-          <p className="reasoning-rationale">{result.rationale}</p>
-          <div className="reasoning-details">
-            <section aria-labelledby="tradeoffs-title">
-              <h4 id="tradeoffs-title">Key trade-offs</h4>
-              {result.trade_offs.length > 0 ? (
+          {rationale !== null ? (
+            <p className="reasoning-rationale">{rationale}</p>
+          ) : null}
+          {tradeOffs !== null || riskFlags !== null ? (
+            <div className="reasoning-details">
+              {tradeOffs !== null ? (
+                <section aria-labelledby="tradeoffs-title">
+                  <h4 id="tradeoffs-title">Key trade-offs</h4>
+                  {tradeOffs.length > 0 ? (
+                    <ul>
+                      {tradeOffs.map((item) => <li key={item}>{item}</li>)}
+                    </ul>
+                  ) : (
+                    <p>No additional trade-offs recorded.</p>
+                  )}
+                </section>
+              ) : null}
+              {riskFlags !== null ? (
+                <section aria-labelledby="risks-title">
+                  <h4 id="risks-title">Risks and limitations</h4>
+                  {riskFlags.length === 0 ? (
+                    <p className="risk-state risk-state--clear">
+                      <span className="summary-icon summary-icon--green"><Icon name="check" /></span>
+                      No risk flags identified
+                    </p>
+                  ) : (
+                    <div className="risk-state risk-state--warning">
+                      <span className="summary-icon summary-icon--amber"><Icon name="alert" /></span>
+                      <ul className="tag-list">
+                        {riskFlags.map((flag) => (
+                          <li key={flag}>{flag.replaceAll("_", " ")}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </section>
+              ) : null}
+            </div>
+          ) : null}
+          {uncertainty !== null ? (
+            <div className="uncertainty-block">
+              <h4>Uncertainty</h4>
+              <p>{uncertainty}</p>
+              {evidenceLimitations.length > 0 ? (
                 <ul>
-                  {result.trade_offs.map((item) => <li key={item}>{item}</li>)}
+                  {evidenceLimitations.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
                 </ul>
-              ) : (
-                <p>No additional trade-offs recorded.</p>
-              )}
-            </section>
-            <section aria-labelledby="risks-title">
-              <h4 id="risks-title">Risks and limitations</h4>
-              {result.risk_flags.length === 0 ? (
-                <p className="risk-state risk-state--clear">
-                  <span className="summary-icon summary-icon--green"><Icon name="check" /></span>
-                  No risk flags identified
-                </p>
-              ) : (
-                <div className="risk-state risk-state--warning">
-                  <span className="summary-icon summary-icon--amber"><Icon name="alert" /></span>
-                  <ul className="tag-list">
-                    {result.risk_flags.map((flag) => (
-                      <li key={flag}>{flag.replaceAll("_", " ")}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </section>
-          </div>
-          <div className="uncertainty-block">
-            <h4>Uncertainty</h4>
-            <p>{result.uncertainty}</p>
-            {result.evidence_limitations.length > 0 ? (
-              <ul>
-                {result.evidence_limitations.map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
-              </ul>
-            ) : null}
-          </div>
+              ) : null}
+            </div>
+          ) : null}
         </section>
       </div>
     </section>
@@ -188,11 +205,12 @@ function RecommendationSummary({
 
 export function RecommendationPage({
   scanId,
+  caseId,
   onBack,
   pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
   maxPollAttempts = DEFAULT_MAX_POLL_ATTEMPTS,
 }: RecommendationPageProps) {
-  const [scan, setScan] = useState<Scan | null>(null);
+  const [scan, setScan] = useState<CaseDetail | null>(null);
   const [requestError, setRequestError] = useState<UiError | null>(null);
 
   useEffect(() => {
@@ -205,7 +223,9 @@ export function RecommendationPage({
       attempts += 1;
       controller = new AbortController();
       try {
-        const nextScan = await getScan(scanId, { signal: controller.signal });
+        const nextScan = await getCase(scanId, caseId, {
+          signal: controller.signal,
+        });
         if (!active) {
           return;
         }
@@ -237,14 +257,14 @@ export function RecommendationPage({
       }
       controller?.abort();
     };
-  }, [maxPollAttempts, pollIntervalMs, scanId]);
+  }, [caseId, maxPollAttempts, pollIntervalMs, scanId]);
 
   return (
     <section aria-labelledby="scan-title" className="page-stack">
       <ScanHeading
         completedAt={scan?.completed_at ?? null}
         onBack={onBack}
-        scanId={scanId}
+        scanId={caseId}
       />
 
       {requestError ? (
