@@ -3,7 +3,12 @@ const SESSION_PATH = "/api/v1/session";
 const CSRF_COOKIE_NAME = "stockai_csrf";
 const MAX_SCAN_LIST_LENGTH = 100;
 
-export type ScanStatus = "queued" | "running" | "succeeded" | "failed";
+export type ScanStatus =
+  | "queued"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "skipped";
 export type ScanTrigger = "manual" | "cron";
 
 export interface VendorPerformanceEvidence {
@@ -138,10 +143,35 @@ export interface ManualReviewResult {
   read_only: true;
 }
 
+export interface NoValidOfferResult {
+  outcome: "no_valid_offer";
+  product_id: string;
+  product_name: string;
+  rationale: string;
+  evidence_limitations: string[];
+  read_only: true;
+}
+
+/**
+ * Placeholder shape for a manager-confirmed purchase order. No backend
+ * code path produces this outcome yet -- see docs/superpowers/specs/
+ * 2026-08-18-t27c-scan-cardinality-design.md's ConfirmedResult decision.
+ */
+export interface ConfirmedResult {
+  outcome: "confirmed";
+  product_id: string;
+  product_name: string;
+  po_reference: string;
+  po_amount: string;
+  read_only: true;
+}
+
 export type ScanResult =
   | ApprovalReadyResult
   | LegacyApprovalReadyResult
-  | ManualReviewResult;
+  | ManualReviewResult
+  | NoValidOfferResult
+  | ConfirmedResult;
 
 export interface ScanFailure {
   error_code: string;
@@ -150,8 +180,9 @@ export interface ScanFailure {
   retry_count: number;
 }
 
-export interface Scan {
+export interface CaseDetail {
   scan_id: string;
+  case_id: string;
   status: ScanStatus;
   trigger: ScanTrigger;
   created_at: string;
@@ -159,6 +190,27 @@ export interface Scan {
   completed_at: string | null;
   evidence: ProcurementEvidence[];
   result: ScanResult | null;
+  error: ScanFailure | null;
+}
+
+export interface CaseSummary {
+  case_id: string;
+  product_id: string;
+  product_name: string;
+  outcome: string;
+  amount: string | null;
+  need_by_date: string | null;
+}
+
+export interface ScanAggregate {
+  scan_id: string;
+  status: ScanStatus;
+  trigger: ScanTrigger;
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+  results: CaseSummary[];
+  outcomeCounts: Record<string, number>;
   error: ScanFailure | null;
 }
 
@@ -217,14 +269,51 @@ function parseResult(value: unknown): ScanResult | null {
   if (value === null) {
     return null;
   }
+  if (!isRecord(value) || value.read_only !== true) {
+    return invalidResponse();
+  }
+  if (value.outcome === "no_valid_offer") {
+    if (
+      typeof value.product_id !== "string" ||
+      typeof value.product_name !== "string" ||
+      typeof value.rationale !== "string" ||
+      !stringArray(value.evidence_limitations)
+    ) {
+      return invalidResponse();
+    }
+    return {
+      outcome: "no_valid_offer",
+      product_id: value.product_id,
+      product_name: value.product_name,
+      rationale: value.rationale,
+      evidence_limitations: value.evidence_limitations,
+      read_only: true,
+    };
+  }
+  if (value.outcome === "confirmed") {
+    if (
+      typeof value.product_id !== "string" ||
+      typeof value.product_name !== "string" ||
+      typeof value.po_reference !== "string" ||
+      typeof value.po_amount !== "string"
+    ) {
+      return invalidResponse();
+    }
+    return {
+      outcome: "confirmed",
+      product_id: value.product_id,
+      product_name: value.product_name,
+      po_reference: value.po_reference,
+      po_amount: value.po_amount,
+      read_only: true,
+    };
+  }
   if (
-    !isRecord(value) ||
     typeof value.rationale !== "string" ||
     !stringArray(value.trade_offs) ||
     !stringArray(value.risk_flags) ||
     typeof value.uncertainty !== "string" ||
-    !stringArray(value.evidence_limitations) ||
-    value.read_only !== true
+    !stringArray(value.evidence_limitations)
   ) {
     return invalidResponse();
   }
@@ -517,14 +606,15 @@ function parsePreferences(value: unknown): AppliedPreferences | null {
   };
 }
 
-function parseScan(value: unknown): Scan {
+const CASE_STATUSES = ["queued", "running", "succeeded", "failed", "skipped"];
+
+function parseCaseDetail(value: unknown): CaseDetail {
   if (
     !isRecord(value) ||
     typeof value.scan_id !== "string" ||
+    typeof value.case_id !== "string" ||
     typeof value.status !== "string" ||
-    !["queued", "running", "succeeded", "failed"].includes(
-      value.status,
-    ) ||
+    !CASE_STATUSES.includes(value.status) ||
     typeof value.trigger !== "string" ||
     !["manual", "cron"].includes(value.trigger) ||
     typeof value.created_at !== "string" ||
@@ -551,6 +641,7 @@ function parseScan(value: unknown): Scan {
 
   return {
     scan_id: value.scan_id,
+    case_id: value.case_id,
     status: value.status as ScanStatus,
     trigger: value.trigger as ScanTrigger,
     created_at: value.created_at,
@@ -559,6 +650,64 @@ function parseScan(value: unknown): Scan {
     evidence,
     result,
     error,
+  };
+}
+
+function parseCaseSummary(value: unknown): CaseSummary {
+  if (
+    !isRecord(value) ||
+    typeof value.case_id !== "string" ||
+    typeof value.product_id !== "string" ||
+    typeof value.product_name !== "string" ||
+    typeof value.outcome !== "string" ||
+    !isNullableString(value.amount) ||
+    !isNullableString(value.need_by_date)
+  ) {
+    return invalidResponse();
+  }
+  return {
+    case_id: value.case_id,
+    product_id: value.product_id,
+    product_name: value.product_name,
+    outcome: value.outcome,
+    amount: value.amount,
+    need_by_date: value.need_by_date,
+  };
+}
+
+function parseOutcomeCounts(value: unknown): Record<string, number> {
+  if (!isRecord(value) || !Object.values(value).every((count) => Number.isInteger(count))) {
+    return invalidResponse();
+  }
+  return value as Record<string, number>;
+}
+
+function parseScanAggregate(value: unknown): ScanAggregate {
+  if (
+    !isRecord(value) ||
+    typeof value.scan_id !== "string" ||
+    typeof value.status !== "string" ||
+    !["queued", "running", "succeeded", "failed"].includes(value.status) ||
+    typeof value.trigger !== "string" ||
+    !["manual", "cron"].includes(value.trigger) ||
+    typeof value.created_at !== "string" ||
+    !isNullableString(value.started_at) ||
+    !isNullableString(value.completed_at) ||
+    !Array.isArray(value.results) ||
+    value.results.length > 100
+  ) {
+    return invalidResponse();
+  }
+  return {
+    scan_id: value.scan_id,
+    status: value.status as ScanStatus,
+    trigger: value.trigger as ScanTrigger,
+    created_at: value.created_at,
+    started_at: value.started_at,
+    completed_at: value.completed_at,
+    results: value.results.map(parseCaseSummary),
+    outcomeCounts: parseOutcomeCounts(value.outcome_counts),
+    error: parseFailure(value.error),
   };
 }
 
@@ -650,7 +799,7 @@ export async function getSession(
 
 export async function createManualScan(
   options: RequestOptions = {},
-): Promise<Scan> {
+): Promise<ScanAggregate> {
   const csrfToken = cookieValue(CSRF_COOKIE_NAME);
   const response = await request(SCANS_PATH, {
     method: "POST",
@@ -660,12 +809,12 @@ export async function createManualScan(
   if (response.status !== 202) {
     return invalidResponse();
   }
-  return parseScan(response.body);
+  return parseScanAggregate(response.body);
 }
 
 export async function listScans(
   options: RequestOptions = {},
-): Promise<Scan[]> {
+): Promise<ScanAggregate[]> {
   const response = await request(SCANS_PATH, {
     method: "GET",
     signal: options.signal,
@@ -677,16 +826,28 @@ export async function listScans(
   ) {
     return invalidResponse();
   }
-  return response.body.scans.map(parseScan);
+  return response.body.scans.map(parseScanAggregate);
 }
 
-export async function getScan(
+export async function getScanAggregate(
   scanId: string,
   options: RequestOptions = {},
-): Promise<Scan> {
+): Promise<ScanAggregate> {
   const response = await request(`${SCANS_PATH}/${encodeURIComponent(scanId)}`, {
     method: "GET",
     signal: options.signal,
   });
-  return parseScan(response.body);
+  return parseScanAggregate(response.body);
+}
+
+export async function getCase(
+  scanId: string,
+  caseId: string,
+  options: RequestOptions = {},
+): Promise<CaseDetail> {
+  const response = await request(
+    `${SCANS_PATH}/${encodeURIComponent(scanId)}/cases/${encodeURIComponent(caseId)}`,
+    { method: "GET", signal: options.signal },
+  );
+  return parseCaseDetail(response.body);
 }

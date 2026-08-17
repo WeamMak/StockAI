@@ -9,6 +9,12 @@ function badgeCopy(result: ScanResult): { label: string; readOnly: string } {
   if (result.outcome === "manual_review") {
     return { label: "Manual review", readOnly: "No draft created" };
   }
+  if (result.outcome === "no_valid_offer") {
+    return { label: "No valid offer", readOnly: "No draft created" };
+  }
+  if (result.outcome === "confirmed") {
+    return { label: "Confirmed", readOnly: "PO confirmed in Odoo" };
+  }
   if (result.validation_level === "legacy") {
     return {
       label: "Historical recommendation",
