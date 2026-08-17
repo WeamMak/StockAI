@@ -47,6 +47,13 @@ page to match `recommendation_details.png`.
   added here. They belong to the scan-cardinality sub-project.
 - No new routing framework — navigation stays the existing manual
   `selectedScanId` state pattern in `App.tsx`.
+- No "View full evidence pack" button. The mockup shows one, but with no
+  separate evidence-detail destination to link to (this page already shows
+  the full evidence inline), it would be an inert placeholder. Deliberately
+  omitted rather than shipping a button that does nothing.
+- No "All data is secure and encrypted" footer note. Present in the mockup
+  but not added — out of scope for this restyle; revisit if/when it's
+  added consistently across pages rather than one-off here.
 
 ## Current state
 
@@ -159,12 +166,15 @@ always-visible panel wrapper instead of inside a `<details>` element.
   above — header with 4 cards, reasoning panel, offer comparison, budget
   panel, preferences panel.
 - **`approval_ready`, `validation_level: "legacy"`**: same layout, but the
-  result type lacks `offer_id`, `budget_status`, etc. The "Recommended
-  vendor" and "Budget status" header cards render a neutral "Not available"
-  state instead of fabricating data (legacy records predate T27's structured
-  fields). Badge reads "Historical recommendation" / reasoning panel reads
-  "Historical reasoning" / "Predates T27 validation", reusing today's exact
-  copy.
+  result type lacks `offer_id`. The "Recommended vendor" header card renders
+  a neutral "Not available" state since there is no offer to look up
+  (legacy records predate T27's structured offer-level fields). "Budget
+  status" is not similarly forced to "Not available" — it reflects whatever
+  `evidence.budget` actually contains when evidence exists for that product,
+  since budget data comes from the evidence record, not from the result
+  type, and hiding real data there would be less accurate, not more. Badge
+  reads "Historical recommendation" / reasoning panel reads "Historical
+  reasoning" / "Predates T27 validation", reusing today's exact copy.
 - **`manual_review`**: header renders badge + title only (no 4-card row, no
   evidence section, as `recommendedEvidence` is `null`). Reasoning panel
   still renders with `rationale`, `trade_offs`, `risk_flags`, `uncertainty`,
