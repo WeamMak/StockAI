@@ -230,6 +230,26 @@ def test_worker_groups_are_environment_isolated_and_refresh_safely(
         assert refresh["preferences"][0]["max_healthy_percentage"] == 200
 
 
+def test_worker_groups_have_two_daily_graceful_shutdown_schedules(
+    platform_plan: TerraformPlan,
+) -> None:
+    schedules = list(_values(platform_plan, "aws_autoscaling_schedule"))
+
+    assert len(schedules) == 4
+    assert {schedule["recurrence"] for schedule in schedules} == {
+        "45 15 * * *",
+        "45 23 * * *",
+    }
+    assert all(schedule["time_zone"] == "Asia/Jerusalem" for schedule in schedules)
+    assert all(schedule["min_size"] == 0 for schedule in schedules)
+    assert all(schedule["desired_capacity"] == 0 for schedule in schedules)
+    assert all(schedule["max_size"] == 3 for schedule in schedules)
+    assert {schedule["autoscaling_group_name"] for schedule in schedules} == {
+        "weam-stockai-dev-workers",
+        "weam-stockai-prod-workers",
+    }
+
+
 def test_node_roles_are_separate_and_only_attach_ssm_channels(
     platform_plan: TerraformPlan,
 ) -> None:
