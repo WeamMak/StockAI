@@ -124,9 +124,7 @@ def test_prometheus_scrapes_every_ready_api_and_mcp_pod(environment: str) -> Non
     for service_name, selector_name, port in expected.values():
         service = _named(resources, "Service", service_name)
         assert service["spec"]["clusterIP"] == "None"
-        assert service["spec"]["selector"] == {
-            "app.kubernetes.io/name": selector_name
-        }
+        assert service["spec"]["selector"] == {"app.kubernetes.io/name": selector_name}
         assert service["spec"]["ports"] == [
             {
                 "name": "metrics",
@@ -136,9 +134,9 @@ def test_prometheus_scrapes_every_ready_api_and_mcp_pod(environment: str) -> Non
             }
         ]
 
-    prometheus_yaml = _named(
-        resources, "ConfigMap", "stockai-observability-config"
-    )["data"]["prometheus.yml"]
+    prometheus_yaml = _named(resources, "ConfigMap", "stockai-observability-config")[
+        "data"
+    ]["prometheus.yml"]
     prometheus = yaml.safe_load(prometheus_yaml)
     jobs = {job["job_name"]: job for job in prometheus["scrape_configs"]}
 
