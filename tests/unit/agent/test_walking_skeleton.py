@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field, replace
 from datetime import date
 from decimal import Decimal
@@ -15,7 +16,12 @@ from tests.support.fakes.llm import FakeStructuredLlm
 from tests.support.recommendations import t27_recommendation
 
 from procurement.agent.graph import build_walking_skeleton_graph
-from procurement.agent.state import ApprovalReadyResult, UnresolvedResult
+from procurement.agent.nodes.walking_skeleton import WalkingSkeletonNodes
+from procurement.agent.state import (
+    ApprovalReadyResult,
+    NoValidOfferResult,
+    UnresolvedResult,
+)
 from procurement.bootstrap.mcp import _fictional_evidence
 from procurement.domain.errors import ErrorCode
 from procurement.domain.identifiers import Environment
@@ -27,12 +33,8 @@ from procurement.domain.policy.preferences import (
     ProcurementPreference,
 )
 from procurement.observability.logging import configure_json_logging
-from procurement.observability.metrics import create_agent_metrics
+from procurement.observability.metrics import AgentMetrics, create_agent_metrics
 from procurement.ports.erp import ProcurementEvidenceQuery
-from procurement.ports.llm import (
-    RecommendationDecision,
-    StructuredRecommendation,
-)
 from procurement.ports.mcp import (
     CandidatePage,
     McpTimeoutError,
@@ -62,6 +64,7 @@ def _candidate() -> ReplenishmentCandidate:
 class FakeMcp(ProcurementMcpPort):
     page: CandidatePage
     error: Exception | None = None
+    evidence_skip_reason_code: str | None = None
     requests: list[tuple[Environment, int, int]] = field(default_factory=list)
     evidence_requests: list[tuple[Environment, str, int]] = field(default_factory=list)
     preference_requests: list[tuple[Environment, str, str, str]] = field(
@@ -94,7 +97,7 @@ class FakeMcp(ProcurementMcpPort):
             _evidence(environment),
             evidence_id=f"{environment.value}:evidence-{product_id}",
             product_id=product_id,
-            skip_reason_code=None,
+            skip_reason_code=self.evidence_skip_reason_code,
         )
 
     async def get_procurement_preferences(
@@ -153,9 +156,15 @@ async def test_graph_returns_one_approval_ready_read_only_result() -> None:
         ),
     )
 
-    state = await graph.ainvoke({"scan_id": "scan-001", "environment": Environment.DEV})
+    state = await graph.ainvoke(
+        {
+            "scan_id": "scan-001",
+            "environment": Environment.DEV,
+            "candidates": (_candidate(),),
+        }
+    )
 
-    assert mcp.requests == [(Environment.DEV, 14, 50)]
+    assert mcp.requests == []  # discovery runs once per scan, outside the graph
     assert mcp.evidence_requests == [(Environment.DEV, "product-101", 14)]
     assert mcp.preference_requests == [
         (Environment.DEV, "1", "category-safety", "product-101")
@@ -173,7 +182,7 @@ async def test_graph_returns_one_approval_ready_read_only_result() -> None:
     metric_text = generate_latest(metrics.registry).decode()
     assert (
         'procurement_agent_mcp_calls_total{status="success",'
-        'tool="list_replenishment_candidates"} 1.0'
+        'tool="get_procurement_evidence"} 1.0'
     ) in metric_text
     assert 'procurement_llm_calls_total{status="success"} 1.0' in metric_text
     assert 'procurement_llm_tokens_total{direction="input"} 48.0' in metric_text
@@ -202,7 +211,11 @@ async def test_checkpoint_retains_result_but_not_transient_odoo_data() -> None:
     )
 
     await first_graph.ainvoke(
-        {"scan_id": "scan-immutable-case-001", "environment": Environment.DEV},
+        {
+            "scan_id": "scan-immutable-case-001",
+            "environment": Environment.DEV,
+            "candidates": (_candidate(),),
+        },
         config=config,
     )
     restarted_graph = build_walking_skeleton_graph(
@@ -219,42 +232,77 @@ async def test_checkpoint_retains_result_but_not_transient_odoo_data() -> None:
     assert "recommendation" not in snapshot.values
 
 
+def _nodes(
+    mcp: ProcurementMcpPort, llm: FakeStructuredLlm, metrics: AgentMetrics
+) -> WalkingSkeletonNodes:
+    return WalkingSkeletonNodes(
+        mcp=mcp,
+        llm=llm,
+        metrics=metrics,
+        logger=logging.getLogger("procurement.test.agent"),
+        company_id="1",
+    )
+
+
 @pytest.mark.anyio
-async def test_mcp_timeout_returns_safe_unresolved_result_without_calling_llm() -> None:
-    private_detail = "private-upstream-timeout-detail"
+async def test_discover_candidates_is_callable_directly_without_the_graph() -> None:
     mcp = FakeMcp(
         page=CandidatePage(
             environment=Environment.DEV,
-            candidates=(),
+            candidates=(_candidate(),),
             next_cursor=None,
-        ),
-        error=McpTimeoutError(retry_count=2, private_detail=private_detail),
-    )
-    llm = FakeStructuredLlm(
-        response=StructuredRecommendation(
-            decision=RecommendationDecision.MANUAL_REVIEW,
-            product_id=None,
-            rationale="Manual review is required.",
-            risk_flags=("MCP_UNAVAILABLE",),
-            input_tokens=0,
-            output_tokens=0,
         )
     )
     metrics = create_agent_metrics()
-    graph = build_walking_skeleton_graph(mcp=mcp, llm=llm, metrics=metrics)
+    nodes = _nodes(mcp, FakeStructuredLlm(response=t27_recommendation()), metrics)
 
-    state = await graph.ainvoke(
-        {"scan_id": "scan-timeout", "environment": Environment.DEV}
+    candidates = await nodes.discover_candidates(
+        environment=Environment.DEV, scan_id="scan-001"
     )
 
-    assert llm.requests == []
-    assert state["result"] == UnresolvedResult(
+    assert candidates == (_candidate(),)
+    assert mcp.requests == [(Environment.DEV, 14, 50)]
+
+
+@pytest.mark.anyio
+async def test_discover_candidates_returns_unresolved_when_empty() -> None:
+    mcp = FakeMcp(
+        page=CandidatePage(environment=Environment.DEV, candidates=(), next_cursor=None)
+    )
+    metrics = create_agent_metrics()
+    nodes = _nodes(mcp, FakeStructuredLlm(response=t27_recommendation()), metrics)
+
+    result = await nodes.discover_candidates(
+        environment=Environment.DEV, scan_id="scan-001"
+    )
+
+    assert isinstance(result, UnresolvedResult)
+    assert result.error_code is ErrorCode.NO_VALID_OFFER
+
+
+@pytest.mark.anyio
+async def test_discover_candidates_mcp_timeout_returns_safe_unresolved_result() -> None:
+    private_detail = "private-upstream-timeout-detail"
+    mcp = FakeMcp(
+        page=CandidatePage(
+            environment=Environment.DEV, candidates=(), next_cursor=None
+        ),
+        error=McpTimeoutError(retry_count=2, private_detail=private_detail),
+    )
+    metrics = create_agent_metrics()
+    nodes = _nodes(mcp, FakeStructuredLlm(response=t27_recommendation()), metrics)
+
+    result = await nodes.discover_candidates(
+        environment=Environment.DEV, scan_id="scan-timeout"
+    )
+
+    assert result == UnresolvedResult(
         error_code=ErrorCode.MCP_TIMEOUT,
         message="The procurement source timed out.",
         retryable=True,
         retry_count=2,
     )
-    assert private_detail not in repr(state)
+    assert private_detail not in repr(result)
     metric_text = generate_latest(metrics.registry).decode()
     assert (
         'procurement_agent_mcp_failures_total{error_code="MCP_TIMEOUT",'
@@ -266,3 +314,87 @@ async def test_mcp_timeout_returns_safe_unresolved_result_without_calling_llm() 
     assert (
         'procurement_agent_retries_total{operation="list_replenishment_candidates"} 2.0'
     ) in metric_text
+
+
+@pytest.mark.anyio
+async def test_graph_produces_no_valid_offer_result_for_zero_eligible_offers() -> None:
+    mcp = FakeMcp(
+        page=CandidatePage(
+            environment=Environment.DEV, candidates=(_candidate(),), next_cursor=None
+        ),
+        evidence_skip_reason_code="NO_VALID_OFFER",
+    )
+    llm = FakeStructuredLlm(response=t27_recommendation())
+    graph = build_walking_skeleton_graph(
+        mcp=mcp, llm=llm, metrics=create_agent_metrics()
+    )
+
+    state = await graph.ainvoke(
+        {
+            "scan_id": "scan-1",
+            "environment": Environment.DEV,
+            "candidates": (_candidate(),),
+        },
+        config={"configurable": {"thread_id": "scan-1:product-101"}},
+    )
+
+    result = state["result"]
+    assert isinstance(result, NoValidOfferResult)
+    assert result.product_id == "product-101"
+    assert llm.requests == []  # deterministic skip must never reach the LLM
+
+
+@pytest.mark.anyio
+async def test_graph_skips_silently_when_fully_covered() -> None:
+    mcp = FakeMcp(
+        page=CandidatePage(
+            environment=Environment.DEV, candidates=(_candidate(),), next_cursor=None
+        ),
+        evidence_skip_reason_code="FULLY_COVERED",
+    )
+    llm = FakeStructuredLlm(response=t27_recommendation())
+    graph = build_walking_skeleton_graph(
+        mcp=mcp, llm=llm, metrics=create_agent_metrics()
+    )
+
+    state = await graph.ainvoke(
+        {
+            "scan_id": "scan-1",
+            "environment": Environment.DEV,
+            "candidates": (_candidate(),),
+        },
+        config={"configurable": {"thread_id": "scan-1:product-101"}},
+    )
+
+    assert "result" not in state
+    assert state["skip_reason"] == "FULLY_COVERED"
+    assert llm.requests == []
+
+
+@pytest.mark.anyio
+async def test_graph_treats_budget_unavailable_as_a_retryable_failure() -> None:
+    mcp = FakeMcp(
+        page=CandidatePage(
+            environment=Environment.DEV, candidates=(_candidate(),), next_cursor=None
+        ),
+        evidence_skip_reason_code="BUDGET_UNAVAILABLE",
+    )
+    llm = FakeStructuredLlm(response=t27_recommendation())
+    graph = build_walking_skeleton_graph(
+        mcp=mcp, llm=llm, metrics=create_agent_metrics()
+    )
+
+    state = await graph.ainvoke(
+        {
+            "scan_id": "scan-1",
+            "environment": Environment.DEV,
+            "candidates": (_candidate(),),
+        },
+        config={"configurable": {"thread_id": "scan-1:product-101"}},
+    )
+
+    result = state["result"]
+    assert isinstance(result, UnresolvedResult)
+    assert result.error_code is ErrorCode.ODOO_UNAVAILABLE
+    assert result.retryable is True
+    assert llm.requests == []

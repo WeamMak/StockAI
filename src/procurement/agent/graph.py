@@ -33,12 +33,10 @@ def build_walking_skeleton_graph(
         company_id=company_id,
     )
     builder = StateGraph(ScanState)
-    builder.add_node("discover_candidates", nodes.discover_candidates)
     builder.add_node("gather_evidence", nodes.gather_evidence)
     builder.add_node("resolve_preferences", nodes.resolve_preferences)
     builder.add_node("reason", nodes.reason_about_candidate)
-    builder.add_edge(START, "discover_candidates")
-    builder.add_edge("discover_candidates", "gather_evidence")
+    builder.add_edge(START, "gather_evidence")
     builder.add_edge("gather_evidence", "resolve_preferences")
     builder.add_edge("resolve_preferences", "reason")
     builder.add_edge("reason", END)

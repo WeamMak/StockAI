@@ -127,3 +127,4 @@ class ScanState(TypedDict, total=False):
     evidence: Annotated[tuple[ProcurementEvidence, ...], UntrackedValue]
     recommendation: Annotated[StructuredRecommendation, UntrackedValue]
     result: ScanResult
+    skip_reason: str

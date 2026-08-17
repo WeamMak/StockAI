@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from dataclasses import dataclass
 from time import perf_counter
@@ -10,10 +9,12 @@ from time import perf_counter
 from procurement.agent.state import (
     ApprovalReadyResult,
     ManualReviewResult,
+    NoValidOfferResult,
     ScanState,
     UnresolvedResult,
 )
 from procurement.domain.errors import ErrorCode
+from procurement.domain.identifiers import Environment
 from procurement.domain.policy.evidence import ProcurementEvidence
 from procurement.domain.policy.preferences import apply_preferences
 from procurement.observability.logging import log_event
@@ -29,6 +30,7 @@ from procurement.ports.mcp import (
     McpReadError,
     McpTimeoutError,
     ProcurementMcpPort,
+    ReplenishmentCandidate,
 )
 
 
@@ -42,13 +44,19 @@ class WalkingSkeletonNodes:
     logger: logging.Logger
     company_id: str
 
-    async def discover_candidates(self, state: ScanState) -> dict[str, object]:
-        """Call the MCP port and retain only validated candidate data."""
+    async def discover_candidates(
+        self, *, environment: Environment, scan_id: str
+    ) -> tuple[ReplenishmentCandidate, ...] | UnresolvedResult:
+        """Call the MCP port and retain only validated candidate data.
+
+        Called once per scan by the orchestration layer, not as a graph
+        node -- its result seeds one graph invocation per candidate.
+        """
 
         started_at = perf_counter()
         try:
             page = await self.mcp.list_replenishment_candidates(
-                environment=state["environment"],
+                environment=environment,
                 horizon_days=14,
                 limit=50,
             )
@@ -59,7 +67,7 @@ class WalkingSkeletonNodes:
                 else ErrorCode.ODOO_UNAVAILABLE
             )
             self._record_mcp_completion(
-                state=state,
+                scan_id=scan_id,
                 started_at=started_at,
                 status="error",
                 error_code=error_code,
@@ -67,45 +75,39 @@ class WalkingSkeletonNodes:
             )
             if isinstance(error, McpTimeoutError):
                 self.metrics.record_mcp_timeout(tool="list_replenishment_candidates")
-            return {
-                "result": UnresolvedResult(
-                    error_code=error_code,
-                    message=error.safe_message,
-                    retryable=True,
-                    retry_count=error.retry_count,
-                )
-            }
+            return UnresolvedResult(
+                error_code=error_code,
+                message=error.safe_message,
+                retryable=True,
+                retry_count=error.retry_count,
+            )
         except Exception:
             self._record_mcp_completion(
-                state=state,
+                scan_id=scan_id,
                 started_at=started_at,
                 status="error",
                 error_code=ErrorCode.ODOO_UNAVAILABLE,
             )
-            return {
-                "result": UnresolvedResult(
-                    error_code=ErrorCode.ODOO_UNAVAILABLE,
-                    message="The procurement source is unavailable.",
-                    retryable=True,
-                )
-            }
+            return UnresolvedResult(
+                error_code=ErrorCode.ODOO_UNAVAILABLE,
+                message="The procurement source is unavailable.",
+                retryable=True,
+            )
 
-        if page.environment is not state["environment"]:
+        if page.environment is not environment:
             self._record_mcp_completion(
-                state=state,
+                scan_id=scan_id,
                 started_at=started_at,
                 status="error",
                 error_code=ErrorCode.ODOO_UNAVAILABLE,
             )
-            return {
-                "result": UnresolvedResult(
-                    error_code=ErrorCode.ODOO_UNAVAILABLE,
-                    message="The procurement source returned an invalid response.",
-                    retryable=True,
-                )
-            }
+            return UnresolvedResult(
+                error_code=ErrorCode.ODOO_UNAVAILABLE,
+                message="The procurement source returned an invalid response.",
+                retryable=True,
+            )
         self._record_mcp_completion(
-            state=state,
+            scan_id=scan_id,
             started_at=started_at,
             status="success",
         )
@@ -115,36 +117,25 @@ class WalkingSkeletonNodes:
             if candidate.skip_reason_code is None
         )
         if not candidates:
-            return {
-                "result": UnresolvedResult(
-                    error_code=ErrorCode.NO_VALID_OFFER,
-                    message="No approval-ready replenishment candidate was found.",
-                    retryable=False,
-                )
-            }
-        return {"candidates": candidates}
+            return UnresolvedResult(
+                error_code=ErrorCode.NO_VALID_OFFER,
+                message="No approval-ready replenishment candidate was found.",
+                retryable=False,
+            )
+        return candidates
 
     async def gather_evidence(self, state: ScanState) -> dict[str, object]:
-        """Gather authoritative evidence for every candidate, three at a time."""
+        """Gather authoritative evidence for this case's one candidate."""
 
         if "result" in state:
             return {}
-        semaphore = asyncio.Semaphore(3)
-
-        async def gather(product_id: str) -> ProcurementEvidence:
-            async with semaphore:
-                return await self.mcp.get_procurement_evidence(
-                    environment=state["environment"],
-                    product_id=product_id,
-                    horizon_days=14,
-                )
-
+        candidate = state["candidates"][0]
         started_at = perf_counter()
         try:
-            gathered = tuple(
-                await asyncio.gather(
-                    *(gather(candidate.product_id) for candidate in state["candidates"])
-                )
+            item = await self.mcp.get_procurement_evidence(
+                environment=state["environment"],
+                product_id=candidate.product_id,
+                horizon_days=14,
             )
         except McpReadError as error:
             error_code = (
@@ -153,7 +144,7 @@ class WalkingSkeletonNodes:
                 else ErrorCode.ODOO_UNAVAILABLE
             )
             self._record_mcp_completion(
-                state=state,
+                scan_id=state["scan_id"],
                 started_at=started_at,
                 status="error",
                 error_code=error_code,
@@ -170,7 +161,7 @@ class WalkingSkeletonNodes:
             }
         except Exception:
             self._record_mcp_completion(
-                state=state,
+                scan_id=state["scan_id"],
                 started_at=started_at,
                 status="error",
                 error_code=ErrorCode.ODOO_UNAVAILABLE,
@@ -184,36 +175,40 @@ class WalkingSkeletonNodes:
                 )
             }
         self._record_mcp_completion(
-            state=state,
+            scan_id=state["scan_id"],
             started_at=started_at,
             status="success",
             tool_name="get_procurement_evidence",
         )
-        eligible_ids = {
-            item.product_id for item in gathered if item.skip_reason_code is None
-        }
-        eligible_candidates = tuple(
-            candidate
-            for candidate in state["candidates"]
-            if candidate.product_id in eligible_ids
-        )
-        if not eligible_candidates:
+
+        if item.skip_reason_code in ("NO_SHORTAGE", "FULLY_COVERED"):
+            return {"evidence": (item,), "skip_reason": item.skip_reason_code}
+        if item.skip_reason_code == "NO_VALID_OFFER":
             return {
-                "evidence": gathered,
-                "result": UnresolvedResult(
-                    error_code=ErrorCode.NO_VALID_OFFER,
-                    message=(
-                        "Every replenishment candidate was deterministically skipped."
+                "evidence": (item,),
+                "result": NoValidOfferResult(
+                    product_id=candidate.product_id,
+                    product_name=candidate.product_name,
+                    rationale=(
+                        "No approved vendor offer is eligible for this product."
                     ),
-                    retryable=False,
                 ),
             }
-        return {"evidence": gathered, "candidates": eligible_candidates}
+        if item.skip_reason_code == "BUDGET_UNAVAILABLE":
+            return {
+                "evidence": (item,),
+                "result": UnresolvedResult(
+                    error_code=ErrorCode.ODOO_UNAVAILABLE,
+                    message="Budget information is unavailable for this product.",
+                    retryable=True,
+                ),
+            }
+        return {"evidence": (item,), "candidates": (candidate,)}
 
     async def reason_about_candidate(self, state: ScanState) -> dict[str, object]:
         """Invoke structured reasoning and validate the selected identifier."""
 
-        if "result" in state:
+        if "result" in state or state.get("skip_reason") is not None:
             return {}
 
         started_at = perf_counter()
@@ -426,7 +421,7 @@ class WalkingSkeletonNodes:
                 ErrorCode.MCP_TIMEOUT if is_timeout else ErrorCode.PREFERENCE_INVALID
             )
             self._record_mcp_completion(
-                state=state,
+                scan_id=state["scan_id"],
                 started_at=started_at,
                 status="error",
                 error_code=error_code,
@@ -449,7 +444,7 @@ class WalkingSkeletonNodes:
             }
         except (AttributeError, TypeError, ValueError):
             self._record_mcp_completion(
-                state=state,
+                scan_id=state["scan_id"],
                 started_at=started_at,
                 status="error",
                 error_code=ErrorCode.PREFERENCE_INVALID,
@@ -463,7 +458,7 @@ class WalkingSkeletonNodes:
                 )
             }
         self._record_mcp_completion(
-            state=state,
+            scan_id=state["scan_id"],
             started_at=started_at,
             status="success",
             tool_name="get_procurement_preferences",
@@ -473,7 +468,7 @@ class WalkingSkeletonNodes:
     def _record_mcp_completion(
         self,
         *,
-        state: ScanState,
+        scan_id: str,
         started_at: float,
         status: str,
         error_code: ErrorCode | None = None,
@@ -492,7 +487,7 @@ class WalkingSkeletonNodes:
             count=retry_count,
         )
         fields: dict[str, object] = {
-            "scan_id": state["scan_id"],
+            "scan_id": scan_id,
             "tool_name": tool_name,
             "duration_ms": round(duration_seconds * 1000, 3),
             "status": status,
