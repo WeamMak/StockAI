@@ -176,7 +176,7 @@ def test_stateful_storage_and_finite_odoo_bootstrap(environment: str) -> None:
     }
     assert bootstrap_spec["activeDeadlineSeconds"] == 300
     assert bootstrap_spec["backoffLimit"] == 6
-    assert bootstrap_spec["ttlSecondsAfterFinished"] == 86400
+    assert "ttlSecondsAfterFinished" not in bootstrap_spec
     assert bootstrap_pod["restartPolicy"] == "OnFailure"
     assert bootstrap_pod["volumes"] == [
         {"emptyDir": {"sizeLimit": "64Mi"}, "name": "tmp"}
@@ -229,6 +229,7 @@ def test_daily_scan_is_private_bounded_and_non_overlapping(environment: str) -> 
 
     assert cron["spec"]["schedule"] == "0 5 * * *"
     assert cron["spec"]["timeZone"] == "UTC"
+    assert cron["spec"]["startingDeadlineSeconds"] == 300
     assert cron["spec"]["concurrencyPolicy"] == "Forbid"
     assert cron["spec"]["successfulJobsHistoryLimit"] == 1
     assert cron["spec"]["failedJobsHistoryLimit"] == 2
