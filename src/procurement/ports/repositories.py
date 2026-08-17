@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Iterable
 from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal
 from typing import Protocol
 
 from procurement.domain.audit import AuditEvent
-from procurement.domain.identifiers import CaseId, Environment, Revision
+from procurement.domain.identifiers import CaseId, Environment, Revision, ScanId
 from procurement.domain.models import UtcTimestamp
 from procurement.domain.policy.evidence import ProcurementEvidence
 
@@ -99,6 +101,49 @@ class CasePage:
 
 
 @dataclass(frozen=True, slots=True)
+class CaseSummary:
+    """Enough of one case's result to render a scan's results table."""
+
+    case_id: str
+    product_id: str
+    product_name: str
+    outcome: str
+    amount: Decimal | None
+    need_by_date: date | None
+
+
+@dataclass(frozen=True, slots=True)
+class ScanRecord:
+    """Durable application view of one scan run, aggregating its cases."""
+
+    scan_id: ScanId
+    revision: Revision
+    status: str
+    trigger: str
+    created_at: UtcTimestamp
+    updated_at: UtcTimestamp
+    started_at: UtcTimestamp | None = None
+    completed_at: UtcTimestamp | None = None
+    case_summaries: tuple[CaseSummary, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ScanCreateResult:
+    """Outcome of a conditional, idempotent scan creation."""
+
+    record: ScanRecord
+    created: bool
+
+
+@dataclass(frozen=True, slots=True)
+class ScanPage:
+    """One bounded scan page and its opaque continuation cursor."""
+
+    records: tuple[ScanRecord, ...]
+    next_cursor: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class ApprovalRecord:
     """Minimal immutable approval facts required for a strong read."""
 
@@ -161,8 +206,38 @@ class ApplicationRepository(Protocol):
         *,
         limit: int,
         cursor: str | None = None,
+        scan_id: str | None = None,
     ) -> CasePage:
-        """Return a bounded newest-first page."""
+        """Return a bounded newest-first page, optionally scoped to one scan."""
+
+    async def create_scan(
+        self,
+        record: ScanRecord,
+        *,
+        idempotency_key: str,
+        expires_at: UtcTimestamp,
+    ) -> ScanCreateResult:
+        """Create exactly one scan for an idempotent request."""
+
+    async def update_scan(
+        self,
+        record: ScanRecord,
+        *,
+        expected_revision: Revision,
+        expires_at: UtcTimestamp,
+    ) -> ScanRecord:
+        """Update a scan only at the expected revision."""
+
+    async def get_scan(self, scan_id: ScanId) -> ScanRecord | None:
+        """Return one scan using its immutable identifier."""
+
+    async def list_scans(
+        self,
+        *,
+        limit: int,
+        cursor: str | None = None,
+    ) -> ScanPage:
+        """Return a bounded newest-first page of scans."""
 
     async def get_approval(self, case_id: CaseId) -> ApprovalRecord | None:
         """Return the current approval using a strongly consistent read."""
@@ -203,6 +278,8 @@ class InMemoryApplicationRepository(ApplicationRepository):
         self._environment = environment
         self._cases: dict[str, CaseRecord] = {}
         self._idempotency: dict[str, tuple[str, CaseRecord]] = {}
+        self._scans: dict[str, ScanRecord] = {}
+        self._scan_idempotency: dict[str, tuple[str, ScanRecord]] = {}
         self._approvals: dict[str, ApprovalRecord] = {}
         self._audit: dict[str, AuditEvent] = {}
         self._login_transactions: dict[str, LoginTransactionRecord] = {}
@@ -261,11 +338,20 @@ class InMemoryApplicationRepository(ApplicationRepository):
         *,
         limit: int,
         cursor: str | None = None,
+        scan_id: str | None = None,
     ) -> CasePage:
         if type(limit) is not int or not 1 <= limit <= 100:
             raise ValueError("case page limit must be between 1 and 100")
+        candidates: Iterable[CaseRecord] = self._cases.values()
+        if scan_id is not None:
+            prefix = f"{scan_id}:"
+            candidates = (
+                record
+                for record in candidates
+                if record.case_id.value.startswith(prefix)
+            )
         records = sorted(
-            self._cases.values(),
+            candidates,
             key=lambda record: record.case_id.value,
             reverse=True,
         )
@@ -284,6 +370,82 @@ class InMemoryApplicationRepository(ApplicationRepository):
             page[-1].case_id.value if start + limit < len(records) and page else None
         )
         return CasePage(records=tuple(page), next_cursor=next_cursor)
+
+    async def create_scan(
+        self,
+        record: ScanRecord,
+        *,
+        idempotency_key: str,
+        expires_at: UtcTimestamp,
+    ) -> ScanCreateResult:
+        self._validate_scan(record)
+        self._validate_expiry(expires_at)
+        async with self._guard:
+            binding = self._scan_idempotency.get(idempotency_key)
+            if binding is not None:
+                scan_id, original = binding
+                if scan_id != record.scan_id.value or original != record:
+                    raise IdempotencyConflictError(
+                        "The idempotency key belongs to another request."
+                    )
+                return ScanCreateResult(
+                    record=self._scans[record.scan_id.value],
+                    created=False,
+                )
+            if record.scan_id.value in self._scans:
+                raise IdempotencyConflictError("The scan already exists.")
+            self._scans[record.scan_id.value] = record
+            self._scan_idempotency[idempotency_key] = (record.scan_id.value, record)
+            return ScanCreateResult(record=record, created=True)
+
+    async def update_scan(
+        self,
+        record: ScanRecord,
+        *,
+        expected_revision: Revision,
+        expires_at: UtcTimestamp,
+    ) -> ScanRecord:
+        self._validate_scan(record)
+        self._validate_expiry(expires_at)
+        async with self._guard:
+            current = self._scans.get(record.scan_id.value)
+            if current is None or current.revision != expected_revision:
+                raise RevisionConflictError("The scan revision has changed.")
+            self._scans[record.scan_id.value] = record
+            return record
+
+    async def get_scan(self, scan_id: ScanId) -> ScanRecord | None:
+        self._validate_scan_id(scan_id)
+        return self._scans.get(scan_id.value)
+
+    async def list_scans(
+        self,
+        *,
+        limit: int,
+        cursor: str | None = None,
+    ) -> ScanPage:
+        if type(limit) is not int or not 1 <= limit <= 100:
+            raise ValueError("scan page limit must be between 1 and 100")
+        records = sorted(
+            self._scans.values(),
+            key=lambda record: record.scan_id.value,
+            reverse=True,
+        )
+        start = 0
+        if cursor is not None:
+            try:
+                start = next(
+                    index + 1
+                    for index, record in enumerate(records)
+                    if record.scan_id.value == cursor
+                )
+            except StopIteration as error:
+                raise ValueError("scan cursor is invalid") from error
+        page = records[start : start + limit]
+        next_cursor = (
+            page[-1].scan_id.value if start + limit < len(records) and page else None
+        )
+        return ScanPage(records=tuple(page), next_cursor=next_cursor)
 
     async def get_approval(self, case_id: CaseId) -> ApprovalRecord | None:
         self._validate_case_id(case_id)
@@ -340,6 +502,18 @@ class InMemoryApplicationRepository(ApplicationRepository):
             or case_id.environment is not self._environment
         ):
             raise ValueError("case belongs to another environment")
+
+    def _validate_scan(self, record: ScanRecord) -> None:
+        if not isinstance(record, ScanRecord):
+            raise ValueError("record must be a ScanRecord")
+        self._validate_scan_id(record.scan_id)
+
+    def _validate_scan_id(self, scan_id: ScanId) -> None:
+        if (
+            not isinstance(scan_id, ScanId)
+            or scan_id.environment is not self._environment
+        ):
+            raise ValueError("scan belongs to another environment")
 
     @staticmethod
     def _validate_expiry(expires_at: UtcTimestamp) -> None:
