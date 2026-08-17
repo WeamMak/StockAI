@@ -2940,6 +2940,95 @@ reconciling exactly four idempotent fictional Odoo scenarios with three offers
 per product. It adds no draft, approval, confirmation, multi-result scan API,
 or direct production mutation.
 
+#### T27C — Scan cardinality: one independent recommendation per product
+
+**Files**
+
+- Extend `src/procurement/agent/state.py` (`NoValidOfferResult`, per-item
+  `skip_reason`) and `src/procurement/agent/nodes/walking_skeleton.py`
+  (`discover_candidates` as a reusable method; single-candidate
+  `gather_evidence`/`reason_about_candidate` skip-reason branching).
+- Add `ScanId`, `ScanRecord`, `CaseSummary`, `ScanCreateResult`, `ScanPage` to
+  `src/procurement/ports/repositories.py`; implement scan persistence in
+  `InMemoryApplicationRepository` and `src/procurement/adapters/aws/dynamodb.py`.
+- Rewrite `src/procurement/api/services/scans.py` to run one scan as a thin
+  aggregator over independent per-candidate cases
+  (`ScanAggregateSnapshot`, `_run_case`, `_summarize`) and
+  `src/procurement/api/routes/scans.py`/`routes/cases.py` for the new
+  scan/case API shape.
+- Split `src/procurement/observability/metrics.py`'s `observe_scan` into
+  scan-level and per-case (`observe_case_result`) metrics.
+- Add `frontend/src/pages/ScanDetailPage.tsx` (results table plus outcome
+  donut) and wire it into `frontend/src/App.tsx` navigation; extend
+  `frontend/src/api/client.ts` with `ScanAggregate`/`CaseSummary`/
+  `NoValidOfferResult`/`ConfirmedResult` and `getCase`/`getScanAggregate`.
+- Add/extend unit tests across all of the above layers.
+
+**Interfaces**
+
+- Consumes: the existing T25 deterministic evidence pipeline and T26
+  preference snapshot, called once per discovered candidate instead of once
+  per scan.
+- Produces: one `ScanRecord` per scan holding many independent `CaseRecord`s
+  (case ID `{scan_id}:{product_id}`), each resolving to exactly one of
+  `approval_ready`, `manual_review`, `no_valid_offer`, or a case-level
+  failure; `GET /api/v1/scans/{scan_id}` returns the aggregate, `GET
+  /api/v1/scans/{scan_id}/cases/{case_id}` returns one case's full detail.
+
+**Work and tests**
+
+- [x] **Step 1: Add the `NoValidOfferResult` outcome and per-item skip
+  reason to agent state.** Unit tests for the new dataclass and `ScanResult`
+  union.
+- [x] **Step 2: Make candidate discovery reusable and evidence-gathering
+  single-candidate.** Branch on the four distinct Odoo skip-reason codes
+  (`NO_SHORTAGE`/`FULLY_COVERED` → no case; `NO_VALID_OFFER` →
+  `NoValidOfferResult`; `BUDGET_UNAVAILABLE` → case failure). Graph and node
+  unit tests for each branch.
+- [x] **Step 3: Add scan persistence.** `ScanId`, `ScanRecord`,
+  `CaseSummary`, idempotent `create_scan`/`update_scan`/`get_scan`/
+  `list_scans` in both the in-memory and DynamoDB repositories, mirroring
+  the existing `CaseRecord` lifecycle/revision/audit pattern.
+- [x] **Step 4: Rewrite the scan service as a thin aggregator.** One
+  `discover_candidates` call per scan, one independent `_run_case` per
+  candidate with its own QUEUED→RUNNING→terminal lifecycle, isolating
+  per-case failures so one bad candidate cannot fail the whole scan.
+- [x] **Step 5: Rewrite the scan/case API contract.** New
+  `ScanAggregateResponse` (with `outcome_counts`), `CaseSummaryResponse`,
+  `CaseResponse` (renamed from the old single-result `ScanResponse`), and
+  the new nested case-detail route.
+- [x] **Step 6: Verify the backend end to end.** `make check` and
+  `make test-unit`.
+- [x] **Step 7: Extend the frontend API client.** Runtime-validated parsing
+  for `ScanAggregate`/`CaseSummary`/`NoValidOfferResult`/`ConfirmedResult`
+  (the last a type-only, never-producible T28/T29 placeholder).
+- [x] **Step 8: Add the scan-detail page.** Results table plus outcome
+  donut matching `Scan_details.png`, linking each row to
+  `RecommendationPage` for that case.
+- [x] **Step 9: Wire navigation.** Overview → scan detail → one case's
+  recommendation page, and rebase overview outcome summaries on
+  `outcome_counts` instead of a single scan-level result.
+- [x] **Step 10: Update this plan.** Insert this section and repoint T28's
+  dependency.
+
+**Verification:** `make check`, `make test-unit`, `make test-integration`;
+frontend `npm run typecheck && npm run lint && npm test && npm run build`;
+manual scan triggered via `make compose-up` and visually compared against
+`Scan_details.png` and `recommendation_details.png`.
+
+**Dependencies:** T27.
+
+**Requirements:** CR-02, CR-03, CR-05, CR-12, CR-13, CR-15; `docs/spec.md`
+section 5.1's project decision "One independent recommendation, approval,
+and PO per product" (`docs/spec.md:189`); design in
+`docs/superpowers/specs/2026-08-18-t27c-scan-cardinality-design.md`.
+
+**Complete when:** A single scan evaluates every discovered candidate
+product independently, every candidate reaches exactly one terminal outcome
+without being silently dropped or blocked by another candidate's failure,
+the scan-detail and per-case recommendation pages render that data, and
+T28/T29 can consume one case's validated recommendation exactly as before.
+
 #### T28 — Create one idempotent draft and pause for manager decision
 
 **Files**
@@ -2979,7 +3068,7 @@ or direct production mutation.
 - [ ] **Step 6: Verify restart-safe behavior.** Run focused tests, real MCP
   transport, real Odoo dev creation, process restart/resume, and release smoke.
 
-**Dependencies:** T27.
+**Dependencies:** T27C.
 
 **Requirements:** CR-02, CR-03, CR-05, CR-06, CR-12, CR-13, CR-15; spec
 sections 7, 9, 11, and 19.
