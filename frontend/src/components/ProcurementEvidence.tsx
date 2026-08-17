@@ -1,12 +1,12 @@
 import type { ProcurementEvidence as Evidence } from "../api/client";
 import {
-  formatCurrency,
   formatDate,
   formatDateTime,
   formatNumber,
   formatQuantity,
 } from "../presentation";
 import { AppliedPreferences } from "./AppliedPreferences";
+import { BudgetPanel } from "./BudgetPanel";
 import { InventoryChart } from "./InventoryChart";
 import { OfferComparison } from "./OfferComparison";
 
@@ -125,45 +125,7 @@ export function ProcurementEvidence({
 
         <aside className="evidence-disclosures" aria-label="Evidence policy details">
 
-          {evidence.budget ? (
-            <details className="disclosure" open>
-              <summary>
-                <span>Budget calculation</span>
-                <small>
-                  {evidence.budget.exception_required
-                    ? "Exception required"
-                    : "Within budget"}
-                </small>
-              </summary>
-              <div className="disclosure__content">
-                <dl className="evidence-grid">
-                  <div>
-                    <dt>Budget</dt>
-                    <dd>{formatCurrency(evidence.budget.budget_amount, evidence.budget.currency)}</dd>
-                  </div>
-                  <div>
-                    <dt>Committed</dt>
-                    <dd>{formatCurrency(evidence.budget.confirmed_commitment, evidence.budget.currency)}</dd>
-                  </div>
-                  <div>
-                    <dt>Proposed</dt>
-                    <dd>{formatCurrency(evidence.budget.proposed_amount, evidence.budget.currency)}</dd>
-                  </div>
-                  <div>
-                    <dt>Remaining after</dt>
-                    <dd>{formatCurrency(evidence.budget.remaining_after, evidence.budget.currency)}</dd>
-                  </div>
-                </dl>
-                {evidence.budget.exception_required ? (
-                  <p className="budget-warning">
-                    Manager exception required for{" "}
-                    {formatCurrency(evidence.budget.overage, evidence.budget.currency)}{" "}
-                    overage.
-                  </p>
-                ) : null}
-              </div>
-            </details>
-          ) : null}
+          <BudgetPanel budget={evidence.budget} />
 
           {evidence.preferences ? (
             <details className="disclosure" open>
