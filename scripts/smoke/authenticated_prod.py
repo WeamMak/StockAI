@@ -7,6 +7,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Protocol
 
 import httpx
 from tests.smoke.test_dev_skeleton import run_exact_walking_skeleton
@@ -28,6 +29,16 @@ CREDENTIAL_ENV_NAMES = (
     "STOCKAI_PROD_SMOKE_EMAIL",
     "STOCKAI_PROD_SMOKE_PASSWORD",
 )
+
+
+class _LoginControl(Protocol):
+    def fill(self, value: str) -> None: ...
+
+    def click(self) -> None: ...
+
+
+class _LoginPage(Protocol):
+    def locator(self, selector: str) -> _LoginControl: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,6 +115,15 @@ def _bootstrap_user(settings: AuthenticatedProdSettings) -> None:
     )
 
 
+def _submit_cognito_login(
+    page: _LoginPage,
+    settings: AuthenticatedProdSettings,
+) -> None:
+    page.locator('input[name="username"]:visible').fill(settings.username)
+    page.locator('input[name="password"]:visible').fill(settings.password)
+    page.locator('button[type="submit"]:visible').click()
+
+
 def _browser_login(settings: AuthenticatedProdSettings) -> tuple[str, str]:
     from playwright.sync_api import sync_playwright
 
@@ -117,9 +137,7 @@ def _browser_login(settings: AuthenticatedProdSettings) -> tuple[str, str]:
                 wait_until="domcontentloaded",
                 timeout=30_000,
             )
-            page.locator('input[name="username"]').fill(settings.username)
-            page.locator('input[name="password"]').fill(settings.password)
-            page.locator('button[type="submit"]').click()
+            _submit_cognito_login(page, settings)
             page.wait_for_url(
                 f"{settings.base_url}/",
                 wait_until="networkidle",

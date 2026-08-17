@@ -9,6 +9,7 @@ import pytest
 from scripts.smoke.authenticated_prod import (
     AuthenticatedProdSettings,
     _extract_auth_cookies,
+    _submit_cognito_login,
     run_authenticated_prod_smoke,
 )
 
@@ -34,6 +35,33 @@ def test_extract_auth_cookies_requires_both_nonempty_values() -> None:
 
     with pytest.raises(RuntimeError, match="required StockAI cookies"):
         _extract_auth_cookies([{"name": "stockai_session", "value": "only-one"}])
+
+
+def test_cognito_login_targets_only_visible_controls() -> None:
+    events: list[tuple[str, str]] = []
+
+    class Locator:
+        def __init__(self, selector: str) -> None:
+            assert selector.endswith(":visible")
+            self.selector = selector
+
+        def fill(self, value: str) -> None:
+            events.append((self.selector, value))
+
+        def click(self) -> None:
+            events.append((self.selector, "click"))
+
+    class Page:
+        def locator(self, selector: str) -> Locator:
+            return Locator(selector)
+
+    _submit_cognito_login(Page(), _settings())
+
+    assert events == [
+        ('input[name="username"]:visible', "prod-smoke-officer"),
+        ('input[name="password"]:visible', "Smoke-Fictional-Password-42!"),
+        ('button[type="submit"]:visible', "click"),
+    ]
 
 
 def test_wrapper_passes_cookies_only_in_process_and_clears_them(
