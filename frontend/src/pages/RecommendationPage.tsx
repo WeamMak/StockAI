@@ -19,7 +19,7 @@ import {
 const DEFAULT_POLL_INTERVAL_MS = 1_000;
 const DEFAULT_MAX_POLL_ATTEMPTS = 130;
 
-interface ScanPageProps {
+interface RecommendationPageProps {
   scanId: string;
   onBack: () => void;
   pollIntervalMs?: number;
@@ -282,12 +282,12 @@ function RecommendationSummary({ scan }: { scan: Scan }) {
   );
 }
 
-export function ScanPage({
+export function RecommendationPage({
   scanId,
   onBack,
   pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
   maxPollAttempts = DEFAULT_MAX_POLL_ATTEMPTS,
-}: ScanPageProps) {
+}: RecommendationPageProps) {
   const [scan, setScan] = useState<Scan | null>(null);
   const [requestError, setRequestError] = useState<UiError | null>(null);
 

@@ -2,7 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ScanPage } from "../src/pages/ScanPage";
+import { RecommendationPage } from "../src/pages/RecommendationPage";
 
 const BASE_SCAN = {
   scan_id: "scan-101",
@@ -134,7 +134,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("ScanPage", () => {
+describe("RecommendationPage", () => {
   it("shows loading before rendering an approval-ready result", async () => {
     const user = userEvent.setup();
     let resolveRequest: ((response: Response) => void) | undefined;
@@ -143,7 +143,7 @@ describe("ScanPage", () => {
     });
     vi.stubGlobal("fetch", vi.fn().mockReturnValue(request));
 
-    render(<ScanPage scanId="scan-101" onBack={vi.fn()} />);
+    render(<RecommendationPage scanId="scan-101" onBack={vi.fn()} />);
 
     expect(screen.getByRole("status")).toHaveTextContent("Loading scan");
     resolveRequest?.(jsonResponse(BASE_SCAN));
@@ -180,7 +180,7 @@ describe("ScanPage", () => {
     const user = userEvent.setup();
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(BASE_SCAN)));
 
-    render(<ScanPage scanId="scan-101" onBack={vi.fn()} />);
+    render(<RecommendationPage scanId="scan-101" onBack={vi.fn()} />);
 
     const summary = await screen.findByRole("region", {
       name: "Recommendation summary",
@@ -216,7 +216,7 @@ describe("ScanPage", () => {
   it("shows truthful icon-card highlights and risk status", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(BASE_SCAN)));
 
-    render(<ScanPage scanId="scan-101" onBack={vi.fn()} />);
+    render(<RecommendationPage scanId="scan-101" onBack={vi.fn()} />);
 
     const highlights = await screen.findByRole("region", {
       name: "Decision highlights",
@@ -249,7 +249,7 @@ describe("ScanPage", () => {
       ),
     );
 
-    render(<ScanPage scanId="scan-101" onBack={vi.fn()} />);
+    render(<RecommendationPage scanId="scan-101" onBack={vi.fn()} />);
 
     const risks = await screen.findByRole("region", {
       name: "Risks and limitations",
@@ -286,7 +286,7 @@ describe("ScanPage", () => {
       ),
     );
 
-    render(<ScanPage scanId="scan-101" onBack={vi.fn()} />);
+    render(<RecommendationPage scanId="scan-101" onBack={vi.fn()} />);
 
     expect(
       await screen.findByRole("img", {
@@ -313,7 +313,7 @@ describe("ScanPage", () => {
   it("presents applied preferences as ordered policy information", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(BASE_SCAN)));
 
-    render(<ScanPage scanId="scan-101" onBack={vi.fn()} />);
+    render(<RecommendationPage scanId="scan-101" onBack={vi.fn()} />);
 
     await screen.findByText("Applied preferences", {
       selector: "summary > span",
@@ -353,7 +353,7 @@ describe("ScanPage", () => {
       ),
     );
 
-    render(<ScanPage scanId="scan-101" onBack={vi.fn()} />);
+    render(<RecommendationPage scanId="scan-101" onBack={vi.fn()} />);
 
     expect(
       await screen.findByRole("heading", { name: "Manual review required" }),
@@ -379,7 +379,7 @@ describe("ScanPage", () => {
       ),
     );
 
-    render(<ScanPage scanId="scan-101" onBack={vi.fn()} />);
+    render(<RecommendationPage scanId="scan-101" onBack={vi.fn()} />);
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "The procurement source timed out.",
@@ -402,7 +402,7 @@ describe("ScanPage", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(
-      <ScanPage
+      <RecommendationPage
         scanId="scan-101"
         onBack={vi.fn()}
         pollIntervalMs={20}
@@ -434,7 +434,7 @@ describe("ScanPage", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(
-      <ScanPage
+      <RecommendationPage
         scanId="scan-101"
         onBack={vi.fn()}
         pollIntervalMs={1}
@@ -468,7 +468,7 @@ describe("ScanPage", () => {
       ),
     );
 
-    render(<ScanPage scanId="scan-101" onBack={vi.fn()} />);
+    render(<RecommendationPage scanId="scan-101" onBack={vi.fn()} />);
 
     expect(
       await screen.findByRole("region", { name: "Manual review summary" }),
@@ -504,7 +504,7 @@ describe("ScanPage", () => {
       ),
     );
 
-    render(<ScanPage scanId="scan-101" onBack={vi.fn()} />);
+    render(<RecommendationPage scanId="scan-101" onBack={vi.fn()} />);
 
     const summary = await screen.findByRole("region", {
       name: "Recommendation summary",
@@ -529,7 +529,7 @@ describe("ScanPage", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const view = render(
-      <ScanPage
+      <RecommendationPage
         scanId="scan-101"
         onBack={vi.fn()}
         pollIntervalMs={20}

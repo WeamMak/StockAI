@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { ApiError, getSession, isAbortError, type Session } from "./api/client";
 import { AppNavigation } from "./components/AppNavigation";
 import { OverviewPage } from "./pages/OverviewPage";
-import { ScanPage } from "./pages/ScanPage";
+import { RecommendationPage } from "./pages/RecommendationPage";
 import { SignInPage } from "./pages/SignInPage";
 
 export function App() {
@@ -84,7 +84,7 @@ export function App() {
               }}
             />
           ) : (
-            <ScanPage
+            <RecommendationPage
               scanId={selectedScanId}
               onBack={() => {
                 setSelectedScanId(null);
