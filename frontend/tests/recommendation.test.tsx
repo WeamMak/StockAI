@@ -284,7 +284,6 @@ describe("RecommendationPage", () => {
   });
 
   it("shows a projection graph and separates rejected offers", async () => {
-    const user = userEvent.setup();
     const eligibleOffer = BASE_SCAN.evidence[0].offers[0];
     vi.stubGlobal(
       "fetch",
@@ -322,21 +321,15 @@ describe("RecommendationPage", () => {
     expect(
       screen.getByText("Projected inventory after existing coverage"),
     ).toBeInTheDocument();
-    const evidenceDetails = screen.getByRole("region", { name: "Evidence details" });
-    expect(within(evidenceDetails).getByText("Only eligible offer")).toBeInTheDocument();
+    const offersSection = screen.getByRole("region", { name: "Vendor offers" });
+    expect(within(offersSection).getAllByRole("listitem")).toHaveLength(2);
     expect(
-      within(evidenceDetails).getByText("Fictional Approved Supplies"),
+      within(offersSection).getByText("Fictional Approved Supplies"),
     ).toBeInTheDocument();
-
-    const rejected = screen
-      .getByText("View rejected offers (1)")
-      .closest("details");
-    expect(rejected).not.toBeNull();
-    expect(rejected).not.toHaveAttribute("open");
-    await user.click(screen.getByText("View rejected offers (1)"));
-    expect(rejected).toHaveAttribute("open");
-    expect(screen.getByText("Fictional Late Supplies")).toBeInTheDocument();
-    expect(screen.getByText("delivery after need by")).toBeInTheDocument();
+    expect(
+      within(offersSection).getByText("Fictional Late Supplies"),
+    ).toBeInTheDocument();
+    expect(within(offersSection).getByText("Not eligible")).toBeInTheDocument();
   });
 
   it("presents applied preferences as ordered policy information", async () => {

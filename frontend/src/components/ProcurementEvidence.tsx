@@ -1,65 +1,26 @@
-import type {
-  OfferEvidence,
-  ProcurementEvidence as Evidence,
-} from "../api/client";
+import type { ProcurementEvidence as Evidence } from "../api/client";
 import {
   formatCurrency,
   formatDate,
   formatDateTime,
   formatNumber,
   formatQuantity,
-  formatRatioPercent,
 } from "../presentation";
 import { AppliedPreferences } from "./AppliedPreferences";
 import { InventoryChart } from "./InventoryChart";
+import { OfferComparison } from "./OfferComparison";
 
 function label(code: string) {
   return code.replaceAll("_", " ").toLowerCase();
 }
 
-function OfferList({
-  accessibleName,
-  offers,
-  onlyEligible = false,
+export function ProcurementEvidence({
+  evidence,
+  selectedOfferId,
 }: {
-  accessibleName: string;
-  offers: OfferEvidence[];
-  onlyEligible?: boolean;
+  evidence: Evidence;
+  selectedOfferId: string | null;
 }) {
-  return (
-    <ul className="offer-list" aria-label={accessibleName}>
-      {offers.map((offer) => (
-        <li key={offer.offer_id}>
-          <div className="offer-heading">
-            <strong>{offer.vendor_name}</strong>
-            <span
-              className={`status status--${offer.status === "eligible" ? "succeeded" : "failed"}`}
-            >
-              {onlyEligible ? "Only eligible offer" : offer.status}
-            </span>
-          </div>
-          <dl className="offer-metrics">
-            <div><dt>Price</dt><dd title={offer.normalized_cost}>{formatCurrency(offer.normalized_cost, offer.company_currency)}</dd></div>
-            <div><dt>Quantity</dt><dd>{formatQuantity(offer.quantity)}</dd></div>
-            <div><dt>Delivery</dt><dd>{formatDate(offer.delivery_date)}</dd></div>
-          </dl>
-          <p className="offer-history">
-            On-time: {formatRatioPercent(offer.performance.on_time_rate)} ·{" "}
-            {offer.performance.completed_order_count} completed orders ·{" "}
-            {offer.performance.history_status} history
-          </p>
-          {offer.reason_codes.length > 0 ? (
-            <p className="rejection-reason">
-              {offer.reason_codes.map(label).join(", ")}
-            </p>
-          ) : null}
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-export function ProcurementEvidence({ evidence }: { evidence: Evidence }) {
   return (
     <section aria-labelledby="evidence-title" className="panel evidence-panel">
       <h2 id="evidence-title">Deterministic procurement evidence</h2>
@@ -150,30 +111,14 @@ export function ProcurementEvidence({ evidence }: { evidence: Evidence }) {
             <div className="evidence-card__heading">
               <div>
                 <h4 id={`offers-${evidence.evidence_id}`}>Vendor offers</h4>
-                <p>Eligible offers are shown first.</p>
+                <p>The AI-selected offer is shown first.</p>
               </div>
               <span className="evidence-count">{evidence.offers.length} considered</span>
             </div>
-            {evidence.offers.filter((offer) => offer.status === "eligible").length === 0 ? (
-                <p>No valid vendor offer evidence was available.</p>
-              ) : (
-                <OfferList
-                  accessibleName={`${evidence.product_name} eligible offers`}
-                  offers={evidence.offers.filter((offer) => offer.status === "eligible")}
-                  onlyEligible={evidence.offers.filter((offer) => offer.status === "eligible").length === 1}
-                />
-              )}
-            {evidence.offers.some((offer) => offer.status === "rejected") ? (
-              <details className="compact-disclosure rejected-offers">
-                <summary>
-                  View rejected offers ({evidence.offers.filter((offer) => offer.status === "rejected").length})
-                </summary>
-                <OfferList
-                  accessibleName={`${evidence.product_name} rejected offers`}
-                  offers={evidence.offers.filter((offer) => offer.status === "rejected")}
-                />
-              </details>
-            ) : null}
+            <OfferComparison
+              offers={evidence.offers}
+              selectedOfferId={selectedOfferId}
+            />
           </section>
         </div>
         </div>

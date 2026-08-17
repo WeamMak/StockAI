@@ -273,7 +273,11 @@ export function RecommendationPage({
             <p className="error-code">{scan.error.error_code}</p>
           </section>
           {scan.evidence.map((item) => (
-            <ProcurementEvidence evidence={item} key={item.evidence_id} />
+            <ProcurementEvidence
+              evidence={item}
+              key={item.evidence_id}
+              selectedOfferId={null}
+            />
           ))}
         </>
       ) : scan.status === "failed" && scan.error ? (
@@ -282,7 +286,14 @@ export function RecommendationPage({
         <>
           <RecommendationSummary scan={scan} evidence={findRecommendedEvidence(scan)} />
           {findRecommendedEvidence(scan) ? (
-            <ProcurementEvidence evidence={findRecommendedEvidence(scan)!} />
+            <ProcurementEvidence
+              evidence={findRecommendedEvidence(scan)!}
+              selectedOfferId={
+                scan.result.outcome === "approval_ready" && scan.result.offer_id !== null
+                  ? scan.result.offer_id
+                  : null
+              }
+            />
           ) : null}
         </>
       ) : (
