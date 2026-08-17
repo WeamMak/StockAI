@@ -9,13 +9,9 @@ import {
   type ScanFailure,
 } from "../api/client";
 import { ProcurementEvidence } from "../components/ProcurementEvidence";
+import { RecommendationHeader } from "../components/RecommendationHeader";
 import { Icon } from "../components/Icon";
-import {
-  formatCurrency,
-  formatDate,
-  formatDateTime,
-  formatQuantity,
-} from "../presentation";
+import { formatDateTime } from "../presentation";
 
 const DEFAULT_POLL_INTERVAL_MS = 1_000;
 const DEFAULT_MAX_POLL_ATTEMPTS = 130;
@@ -153,12 +149,6 @@ function RecommendationSummary({
   }
   const result = scan.result;
   const isLegacy = result.validation_level === "legacy";
-  const eligibleOfferCount =
-    evidence?.offers.filter((offer) => offer.status === "eligible").length ?? 0;
-  const selectedOffer = evidence?.offers.find(
-    (offer) => offer.offer_id === result.offer_id,
-  ) ?? null;
-  const budget = evidence?.budget ?? null;
 
   return (
     <section
@@ -166,72 +156,7 @@ function RecommendationSummary({
       className="panel recommendation-summary"
     >
       <div className="recommendation-hero-grid">
-        <div className="recommendation-overview">
-          <div className="result-heading">
-            <div>
-              <p className="approval-label">
-                <span className="summary-icon summary-icon--green">
-                  <Icon name="coverage" />
-                </span>
-                {isLegacy ? "Historical recommendation" : "Approval ready"}
-              </p>
-              <h2>{scan.result.product_name}</h2>
-              <p className="muted identifier">{scan.result.product_id}</p>
-            </div>
-            <span className="read-only-badge">Read-only recommendation</span>
-          </div>
-
-          {evidence ? (
-            <section aria-label="Decision highlights">
-              <dl className="decision-grid">
-                <div className="decision-card decision-card--coverage">
-                  <dt><span className="summary-icon summary-icon--green"><Icon name="coverage" /></span>Existing coverage</dt>
-                  <dd>
-                    {evidence.coverage.status.charAt(0).toUpperCase() +
-                      evidence.coverage.status.slice(1)}
-                    <small>{formatQuantity(evidence.coverage.covered_quantity)} from existing sources</small>
-                  </dd>
-                </div>
-                <div className="decision-card decision-card--shortage">
-                  <dt><span className="summary-icon summary-icon--amber"><Icon name="shortage" /></span>Uncovered target gap</dt>
-                  <dd title={evidence.coverage.residual_quantity}>
-                    {formatQuantity(evidence.coverage.residual_quantity)}
-                    <small>
-                      At {formatDate(evidence.shortage.need_by_date)} stockout · target{" "}
-                      {formatQuantity(evidence.shortage.reorder_maximum)}
-                    </small>
-                  </dd>
-                </div>
-                <div className="decision-card decision-card--offer">
-                  <dt><span className="summary-icon summary-icon--blue"><Icon name="offer" /></span>Offer</dt>
-                  <dd>
-                    {selectedOffer
-                      ? formatCurrency(
-                          selectedOffer.normalized_cost,
-                          selectedOffer.company_currency,
-                        )
-                      : `${eligibleOfferCount} eligible offers`}
-                    <small>
-                      {eligibleOfferCount} eligible {eligibleOfferCount === 1 ? "offer" : "offers"}
-                      {selectedOffer ? ` · Selected ${selectedOffer.offer_id}` : ""}
-                    </small>
-                  </dd>
-                </div>
-                <div className="decision-card decision-card--recommendation">
-                  <dt><span className="summary-icon summary-icon--green"><Icon name="recommendation" /></span>Recommendation</dt>
-                  <dd>
-                    Approval ready
-                    <small>
-                      {budget
-                        ? `${formatCurrency(budget.proposed_amount, budget.currency)} · ${budget.exception_required ? "Exception required" : "Within budget"}`
-                        : "Budget not available"}
-                    </small>
-                  </dd>
-                </div>
-              </dl>
-            </section>
-          ) : null}
-        </div>
+        <RecommendationHeader result={result} evidence={evidence ?? null} />
 
         <section className="reasoning-panel" aria-labelledby="rationale-title">
           <div className="reasoning-heading">

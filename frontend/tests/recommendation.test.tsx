@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -215,7 +215,7 @@ describe("RecommendationPage", () => {
     expect(summary).toHaveTextContent("Approval ready");
     expect(summary).toHaveTextContent("Aug 12, 2026");
     expect(summary).toHaveTextContent("35 units");
-    expect(summary).toHaveTextContent("1 eligible offer");
+    expect(summary).toHaveTextContent("1 eligible");
     expect(summary).toHaveTextContent("$437.50");
     expect(summary).toHaveTextContent("Within budget");
     const reasoning = screen.getByRole("region", { name: "AI reasoning" });
@@ -248,15 +248,14 @@ describe("RecommendationPage", () => {
     const highlights = await screen.findByRole("region", {
       name: "Decision highlights",
     });
+    expect(highlights).toHaveTextContent("Offers considered1 eligible1 total reviewed");
     expect(highlights).toHaveTextContent(
-      "Existing coveragePartial5 units from existing sources",
+      "Uncovered target gap35 unitsAt Aug 12, 2026 stockout",
     );
     expect(highlights).toHaveTextContent(
-      "Uncovered target gap35 unitsAt Aug 12, 2026 stockout · target 40 units",
+      "Recommended vendorFictional Approved Supplies$437.50",
     );
-    expect(highlights).toHaveTextContent("Offer$437.50");
-    expect(highlights).toHaveTextContent("Selected offer-101");
-    expect(highlights).toHaveTextContent("RecommendationApproval ready");
+    expect(highlights).toHaveTextContent("Budget statusWithin budget$4,402.50 remaining");
 
     const risks = screen.getByRole("region", {
       name: "Risks and limitations",
@@ -323,8 +322,11 @@ describe("RecommendationPage", () => {
     expect(
       screen.getByText("Projected inventory after existing coverage"),
     ).toBeInTheDocument();
-    expect(screen.getByText("Only eligible offer")).toBeInTheDocument();
-    expect(screen.getByText("Fictional Approved Supplies")).toBeInTheDocument();
+    const evidenceDetails = screen.getByRole("region", { name: "Evidence details" });
+    expect(within(evidenceDetails).getByText("Only eligible offer")).toBeInTheDocument();
+    expect(
+      within(evidenceDetails).getByText("Fictional Approved Supplies"),
+    ).toBeInTheDocument();
 
     const rejected = screen
       .getByText("View rejected offers (1)")
@@ -536,7 +538,7 @@ describe("RecommendationPage", () => {
     const summary = await screen.findByRole("region", {
       name: "Recommendation summary",
     });
-    expect(summary).toHaveTextContent("Approval ready");
+    expect(summary).toHaveTextContent("Historical recommendation");
     expect(summary).toHaveTextContent("Predates T27 validation");
     expect(summary).not.toHaveTextContent("Selected offer-101");
     expect(

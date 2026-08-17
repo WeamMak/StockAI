@@ -869,6 +869,15 @@ h2 {
   color: #3450a3;
 }
 
+.decision-card--offers dd small,
+.decision-card--vendor dd small {
+  color: #3450a3;
+}
+
+.decision-card--budget dd small {
+  color: #36724d;
+}
+
 .risk-state {
   display: flex;
   align-items: center;
