@@ -135,6 +135,33 @@ afterEach(() => {
 });
 
 describe("RecommendationPage", () => {
+  it("shows evidence only for the recommended product, not every evaluated candidate", async () => {
+    const otherCandidateEvidence = {
+      ...BASE_SCAN.evidence[0],
+      evidence_id: "dev:evidence-product-999",
+      product_id: "product-999",
+      product_name: "Fictional Other Candidate",
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          ...BASE_SCAN,
+          evidence: [otherCandidateEvidence, BASE_SCAN.evidence[0]],
+        }),
+      ),
+    );
+
+    render(<RecommendationPage scanId="scan-101" onBack={vi.fn()} />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Deterministic procurement evidence" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("dev:evidence-product-101")).toBeInTheDocument();
+    expect(screen.queryByText("Fictional Other Candidate")).not.toBeInTheDocument();
+    expect(screen.queryByText("dev:evidence-product-999")).not.toBeInTheDocument();
+  });
+
   it("shows loading before rendering an approval-ready result", async () => {
     const user = userEvent.setup();
     let resolveRequest: ((response: Response) => void) | undefined;
@@ -449,7 +476,7 @@ describe("RecommendationPage", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it("shows deterministic evidence with a safe manual-review fallback", async () => {
+  it("shows a safe manual-review fallback without a recommended-product evidence section", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
@@ -475,8 +502,8 @@ describe("RecommendationPage", () => {
     ).toHaveTextContent("No draft created");
     expect(screen.getByText("Compare the eligible offers manually.")).toBeInTheDocument();
     expect(
-      screen.getByRole("heading", { name: "Deterministic procurement evidence" }),
-    ).toBeInTheDocument();
+      screen.queryByRole("heading", { name: "Deterministic procurement evidence" }),
+    ).not.toBeInTheDocument();
   });
 
   it("keeps historical successful recommendations approval-ready", async () => {

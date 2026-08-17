@@ -4,6 +4,7 @@ import {
   ApiError,
   getScan,
   isAbortError,
+  type ProcurementEvidence as ProcurementEvidenceRecord,
   type Scan,
   type ScanFailure,
 } from "../api/client";
@@ -98,7 +99,21 @@ function ScanHeading({
   );
 }
 
-function RecommendationSummary({ scan }: { scan: Scan }) {
+function findRecommendedEvidence(scan: Scan): ProcurementEvidenceRecord | null {
+  const result = scan.result;
+  if (result === null || result.outcome !== "approval_ready") {
+    return null;
+  }
+  return scan.evidence.find((item) => item.product_id === result.product_id) ?? null;
+}
+
+function RecommendationSummary({
+  scan,
+  evidence,
+}: {
+  scan: Scan;
+  evidence: ProcurementEvidenceRecord | null;
+}) {
   if (scan.result === null) {
     return null;
   }
@@ -138,9 +153,6 @@ function RecommendationSummary({ scan }: { scan: Scan }) {
   }
   const result = scan.result;
   const isLegacy = result.validation_level === "legacy";
-  const evidence = scan.evidence.find(
-    (item) => item.product_id === result.product_id,
-  );
   const eligibleOfferCount =
     evidence?.offers.filter((offer) => offer.status === "eligible").length ?? 0;
   const selectedOffer = evidence?.offers.find(
@@ -368,14 +380,18 @@ export function RecommendationPage({
             <p>{scan.error.message}</p>
             <p className="error-code">{scan.error.error_code}</p>
           </section>
-          <ProcurementEvidence evidence={scan.evidence} />
+          {scan.evidence.map((item) => (
+            <ProcurementEvidence evidence={item} key={item.evidence_id} />
+          ))}
         </>
       ) : scan.status === "failed" && scan.error ? (
         <ErrorState error={scan.error} />
       ) : scan.result ? (
         <>
-          <RecommendationSummary scan={scan} />
-          <ProcurementEvidence evidence={scan.evidence} />
+          <RecommendationSummary scan={scan} evidence={findRecommendedEvidence(scan)} />
+          {findRecommendedEvidence(scan) ? (
+            <ProcurementEvidence evidence={findRecommendedEvidence(scan)!} />
+          ) : null}
         </>
       ) : (
         <ErrorState
