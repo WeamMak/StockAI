@@ -947,10 +947,17 @@ h2 {
   background: var(--accent-soft);
 }
 
-.evidence-disclosures {
+.evidence-panels {
   display: grid;
   align-content: start;
   gap: 0.65rem;
+}
+
+.evidence-panels .preferences-panel {
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: #ffffff;
 }
 
 .evidence-detail-grid {
@@ -1093,87 +1100,17 @@ h2 {
   margin-top: 1rem;
 }
 
-.disclosure {
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 0.75rem;
-  background: #fbfcfe;
-}
-
-.evidence-disclosures .disclosure summary {
-  padding: 0.8rem 0.9rem;
-  font-size: 0.8rem;
-}
-
-.evidence-disclosures .disclosure__content {
-  padding: 0 0.9rem 0.9rem;
-}
-
-.evidence-disclosures .evidence-grid {
+.evidence-panels .evidence-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.65rem;
 }
 
-.evidence-disclosures .preferences-heading > div:first-child .summary-icon,
-.evidence-disclosures .preferences-heading > div:first-child h4 {
-  display: none;
-}
-
-.evidence-disclosures .preference-layout {
+.evidence-panels .preference-layout {
   grid-template-columns: 1fr;
 }
 
-.evidence-disclosures .policy-badges {
+.evidence-panels .policy-badges {
   gap: 0.35rem;
-}
-
-.disclosure[open] {
-  background: #ffffff;
-  box-shadow: 0 8px 22px rgb(32 48 85 / 6%);
-}
-
-.disclosure summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 1rem 1.1rem;
-  cursor: pointer;
-  color: var(--ink);
-  font-weight: 780;
-  list-style: none;
-}
-
-.disclosure summary::-webkit-details-marker {
-  display: none;
-}
-
-.disclosure summary::after {
-  color: var(--accent);
-  content: "+";
-  font-size: 1.25rem;
-  line-height: 1;
-}
-
-.disclosure[open] summary::after {
-  content: "−";
-}
-
-.disclosure summary:focus-visible {
-  outline: 3px solid #f59e0b;
-  outline-offset: -3px;
-}
-
-.disclosure summary small {
-  margin-left: auto;
-  color: var(--muted);
-  font-size: 0.75rem;
-  font-weight: 650;
-}
-
-.disclosure__content {
-  padding: 0 1.1rem 1.1rem;
-  border-top: 1px solid #edf1f7;
 }
 
 .table-scroll {

@@ -123,20 +123,12 @@ export function ProcurementEvidence({
         </div>
         </div>
 
-        <aside className="evidence-disclosures" aria-label="Evidence policy details">
+        <aside className="evidence-panels" aria-label="Evidence policy details">
 
           <BudgetPanel budget={evidence.budget} />
 
           {evidence.preferences ? (
-            <details className="disclosure" open>
-              <summary>
-                <span>Applied preferences</span>
-                <small>Revision {evidence.preferences.revision}</small>
-              </summary>
-              <div className="disclosure__content">
-                <AppliedPreferences preferences={evidence.preferences} />
-              </div>
-            </details>
+            <AppliedPreferences preferences={evidence.preferences} />
           ) : null}
         </aside>
         </div>

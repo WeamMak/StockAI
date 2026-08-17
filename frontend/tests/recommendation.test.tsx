@@ -337,9 +337,10 @@ describe("RecommendationPage", () => {
 
     render(<RecommendationPage scanId="scan-101" onBack={vi.fn()} />);
 
-    await screen.findByText("Applied preferences", {
-      selector: "summary > span",
-    });
+    await screen.findByRole("heading", { name: "Applied preferences" });
+    expect(
+      document.querySelector(".evidence-disclosures .disclosure"),
+    ).toBeNull();
 
     expect(screen.getByText("Product scope")).toBeInTheDocument();
     expect(
