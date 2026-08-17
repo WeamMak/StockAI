@@ -60,7 +60,7 @@ def test_cognito_login_targets_only_visible_controls() -> None:
     assert events == [
         ('input[name="username"]:visible', "prod-smoke-officer"),
         ('input[name="password"]:visible', "Smoke-Fictional-Password-42!"),
-        ('button[type="submit"]:visible', "click"),
+        ('input[name="signInSubmitButton"]:visible', "click"),
     ]
 
 
