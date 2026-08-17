@@ -53,6 +53,42 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
+  name: api-metrics
+  labels:
+    app.kubernetes.io/name: stockai-agent-api
+    app.kubernetes.io/component: metrics
+    app.kubernetes.io/part-of: stockai
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: stockai-agent-api
+  ports:
+    - name: metrics
+      port: 8000
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: procurement-mcp-metrics
+  labels:
+    app.kubernetes.io/name: stockai-procurement-mcp
+    app.kubernetes.io/component: metrics
+    app.kubernetes.io/part-of: stockai
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: stockai-procurement-mcp
+  ports:
+    - name: metrics
+      port: 9000
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
   name: odoo
   labels:
     app.kubernetes.io/name: stockai-odoo

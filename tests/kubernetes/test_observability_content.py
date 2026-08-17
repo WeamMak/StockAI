@@ -137,6 +137,24 @@ def test_required_dashboard_panels_and_queries_are_present() -> None:
         assert unsafe_label not in serialized
 
 
+def test_application_dashboard_queries_aggregate_replica_series() -> None:
+    for path in (OBSERVABILITY_ROOT / "dashboards").glob("*.json"):
+        dashboard = json.loads(path.read_text())
+        expressions = [
+            target["expr"]
+            for panel in dashboard["panels"]
+            for target in panel["targets"]
+            if "procurement_" in target.get("expr", "")
+        ]
+        assert all(
+            expression.startswith("sum(")
+            or expression.startswith("sum by ")
+            or " sum by " in expression
+            or "sum(rate(" in expression
+            for expression in expressions
+        ), path.name
+
+
 def test_alert_rules_are_actionable_and_low_cardinality() -> None:
     rules_path = OBSERVABILITY_ROOT / "rules" / "stockai-alerts.yaml"
     rules = yaml.safe_load(rules_path.read_text())

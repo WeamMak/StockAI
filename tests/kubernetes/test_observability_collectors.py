@@ -110,6 +110,52 @@ def test_prometheus_uses_retained_claim_and_bounded_retention(environment: str) 
 
 
 @pytest.mark.parametrize("environment", ENVIRONMENTS)
+def test_prometheus_scrapes_every_ready_api_and_mcp_pod(environment: str) -> None:
+    resources = _render(environment)
+    expected = {
+        "stockai-agent-api": ("api-metrics", "stockai-agent-api", 8000),
+        "stockai-procurement-mcp": (
+            "procurement-mcp-metrics",
+            "stockai-procurement-mcp",
+            9000,
+        ),
+    }
+
+    for service_name, selector_name, port in expected.values():
+        service = _named(resources, "Service", service_name)
+        assert service["spec"]["clusterIP"] == "None"
+        assert service["spec"]["selector"] == {
+            "app.kubernetes.io/name": selector_name
+        }
+        assert service["spec"]["ports"] == [
+            {
+                "name": "metrics",
+                "port": port,
+                "protocol": "TCP",
+                "targetPort": "http",
+            }
+        ]
+
+    prometheus_yaml = _named(
+        resources, "ConfigMap", "stockai-observability-config"
+    )["data"]["prometheus.yml"]
+    prometheus = yaml.safe_load(prometheus_yaml)
+    jobs = {job["job_name"]: job for job in prometheus["scrape_configs"]}
+
+    for job_name, (service_name, _selector_name, port) in expected.items():
+        job = jobs[job_name]
+        assert "static_configs" not in job
+        assert job["dns_sd_configs"] == [
+            {
+                "names": [service_name],
+                "type": "A",
+                "port": port,
+                "refresh_interval": "30s",
+            }
+        ]
+
+
+@pytest.mark.parametrize("environment", ENVIRONMENTS)
 def test_grafana_is_git_provisioned_and_disposable(environment: str) -> None:
     resources = _render(environment)
     grafana = _named(resources, "Deployment", "stockai-grafana")
