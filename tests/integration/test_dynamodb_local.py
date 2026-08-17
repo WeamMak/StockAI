@@ -186,11 +186,13 @@ def test_scan_and_graph_state_survive_api_process_restart(
                 finished = _poll_scan(api, location, headers=auth_headers)
 
             scan_id = str(finished["scan_id"])
+            results = cast(list[dict[str, object]], finished["results"])
+            case_id = str(results[0]["case_id"])
             checkpoint_items = client.query(
                 TableName=CHECKPOINT_TABLE,
                 KeyConditionExpression="PK = :pk",
                 ExpressionAttributeValues={
-                    ":pk": {"S": f"CHECKPOINT_{scan_id}"},
+                    ":pk": {"S": f"CHECKPOINT_{case_id}"},
                 },
             )["Items"]
             assert checkpoint_items
@@ -199,7 +201,7 @@ def test_scan_and_graph_state_survive_api_process_restart(
                 KeyConditionExpression="PK = :pk AND begins_with(SK, :prefix)",
                 ExpressionAttributeValues={
                     ":pk": {"S": "ENV#dev"},
-                    ":prefix": {"S": f"AUDIT#{scan_id}#"},
+                    ":prefix": {"S": f"AUDIT#{case_id}#"},
                 },
             )["Items"]
             assert {item["outcome"]["S"] for item in audit_items} == {
@@ -243,7 +245,7 @@ def test_scan_and_graph_state_survive_api_process_restart(
                         endpoint_url=endpoint_url,
                     )
                 )
-                config: RunnableConfig = {"configurable": {"thread_id": scan_id}}
+                config: RunnableConfig = {"configurable": {"thread_id": case_id}}
                 checkpoint = saver.get_tuple(config)
             finally:
                 if previous_access_key is None:

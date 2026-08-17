@@ -38,6 +38,12 @@ def test_local_processes_run_langgraph_over_real_mcp_transport(
                 accepted.headers["location"],
                 headers=auth_headers,
             )
+            scan_id = detail.json()["scan_id"]
+            case_id = detail.json()["results"][0]["case_id"]
+            case = client.get(
+                f"/api/v1/scans/{scan_id}/cases/{case_id}",
+                headers=auth_headers,
+            )
             api_metrics = client.get("/metrics").text
         mcp_metrics = httpx.get(
             f"{skeleton.mcp_url}/metrics",
@@ -49,7 +55,8 @@ def test_local_processes_run_langgraph_over_real_mcp_transport(
     assert accepted.status_code == 202
     assert detail.status_code == 200
     assert detail.json()["status"] == "succeeded"
-    result = detail.json()["result"]
+    assert case.status_code == 200
+    result = case.json()["result"]
     assert result["outcome"] == "approval_ready"
     assert result["product_id"] == "product-101"
     assert result["offer_id"] == "offer-101"
