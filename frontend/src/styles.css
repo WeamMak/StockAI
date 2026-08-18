@@ -600,6 +600,10 @@ h2 {
   background: #f5f8ff;
 }
 
+.attention-card--exception {
+  background: #fffaf0;
+}
+
 .status {
   display: inline-block;
   margin: 0;

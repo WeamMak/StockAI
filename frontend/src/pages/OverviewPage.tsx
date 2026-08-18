@@ -75,6 +75,18 @@ function scanCounts(scans: ScanAggregate[]) {
   return { approvalReady, inProgress, needsReview, total: scans.length };
 }
 
+function overBudgetCount(scans: ScanAggregate[]): number {
+  let count = 0;
+  for (const scan of scans) {
+    for (const row of scan.results) {
+      if (row.budget_status === "exception_required") {
+        count += 1;
+      }
+    }
+  }
+  return count;
+}
+
 function outcomeClass(scan: ScanAggregate): string {
   if (scan.status === "succeeded") {
     const outcome = representativeOutcome(scan);
@@ -159,6 +171,7 @@ export function OverviewPage({
   }
 
   const counts = scans === null ? null : scanCounts(scans);
+  const overBudget = scans === null ? 0 : overBudgetCount(scans);
   const scanContent = loadError ? (
     <p className="notice notice--error" role="alert">
       {loadError}
@@ -363,11 +376,13 @@ export function OverviewPage({
                   <span>Approval ready</span>
                   <small>Read-only recommendations</small>
                 </article>
-                <article className="attention-card attention-card--progress">
-                  <span className="summary-icon summary-icon--blue"><Icon name="scans" /></span>
-                  <strong>{counts.inProgress}</strong>
-                  <span>In progress</span>
-                  <small>Queued or currently running</small>
+                <article className="attention-card attention-card--exception">
+                  <span className="summary-icon summary-icon--amber">
+                    <Icon name="alert" />
+                  </span>
+                  <strong>{overBudget}</strong>
+                  <span>Over-budget exceptions</span>
+                  <small>Exceed budget thresholds</small>
                 </article>
               </div>
             </section>

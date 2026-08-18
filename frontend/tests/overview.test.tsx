@@ -71,6 +71,27 @@ const FAILED_SCAN = {
   },
 };
 
+const OVER_BUDGET_SCAN = {
+  ...QUEUED_SCAN,
+  scan_id: "scan-over-budget",
+  status: "succeeded",
+  completed_at: "2026-08-05T10:00:08Z",
+  results: [
+    {
+      case_id: "scan-over-budget:product-103",
+      product_id: "product-103",
+      product_name: "Fictional Industrial Fasteners",
+      outcome: "approval_ready",
+      amount: "980.000000",
+      need_by_date: "2026-08-14",
+      scan_id: "scan-over-budget",
+      budget_status: "exception_required",
+      completed_at: "2026-08-05T10:00:08Z",
+    },
+  ],
+  outcome_counts: { approval_ready: 1 },
+};
+
 const RECENT_CASES = [
   {
     case_id: "scan-succeeded:product-101",
@@ -167,6 +188,7 @@ describe("OverviewPage", () => {
                   SUCCEEDED_SCAN,
                   MANUAL_REVIEW_SCAN,
                   FAILED_SCAN,
+                  OVER_BUDGET_SCAN,
                 ],
               }),
         ),
@@ -176,15 +198,17 @@ describe("OverviewPage", () => {
     render(<OverviewPage onSelectScan={vi.fn()} onSelectCase={vi.fn()} />);
 
     const summary = await screen.findByRole("region", { name: "Scan summary" });
-    expect(summary).toHaveTextContent("5Total");
+    expect(summary).toHaveTextContent("6Total");
     expect(summary).toHaveTextContent("2In progress");
-    expect(summary).toHaveTextContent("1Approval ready");
+    expect(summary).toHaveTextContent("2Approval ready");
     expect(summary).toHaveTextContent("2Needs review");
-    expect(screen.getAllByText(/Completed Aug 5, 2026/)).toHaveLength(3);
+    expect(screen.getAllByText(/Completed Aug 5, 2026/)).toHaveLength(4);
     expect(screen.getByText("Manual review")).toBeInTheDocument();
     const attention = screen.getByRole("region", { name: "What needs attention" });
     expect(attention).toHaveTextContent("2Needs review");
-    expect(attention).toHaveTextContent("1Approval ready");
+    expect(attention).toHaveTextContent("2Approval ready");
+    expect(attention).toHaveTextContent("1Over-budget exceptions");
+    expect(attention).not.toHaveTextContent("In progress");
     expect(
       screen.getByRole("region", { name: "Recent scan activity" }),
     ).toBeInTheDocument();
