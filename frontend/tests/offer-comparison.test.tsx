@@ -60,6 +60,72 @@ describe("OfferComparison", () => {
     expect(screen.getByText("Vendor not approved")).toBeInTheDocument();
   });
 
+  it("labels a vendor-blocked rejection", () => {
+    const offers = [
+      makeOffer({
+        offer_id: "offer-c",
+        status: "rejected",
+        reason_codes: ["VENDOR_BLOCKED"],
+      }),
+    ];
+    render(<OfferComparison offers={offers} selectedOfferId={null} />);
+
+    expect(screen.getByText("Vendor blocked")).toBeInTheDocument();
+  });
+
+  it("labels an offer-not-yet-valid rejection", () => {
+    const offers = [
+      makeOffer({
+        offer_id: "offer-c",
+        status: "rejected",
+        reason_codes: ["OFFER_NOT_YET_VALID"],
+      }),
+    ];
+    render(<OfferComparison offers={offers} selectedOfferId={null} />);
+
+    expect(screen.getByText("Not yet valid")).toBeInTheDocument();
+  });
+
+  it("labels an offer-expired rejection", () => {
+    const offers = [
+      makeOffer({
+        offer_id: "offer-c",
+        status: "rejected",
+        reason_codes: ["OFFER_EXPIRED"],
+      }),
+    ];
+    render(<OfferComparison offers={offers} selectedOfferId={null} />);
+
+    expect(screen.getByText("Offer expired")).toBeInTheDocument();
+  });
+
+  it("labels a delivery-after-need-by rejection", () => {
+    const offers = [
+      makeOffer({
+        offer_id: "offer-c",
+        status: "rejected",
+        reason_codes: ["DELIVERY_AFTER_NEED_BY"],
+      }),
+    ];
+    render(<OfferComparison offers={offers} selectedOfferId={null} />);
+
+    expect(screen.getByText("Delivery too late")).toBeInTheDocument();
+  });
+
+  it("labels the first matching reason in priority order for multi-reason offers", () => {
+    const offers = [
+      makeOffer({
+        offer_id: "offer-multi",
+        status: "rejected",
+        reason_codes: ["OFFER_EXPIRED", "VENDOR_BLOCKED"],
+      }),
+    ];
+    render(<OfferComparison offers={offers} selectedOfferId={null} />);
+
+    expect(screen.getByText("Vendor blocked")).toBeInTheDocument();
+    expect(screen.queryByText("Offer expired")).not.toBeInTheDocument();
+  });
+
   it("caps visible cards at 3 and collapses the rest", async () => {
     const user = userEvent.setup();
     const offers = [

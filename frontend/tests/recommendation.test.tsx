@@ -330,7 +330,7 @@ describe("RecommendationPage", () => {
     expect(
       within(offersSection).getByText("Fictional Late Supplies"),
     ).toBeInTheDocument();
-    expect(within(offersSection).getByText("Not eligible")).toBeInTheDocument();
+    expect(within(offersSection).getByText("Delivery too late")).toBeInTheDocument();
   });
 
   it("presents applied preferences as ordered policy information", async () => {
