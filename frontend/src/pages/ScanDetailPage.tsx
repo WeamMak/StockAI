@@ -6,26 +6,16 @@ import {
   isAbortError,
   type ScanAggregate,
 } from "../api/client";
-import { formatCurrency, formatDate, formatDateTime } from "../presentation";
+import {
+  formatCurrency,
+  formatDate,
+  formatDateTime,
+  OUTCOME_COLOR,
+  OUTCOME_LABEL,
+} from "../presentation";
 
 const DEFAULT_POLL_INTERVAL_MS = 1_000;
 const DEFAULT_MAX_POLL_ATTEMPTS = 130;
-
-const OUTCOME_LABEL: Record<string, string> = {
-  approval_ready: "Approval ready",
-  manual_review: "Manual review",
-  no_valid_offer: "No valid offer",
-  confirmed: "Confirmed",
-  error: "Error",
-};
-
-const OUTCOME_COLOR: Record<string, string> = {
-  approval_ready: "#2f9e58",
-  manual_review: "#3157c8",
-  no_valid_offer: "#c0392b",
-  confirmed: "#2f9e58",
-  error: "#c0392b",
-};
 
 function OutcomeDonut({ counts }: { counts: Record<string, number> }) {
   const entries = Object.entries(counts).filter(([, count]) => count > 0);
