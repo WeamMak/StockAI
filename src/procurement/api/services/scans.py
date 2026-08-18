@@ -581,9 +581,11 @@ class ScanService:
         if terminal.result is not None:
             outcome = terminal.result.outcome
             amount = terminal.result.normalized_cost
+            budget_status = terminal.result.budget_status
         else:
             outcome = "error"
             amount = None
+            budget_status = "not_evaluated"
         return CaseSummary(
             case_id=terminal.case_id.value,
             product_id=candidate.product_id,
@@ -591,6 +593,9 @@ class ScanService:
             outcome=outcome,
             amount=amount,
             need_by_date=need_by_date,
+            scan_id=terminal.case_id.value.split(":", 1)[0],
+            budget_status=budget_status,
+            completed_at=terminal.completed_at,
         )
 
     async def _append_audit(self, record: CaseRecord) -> None:

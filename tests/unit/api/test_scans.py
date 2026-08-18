@@ -208,6 +208,9 @@ async def test_manual_scan_returns_202_and_can_be_polled_to_completion() -> None
     results = cast(list[dict[str, object]], finished["results"])
     assert len(results) == 1
     assert results[0]["outcome"] == "approval_ready"
+    assert results[0]["scan_id"] == scan_id
+    assert results[0]["budget_status"] == "within_budget"
+    assert results[0]["completed_at"] is not None
     assert finished["outcome_counts"] == {"approval_ready": 1}
     result = cast(dict[str, object], case.json()["result"])
     assert result["outcome"] == "approval_ready"

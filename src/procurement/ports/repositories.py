@@ -110,6 +110,9 @@ class CaseSummary:
     outcome: str
     amount: Decimal | None
     need_by_date: date | None
+    scan_id: str
+    budget_status: str
+    completed_at: UtcTimestamp | None
 
 
 @dataclass(frozen=True, slots=True)

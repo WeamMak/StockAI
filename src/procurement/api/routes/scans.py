@@ -23,6 +23,7 @@ from procurement.api.services.scans import (
     ScanTrigger,
 )
 from procurement.domain.errors import DomainError, ErrorCode
+from procurement.ports.repositories import CaseSummary
 
 router = APIRouter(
     prefix="/api/v1/scans",
@@ -168,6 +169,9 @@ class CaseSummaryResponse(BaseModel):
     outcome: str
     amount: str | None
     need_by_date: date | None
+    scan_id: str
+    budget_status: str
+    completed_at: datetime | None
 
 
 class ScanAggregateResponse(BaseModel):
@@ -282,6 +286,22 @@ def case_response(snapshot: ScanSnapshot) -> CaseResponse:
     )
 
 
+def case_summary_response(row: CaseSummary) -> CaseSummaryResponse:
+    """Map one internal case summary to its filtered public response model."""
+
+    return CaseSummaryResponse(
+        case_id=row.case_id,
+        product_id=row.product_id,
+        product_name=row.product_name,
+        outcome=row.outcome,
+        amount=format(row.amount, "f") if row.amount is not None else None,
+        need_by_date=row.need_by_date,
+        scan_id=row.scan_id,
+        budget_status=row.budget_status,
+        completed_at=row.completed_at.value if row.completed_at is not None else None,
+    )
+
+
 def scan_aggregate_response(snapshot: ScanAggregateSnapshot) -> ScanAggregateResponse:
     """Map an internal scan snapshot to the filtered public response model."""
 
@@ -295,17 +315,7 @@ def scan_aggregate_response(snapshot: ScanAggregateSnapshot) -> ScanAggregateRes
         created_at=snapshot.created_at,
         started_at=snapshot.started_at,
         completed_at=snapshot.completed_at,
-        results=tuple(
-            CaseSummaryResponse(
-                case_id=row.case_id,
-                product_id=row.product_id,
-                product_name=row.product_name,
-                outcome=row.outcome,
-                amount=format(row.amount, "f") if row.amount is not None else None,
-                need_by_date=row.need_by_date,
-            )
-            for row in snapshot.results
-        ),
+        results=tuple(case_summary_response(row) for row in snapshot.results),
         outcome_counts=outcome_counts,
         error=_error_response(snapshot.error),
     )
