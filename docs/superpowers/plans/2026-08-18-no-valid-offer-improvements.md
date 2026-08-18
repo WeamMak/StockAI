@@ -51,7 +51,7 @@ topology change), React/TypeScript/Vitest.
 - Produces: `_no_valid_offer_rationale(offers: tuple[OfferEvidence, ...]) -> str`,
   a module-level pure function in `walking_skeleton.py`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `tests/unit/agent/test_walking_skeleton.py`. Add
 `_no_valid_offer_rationale` to the existing
@@ -168,7 +168,7 @@ def test_no_valid_offer_rationale_ignores_eligible_offers() -> None:
     )
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```bash
 cd /home/weam/StockAI && uv run pytest tests/unit/agent/test_walking_skeleton.py -v -k "no_valid_offer_rationale"
@@ -176,7 +176,7 @@ cd /home/weam/StockAI && uv run pytest tests/unit/agent/test_walking_skeleton.py
 
 Expected: FAIL — `ImportError: cannot import name '_no_valid_offer_rationale'`.
 
-- [ ] **Step 3: Add the helper and wire it in**
+- [x] **Step 3: Add the helper and wire it in**
 
 Read `src/procurement/agent/nodes/walking_skeleton.py:1-20` first to see
 the exact current import block. Add `OfferEvidence` to the existing
@@ -234,7 +234,7 @@ Update the `NO_VALID_OFFER` branch (currently lines 186-196) to call it:
             }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 ```bash
 cd /home/weam/StockAI && uv run pytest tests/unit/agent/test_walking_skeleton.py -v
@@ -249,7 +249,7 @@ assertions first — it may need updating to not assert on the old static
 string if a prior version of this file changed since this plan was
 written.
 
-- [ ] **Step 5: Run focused quality checks**
+- [x] **Step 5: Run focused quality checks**
 
 ```bash
 cd /home/weam/StockAI && uv run ruff check src/procurement/agent/nodes/walking_skeleton.py tests/unit/agent/test_walking_skeleton.py
@@ -258,7 +258,7 @@ uv run mypy src/procurement/agent/nodes/walking_skeleton.py
 
 Expected: both pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/procurement/agent/nodes/walking_skeleton.py tests/unit/agent/test_walking_skeleton.py
@@ -277,7 +277,7 @@ git commit -m "feat(agent): build no_valid_offer rationale from actual rejection
 - Consumes: `NoValidOfferResult.product_id` (already exists on the
   frontend `NoValidOfferResult` interface in `client.ts`).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Read `frontend/tests/recommendation.test.tsx`'s `BASE_SCAN` fixture
 (currently lines 7-90+) and the existing manual-review test at line 478
@@ -323,7 +323,7 @@ first, to match their exact structure. Add a new test, following the same
   });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 ```bash
 cd /home/weam/StockAI/frontend && npx vitest run tests/recommendation.test.tsx -t "shows evidence for a no_valid_offer"
@@ -333,7 +333,7 @@ Expected: FAIL — the "Deterministic procurement evidence" heading is not
 found, since `findRecommendedEvidence` currently returns `null` for this
 outcome.
 
-- [ ] **Step 3: Fix the gate**
+- [x] **Step 3: Fix the gate**
 
 In `frontend/src/pages/RecommendationPage.tsx`, replace
 `findRecommendedEvidence` (currently lines 99-105):
@@ -351,7 +351,7 @@ function findRecommendedEvidence(scan: CaseDetail): ProcurementEvidenceRecord | 
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 ```bash
 cd /home/weam/StockAI/frontend && npx vitest run tests/recommendation.test.tsx
@@ -362,7 +362,7 @@ Expected: PASS — the new test plus every pre-existing test in the file
 more outcome, it does not change behavior for `approval_ready` or
 `manual_review`).
 
-- [ ] **Step 5: Run full frontend verification**
+- [x] **Step 5: Run full frontend verification**
 
 ```bash
 cd /home/weam/StockAI/frontend && npm run typecheck && npm run lint && npm test -- --run && npm run build
@@ -370,7 +370,7 @@ cd /home/weam/StockAI/frontend && npm run typecheck && npm run lint && npm test 
 
 Expected: all PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add frontend/src/pages/RecommendationPage.tsx frontend/tests/recommendation.test.tsx
@@ -389,7 +389,7 @@ git commit -m "fix(frontend): show evidence for no_valid_offer case pages"
 - Produces: `statusLabel(offer: OfferEvidence): string` now handles all
   five reason codes instead of one.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `frontend/tests/offer-comparison.test.tsx`, using the existing
 `makeOffer` helper (currently lines 8-31) and following the exact style of
@@ -443,7 +443,7 @@ iteration, split this into four separate `it` blocks instead, one per
 reason code, matching the existing single-reason test's style exactly
 rather than looping).
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```bash
 cd /home/weam/StockAI/frontend && npx vitest run tests/offer-comparison.test.tsx -t "labels"
@@ -453,7 +453,7 @@ Expected: FAIL — all four non-`VENDOR_NOT_APPROVED` codes currently render
 as "Not eligible", and the multi-reason offer shows "Not eligible" too
 (no priority-order handling exists yet).
 
-- [ ] **Step 3: Extend `statusLabel`**
+- [x] **Step 3: Extend `statusLabel`**
 
 Replace `statusLabel` in `frontend/src/components/OfferComparison.tsx`
 (currently lines 23-28):
@@ -479,7 +479,7 @@ function statusLabel(offer: OfferEvidence): string {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 ```bash
 cd /home/weam/StockAI/frontend && npx vitest run tests/offer-comparison.test.tsx
@@ -490,7 +490,7 @@ Expected: PASS — new tests plus every pre-existing test in the file
 `VENDOR_NOT_APPROVED` is still first in priority order, same behavior as
 today for that single-reason case).
 
-- [ ] **Step 5: Run full frontend verification**
+- [x] **Step 5: Run full frontend verification**
 
 ```bash
 cd /home/weam/StockAI/frontend && npm run typecheck && npm run lint && npm test -- --run && npm run build
@@ -498,7 +498,7 @@ cd /home/weam/StockAI/frontend && npm run typecheck && npm run lint && npm test 
 
 Expected: all PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add frontend/src/components/OfferComparison.tsx frontend/tests/offer-comparison.test.tsx
@@ -512,12 +512,12 @@ git commit -m "feat(frontend): label every offer-rejection reason code"
 **Files:** none (verification-only task, no code changes expected; fixes
 if verification surfaces them)
 
-- [ ] **Step 1: Re-read the spec section by section**
+- [x] **Step 1: Re-read the spec section by section**
 
 Re-read `docs/superpowers/specs/2026-08-18-no-valid-offer-improvements-design.md`
 end to end and confirm each Goal maps to a completed task above.
 
-- [ ] **Step 2: Full backend verification**
+- [x] **Step 2: Full backend verification**
 
 ```bash
 cd /home/weam/StockAI && uv run ruff format --check src tests scripts odoo
@@ -533,7 +533,7 @@ unrelated to any code in this repository — every test passes individually
 or in two clean batches split roughly in half alphabetically), fall back
 to running it in two batches instead of troubleshooting further.
 
-- [ ] **Step 3: Full frontend verification**
+- [x] **Step 3: Full frontend verification**
 
 ```bash
 cd /home/weam/StockAI/frontend && npm run typecheck && npm run lint && npm test -- --run && npm run build
@@ -541,7 +541,7 @@ cd /home/weam/StockAI/frontend && npm run typecheck && npm run lint && npm test 
 
 Expected: all PASS.
 
-- [ ] **Step 4: Manual browser verification**
+- [x] **Step 4: Manual browser verification**
 
 ```bash
 cd /home/weam/StockAI && make compose-up
@@ -564,7 +564,7 @@ Then:
 cd /home/weam/StockAI && make compose-down
 ```
 
-- [ ] **Step 5: Fix any issues found**
+- [x] **Step 5: Fix any issues found**
 
 If manual verification surfaces a real bug, fix it with its own
 failing-test-first cycle, then re-run Steps 2-4.
