@@ -8,6 +8,9 @@ import {
 } from "../api/client";
 import { formatCurrency, formatDate, formatDateTime } from "../presentation";
 
+const DEFAULT_POLL_INTERVAL_MS = 1_000;
+const DEFAULT_MAX_POLL_ATTEMPTS = 130;
+
 const OUTCOME_LABEL: Record<string, string> = {
   approval_ready: "Approval ready",
   manual_review: "Manual review",
@@ -83,29 +86,68 @@ export function ScanDetailPage({
   scanId,
   onBack,
   onSelectCase,
+  pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
+  maxPollAttempts = DEFAULT_MAX_POLL_ATTEMPTS,
 }: {
   scanId: string;
   onBack: () => void;
   onSelectCase: (caseId: string) => void;
+  pollIntervalMs?: number;
+  maxPollAttempts?: number;
 }) {
   const [aggregate, setAggregate] = useState<ScanAggregate | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const controller = new AbortController();
-    void getScanAggregate(scanId, { signal: controller.signal })
-      .then(setAggregate)
-      .catch((requestError: unknown) => {
-        if (!isAbortError(requestError)) {
+    let active = true;
+    let attempts = 0;
+    let timer: number | undefined;
+    let controller: AbortController | undefined;
+
+    async function poll() {
+      attempts += 1;
+      controller = new AbortController();
+      try {
+        const nextAggregate = await getScanAggregate(scanId, {
+          signal: controller.signal,
+        });
+        if (!active) {
+          return;
+        }
+        setAggregate(nextAggregate);
+        setError(null);
+        if (
+          nextAggregate.status === "queued" ||
+          nextAggregate.status === "running"
+        ) {
+          if (attempts >= maxPollAttempts) {
+            setError(
+              "The scan is still running. Return to the overview and check again shortly.",
+            );
+            return;
+          }
+          timer = window.setTimeout(() => void poll(), pollIntervalMs);
+        }
+      } catch (requestError: unknown) {
+        if (active && !isAbortError(requestError)) {
           setError(
             requestError instanceof ApiError
               ? requestError.message
               : "The request could not be completed.",
           );
         }
-      });
-    return () => controller.abort();
-  }, [scanId]);
+      }
+    }
+
+    void poll();
+    return () => {
+      active = false;
+      if (timer !== undefined) {
+        window.clearTimeout(timer);
+      }
+      controller?.abort();
+    };
+  }, [scanId, pollIntervalMs, maxPollAttempts]);
 
   return (
     <section aria-labelledby="scan-detail-title" className="page-stack">

@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -99,5 +99,34 @@ describe("ScanDetailPage", () => {
     expect(
       await screen.findByText("No products needed replenishment in this scan."),
     ).toBeInTheDocument();
+  });
+
+  it("polls a running scan until it reaches a terminal state", async () => {
+    const running = { ...AGGREGATE, status: "running", completed_at: null };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(running))
+      .mockResolvedValueOnce(jsonResponse(running))
+      .mockResolvedValueOnce(jsonResponse(AGGREGATE));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <ScanDetailPage
+        scanId="scan-4278"
+        onBack={vi.fn()}
+        onSelectCase={vi.fn()}
+        pollIntervalMs={1}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("PROD Fictional Happy-Path Component"),
+      ).toBeInTheDocument(),
+    );
+    await waitFor(() =>
+      expect(screen.getByText(/succeeded/i)).toBeInTheDocument(),
+    );
+    expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(3);
   });
 });
