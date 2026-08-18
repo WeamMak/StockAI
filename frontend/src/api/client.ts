@@ -192,6 +192,7 @@ export interface CaseDetail {
   evidence: ProcurementEvidence[];
   result: ScanResult | null;
   error: ScanFailure | null;
+  refinement_count: number;
 }
 
 export interface CaseSummary {
@@ -623,7 +624,9 @@ function parseCaseDetail(value: unknown): CaseDetail {
     !["manual", "cron"].includes(value.trigger) ||
     typeof value.created_at !== "string" ||
     !isNullableString(value.started_at) ||
-    !isNullableString(value.completed_at)
+    !isNullableString(value.completed_at) ||
+    !Number.isInteger(value.refinement_count) ||
+    (value.refinement_count as number) < 0
   ) {
     return invalidResponse();
   }
@@ -654,6 +657,7 @@ function parseCaseDetail(value: unknown): CaseDetail {
     evidence,
     result,
     error,
+    refinement_count: value.refinement_count as number,
   };
 }
 
@@ -859,6 +863,31 @@ export async function getCase(
     `${SCANS_PATH}/${encodeURIComponent(scanId)}/cases/${encodeURIComponent(caseId)}`,
     { method: "GET", signal: options.signal },
   );
+  return parseCaseDetail(response.body);
+}
+
+export async function refineCase(
+  scanId: string,
+  caseId: string,
+  note: string,
+  options: RequestOptions = {},
+): Promise<CaseDetail> {
+  const csrfToken = cookieValue(CSRF_COOKIE_NAME);
+  const response = await request(
+    `${SCANS_PATH}/${encodeURIComponent(scanId)}/cases/${encodeURIComponent(caseId)}/refine`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(csrfToken === null ? {} : { "X-CSRF-Token": csrfToken }),
+      },
+      body: JSON.stringify({ note }),
+      signal: options.signal,
+    },
+  );
+  if (response.status !== 202) {
+    return invalidResponse();
+  }
   return parseCaseDetail(response.body);
 }
 
