@@ -218,6 +218,7 @@ def test_local_stack_scenarios_cross_frontend_api_mcp_and_fake_odoo(
     expected_status: str,
     expected_error_code: str | None,
 ) -> None:
+    case_payload: dict[str, object] | None = None
     with _running_stack(scenario) as stack:
         with httpx.Client(base_url=stack.public_url, timeout=5) as client:
             frontend = client.get("/")
@@ -228,17 +229,34 @@ def test_local_stack_scenarios_cross_frontend_api_mcp_and_fake_odoo(
                 accepted.headers["location"],
                 headers=auth_headers,
             )
+            payload = detail.json()
+            if expected_error_code is None:
+                results = payload["results"]
+                assert isinstance(results, list) and len(results) == 1
+                case_id = results[0]["case_id"]
+                case_detail = client.get(
+                    f"{accepted.headers['location']}/cases/{case_id}",
+                    headers=auth_headers,
+                )
+                case_detail.raise_for_status()
+                case_payload = case_detail.json()
 
-    payload = detail.json()
     assert frontend.status_code == 200
     assert "StockAI" in frontend.text
     assert accepted.status_code == 202
     assert detail.status_code == 200
     assert payload["status"] == expected_status
+    assert "result" not in payload
     if expected_error_code is None:
-        assert payload["result"]["outcome"] == "approval_ready"
-        assert payload["result"]["product_id"] == "product-101"
+        assert payload["results"][0]["outcome"] == "approval_ready"
+        assert payload["results"][0]["product_id"] == "product-101"
         assert payload["error"] is None
+        assert case_payload is not None
+        result = case_payload["result"]
+        assert isinstance(result, dict)
+        assert result["outcome"] == "approval_ready"
+        assert result["product_id"] == "product-101"
+        assert case_payload["error"] is None
     else:
-        assert payload["result"] is None
+        assert payload["results"] == []
         assert payload["error"]["error_code"] == expected_error_code
