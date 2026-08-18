@@ -67,11 +67,28 @@ def test_secret_scan_baselines_only_reviewed_fingerprints() -> None:
         if line and not line.startswith("#")
     }
 
-    assert len(fingerprints) == 8
+    assert len(fingerprints) == 11
     assert (
         "c123a64e8f27f948855f315c5806637e7cdcae04:"
         "tests/unit/infra/test_cluster_platform.py:generic-api-key:56"
     ) in fingerprints
+    assert {
+        (
+            "a35ec340f5eb02da1e91ea7e3f6a42ee601e7fed:"
+            ".claude/skills/kubernetes-specialist/references/"
+            "configuration.md:generic-api-key:75"
+        ),
+        (
+            "a35ec340f5eb02da1e91ea7e3f6a42ee601e7fed:"
+            ".claude/skills/kubernetes-specialist/references/"
+            "configuration.md:generic-api-key:120"
+        ),
+        (
+            "a35ec340f5eb02da1e91ea7e3f6a42ee601e7fed:"
+            ".claude/skills/kubernetes-specialist/references/"
+            "configuration.md:private-key:98"
+        ),
+    } <= fingerprints
     assert all(fingerprint.count(":") >= 3 for fingerprint in fingerprints)
 
 
