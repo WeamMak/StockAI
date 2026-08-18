@@ -645,6 +645,8 @@ class DynamoApplicationRepository(ApplicationRepository):
                         "product_id": {"S": summary.product_id},
                         "product_name": {"S": summary.product_name},
                         "outcome": {"S": summary.outcome},
+                        "scan_id": {"S": summary.scan_id},
+                        "budget_status": {"S": summary.budget_status},
                         **(
                             {"amount": {"S": format(summary.amount, "f")}}
                             if summary.amount is not None
@@ -653,6 +655,15 @@ class DynamoApplicationRepository(ApplicationRepository):
                         **(
                             {"need_by_date": {"S": summary.need_by_date.isoformat()}}
                             if summary.need_by_date is not None
+                            else {}
+                        ),
+                        **(
+                            {
+                                "completed_at": {
+                                    "S": summary.completed_at.value.isoformat()
+                                }
+                            }
+                            if summary.completed_at is not None
                             else {}
                         ),
                     }
@@ -693,6 +704,9 @@ class DynamoApplicationRepository(ApplicationRepository):
                         if "need_by_date" in summary_item
                         else None
                     ),
+                    scan_id=self._string(summary_item, "scan_id"),
+                    budget_status=self._string(summary_item, "budget_status"),
+                    completed_at=self._optional_timestamp(summary_item, "completed_at"),
                 )
             )
         error_item = cast(Mapping[str, Any] | None, item.get("error", {}).get("M"))
