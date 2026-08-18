@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from time import sleep as blocking_sleep
 from typing import Any
 
@@ -237,6 +238,30 @@ async def test_permanent_bedrock_error_is_not_retried_or_exposed() -> None:
     assert len(client.requests) == 1
     assert str(raised.value) == "The recommendation model is unavailable."
     assert unsafe_detail not in str(raised.value)
+
+
+@pytest.mark.anyio
+async def test_officer_note_is_included_in_the_bedrock_message() -> None:
+    request = replace(_request(), officer_note="Avoid Vendor X, temporary issue.")
+    client = FakeBedrockRuntimeClient(_response(_valid_text(request)))
+    adapter = _adapter(client)
+
+    await adapter.recommend(request)
+
+    sent_message = client.requests[0]["messages"][0]["content"][0]["text"]
+    assert "Avoid Vendor X, temporary issue." in sent_message
+
+
+@pytest.mark.anyio
+async def test_missing_officer_note_omits_the_field_from_the_bedrock_message() -> None:
+    request = _request()
+    client = FakeBedrockRuntimeClient(_response(_valid_text(request)))
+    adapter = _adapter(client)
+
+    await adapter.recommend(request)
+
+    sent_message = client.requests[0]["messages"][0]["content"][0]["text"]
+    assert '"officer_note"' not in sent_message
 
 
 @pytest.mark.anyio
