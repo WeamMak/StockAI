@@ -1,55 +1,40 @@
 {
-  "applicationIdentity": "sha256:9d5514d2e1c23201f0137eaa695626b1d8418d5e73fad00aeb93e8cd8c642d65",
+  "applicationIdentity": "sha256:170b8096c0f8c280ff55d8eb061d55413df09466106441a5b2f11c41ddad613c",
   "buildInputs": {
-    "api": "sha256:24f5f7df3ae723ae3f68c60e5be4e0edba7458d7ec169b0c5b142eebf3d10eff",
-    "frontend": "sha256:34953f4b40e15ba2d633a8e20b29548eeab98a74ef46d20e0cf83c6fd782f275",
-    "mcp": "sha256:5bfec9494748b8c3144902f8232fcc4d7223addbc45cecf765599c7b90f6b5de",
+    "api": "sha256:feae0f118c6ab399d213e7e81e72c966bb464e76b571e40ec676167a7787cdae",
+    "frontend": "sha256:a834e6013f3e5d4998b02a07bc3668b5f22d76a68e596b7094812ec391d1f8d6",
+    "mcp": "sha256:cca88104dbba26e6876992309f68398d3d2bc7e5f2a1c8c2e742d79f769e2bd0",
     "odoo": "sha256:d7d3b94a06be1dc7a47d8085d57226c66e0280d7fe3e1ca6f2f67442048b721c"
   },
-  "createdAt": "2026-08-17T17:20:03Z",
+  "createdAt": "2026-08-18T11:09:09Z",
   "devValidation": {
-    "attempts": [
-      {
-        "argoRevision": "c3f0dd8a01d8dc687437bf69c0a4db04f31a4b11",
-        "evidenceDigest": "sha256:400f143f68ccd650da4e9a0e5260311ad8f5ed5d563d536a4332ebb6389c5913",
-        "images": {
-          "api": "sha256:7dd46f67ec9b68d30c3e0275828c9fc26266f15c66dab64556d460fdde77d045",
-          "frontend": "sha256:c1d8d006afd4b25d72609fa7d08efd6b244c31c5138750aa2d3770b7dfc22934",
-          "mcp": "sha256:c729e00e31ad3b53e2d73f9a39dbd9f18a8d4d49fcfc22d248bbb3874c1992cd",
-          "odoo": "sha256:61050671c7ae00a86029206314f805204f71e09dcc6a007b6e60ac4b5d341b3c"
-        },
-        "releaseId": "sha256:9f0c26d944dd3ff04019b994700310109965f70503815109b5f80f6d562fc53f",
-        "result": "passed",
-        "smokeRunId": "dev-smoke-20260817T172657Z",
-        "timestamp": "2026-08-17T17:27:30Z"
-      }
-    ],
-    "status": "passed"
+    "attempts": [],
+    "status": "pending"
   },
   "images": {
-    "api": "sha256:7dd46f67ec9b68d30c3e0275828c9fc26266f15c66dab64556d460fdde77d045",
-    "frontend": "sha256:c1d8d006afd4b25d72609fa7d08efd6b244c31c5138750aa2d3770b7dfc22934",
-    "mcp": "sha256:c729e00e31ad3b53e2d73f9a39dbd9f18a8d4d49fcfc22d248bbb3874c1992cd",
+    "api": "sha256:675d5b2bfa28914fbda3f834ef2b0ad98d74f0f7750f4426ed9dc56e07329761",
+    "frontend": "sha256:514e2d8f9200e6aaa20c13e52df616b60ba934d7b331e40871e765c61e3fd6e9",
+    "mcp": "sha256:5a93b0dcacec365f22a8b3dcc94c0a2281da8f42781418bfc151af19cf39ae24",
     "odoo": "sha256:61050671c7ae00a86029206314f805204f71e09dcc6a007b6e60ac4b5d341b3c"
   },
   "integrity": {
     "algorithm": "sha256",
-    "digest": "sha256:c7e21d0feda4379f1b47033c7682ea5a57371308630eb49349fd278065910eb5"
+    "digest": "sha256:c28c8eafcf7486d02cece7572b8aea83b9bb9dbc74f136b48e716df58600bdb1"
   },
   "provenance": {
-    "api": "sha256:93b088cc81cb3f33b8140b67fafef1f44c0bc365bad1f50b293af678c4922e91",
-    "frontend": "sha256:62bac355366e7b1cb72cdf810304ec289ee05c1ab454f5145251019996c88f58",
-    "mcp": "sha256:5a99a5ce9a050b61a9e373b27aa7296d23c7e954f70cae5467a0237614709df7",
+    "api": "sha256:5311f70d0ca46370bb6be268d5d392d8f73cace294d98bbed5301dfb100d5942",
+    "frontend": "sha256:95b5750c4c6e0eb3345a1107ce2f228bc91682093e259978e572cf12dfd0a10a",
+    "mcp": "sha256:c28a5676f9ec8e8e230562585f9b1fadeaba0a7c61e4f171504c74931346eb05",
     "odoo": "sha256:cadfdff0e276c0a4fb48e8e9758a3573dbe80b0b885072c516cb034e85279fd5"
   },
-  "releaseId": "sha256:9f0c26d944dd3ff04019b994700310109965f70503815109b5f80f6d562fc53f",
+  "releaseId": "sha256:850f2ac5971b0aa0714d3c207aa4630e97f5ff45c865c68e46aee55f6b622860",
   "schemaVersion": 1,
   "scout": {
-    "reportDigest": "sha256:6e69b577af33a0538e4b0d6c40867193fc62537f603612851b589b8c32ca0469",
+    "reportDigest": "sha256:df7e3cabb38e80ab5a59c88cb10468d2a399ade0c78c11057b205fcfd7606c05",
     "status": "findings"
   },
   "source": {
-    "commit": "7c5ae12ca733422736c4ca0c80b3687e094ea18c",
-    "tree": "7da9d4dc6365147d8b7c884fd746d6835c15b4a0"
+    "commit": "f66d2239e8eb61e7c75dc27c6ba64d22be20a94a",
+    "tree": "941c31a13768e6afdf7b93c28ebe8e0434bb4b0e"
   }
 }
