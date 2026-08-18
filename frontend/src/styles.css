@@ -471,8 +471,11 @@ h2 {
 
 .scan-link small {
   display: block;
+  overflow: hidden;
   margin-top: 0.25rem;
   color: #64748b;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .scan-list-copy {
@@ -527,7 +530,7 @@ h2 {
   display: grid;
   align-items: start;
   gap: 1rem;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(16rem, 0.8fr);
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.2fr) minmax(14rem, 0.6fr);
 }
 
 .dashboard-panel {
