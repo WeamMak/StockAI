@@ -29,6 +29,7 @@ def test_error_codes_match_the_approved_public_contract() -> None:
         "APPROVAL_STALE",
         "BUDGET_JUSTIFICATION_REQUIRED",
         "RECONCILIATION_REQUIRED",
+        "REFINEMENT_LIMIT_REACHED",
     }
 
 

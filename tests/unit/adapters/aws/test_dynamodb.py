@@ -150,7 +150,9 @@ async def test_case_round_trip_preserves_immutable_preference_snapshot() -> None
 
 
 @pytest.mark.anyio
-async def test_case_round_trip_preserves_candidate_snapshot_and_refinement_count() -> None:
+async def test_case_round_trip_preserves_candidate_snapshot_and_refinement_count() -> (
+    None
+):
     client = RecordingDynamoClient()
     repository = DynamoApplicationRepository(
         client=client, table_name=TABLE_NAME, environment=Environment.DEV

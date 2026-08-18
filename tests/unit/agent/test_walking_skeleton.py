@@ -221,7 +221,9 @@ async def test_officer_note_reaches_the_recommendation_request() -> None:
         )
     )
     llm = FakeStructuredLlm(response=t27_recommendation())
-    graph = build_walking_skeleton_graph(mcp=mcp, llm=llm, metrics=create_agent_metrics())
+    graph = build_walking_skeleton_graph(
+        mcp=mcp, llm=llm, metrics=create_agent_metrics()
+    )
 
     await graph.ainvoke(
         {
@@ -246,7 +248,9 @@ async def test_missing_officer_note_leaves_the_recommendation_request_unset() ->
         )
     )
     llm = FakeStructuredLlm(response=t27_recommendation())
-    graph = build_walking_skeleton_graph(mcp=mcp, llm=llm, metrics=create_agent_metrics())
+    graph = build_walking_skeleton_graph(
+        mcp=mcp, llm=llm, metrics=create_agent_metrics()
+    )
 
     await graph.ainvoke(
         {

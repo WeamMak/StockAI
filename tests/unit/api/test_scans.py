@@ -13,7 +13,7 @@ from httpx2 import ASGITransport, AsyncClient
 from tests.support.local_identity import LocalIdentityProvider, sign_in
 from tests.support.recommendations import t27_approval_result, t27_request
 
-from procurement.agent.state import ScanState
+from procurement.agent.state import ManualReviewResult, ScanState
 from procurement.api.app import create_app
 from procurement.api.auth.session import UserRole
 from procurement.api.config import ApiSettings
@@ -104,6 +104,50 @@ class MultiCandidateWorkflow:
         }
 
 
+class RefinableWorkflow(SuccessfulWorkflow):
+    """Record officer notes and let a test control the returned result."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.officer_notes: list[str | None] = []
+
+    async def ainvoke(
+        self,
+        state: ScanState,
+        *,
+        config: Mapping[str, object],
+    ) -> ScanState:
+        self.configs.append(config)
+        self.officer_notes.append(state.get("officer_note"))
+        return {
+            **state,
+            "result": replace(
+                t27_approval_result(),
+                rationale=f"Refined: {state.get('officer_note')}",
+            ),
+        }
+
+
+class FailingRefinementWorkflow(SuccessfulWorkflow):
+    """Succeed on the initial scan, then raise on every refinement attempt."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._invocations = 0
+
+    async def ainvoke(
+        self,
+        state: ScanState,
+        *,
+        config: Mapping[str, object],
+    ) -> ScanState:
+        self.configs.append(config)
+        self._invocations += 1
+        if self._invocations == 1:
+            return {**state, "result": t27_approval_result()}
+        raise RuntimeError("simulated workflow failure during refinement")
+
+
 class BlockingWorkflow(SuccessfulWorkflow):
     def __init__(self) -> None:
         self.started = anyio.Event()
@@ -163,6 +207,28 @@ class FailFirstUpdateRepository(InMemoryApplicationRepository):
         )
 
 
+class ConflictingUpdateRepository(InMemoryApplicationRepository):
+    """Force the next update_case call to fail as a real race would."""
+
+    def __init__(self) -> None:
+        super().__init__(environment=Environment.DEV)
+        self.raise_next_update = False
+
+    async def update_case(
+        self,
+        record: CaseRecord,
+        *,
+        expected_revision: Revision,
+        expires_at: UtcTimestamp,
+    ) -> CaseRecord:
+        if self.raise_next_update:
+            self.raise_next_update = False
+            raise RevisionConflictError("simulated concurrent refinement")
+        return await super().update_case(
+            record, expected_revision=expected_revision, expires_at=expires_at
+        )
+
+
 async def _poll_until_finished(
     client: AsyncClient,
     scan_id: str,
@@ -174,6 +240,28 @@ async def _poll_until_finished(
             return body
         await anyio.sleep(0.01)
     raise AssertionError("scan did not finish")
+
+
+async def _poll_case_until_finished(
+    client: AsyncClient, scan_id: str, case_id: str
+) -> dict[str, object]:
+    for _ in range(500):
+        response = await client.get(f"/api/v1/scans/{scan_id}/cases/{case_id}")
+        body = cast(dict[str, object], response.json())
+        if body["status"] not in {"queued", "running"}:
+            return body
+        await anyio.sleep(0.01)
+    raise AssertionError("case did not finish")
+
+
+async def _approval_ready_case(
+    client: AsyncClient, csrf_headers: dict[str, str]
+) -> tuple[str, str]:
+    accepted = await client.post("/api/v1/scans", headers=csrf_headers)
+    scan_id = accepted.json()["scan_id"]
+    finished = await _poll_until_finished(client, scan_id)
+    case_id = cast(list[dict[str, object]], finished["results"])[0]["case_id"]
+    return scan_id, case_id
 
 
 @pytest.mark.anyio
@@ -270,6 +358,174 @@ async def test_a_completed_case_persists_its_candidate_snapshot() -> None:
         == candidate.projected_trigger_date
     )
     assert record.refinement_count == 0
+
+
+@pytest.mark.anyio
+async def test_refine_case_reruns_the_workflow_with_a_fresh_thread_id() -> None:
+    workflow = RefinableWorkflow()
+    repository = InMemoryApplicationRepository(environment=Environment.DEV)
+    application = create_app(
+        scan_workflow=workflow,
+        identity_provider=LocalIdentityProvider(),
+        application_repository=repository,
+    )
+    async with AsyncClient(
+        transport=ASGITransport(app=application), base_url="https://testserver"
+    ) as client:
+        csrf_headers = await sign_in(client)
+        accepted = await client.post("/api/v1/scans", headers=csrf_headers)
+        scan_id = accepted.json()["scan_id"]
+        finished = await _poll_until_finished(client, scan_id)
+        case_id = cast(list[dict[str, object]], finished["results"])[0]["case_id"]
+
+        refined = await client.post(
+            f"/api/v1/scans/{scan_id}/cases/{case_id}/refine",
+            headers=csrf_headers,
+            json={"note": "Prioritize delivery speed this time."},
+        )
+        assert refined.status_code == 202
+        assert refined.json()["status"] == "running"
+
+        completed = await _poll_case_until_finished(client, scan_id, case_id)
+
+    assert completed["refinement_count"] == 1
+    assert completed["result"]["rationale"] == (
+        "Refined: Prioritize delivery speed this time."
+    )
+    assert workflow.officer_notes == [None, "Prioritize delivery speed this time."]
+    assert workflow.configs[0] == {"configurable": {"thread_id": case_id}}
+    assert workflow.configs[1] == {"configurable": {"thread_id": f"{case_id}:refine-1"}}
+
+
+@pytest.mark.anyio
+async def test_refine_case_is_capped_at_three_attempts() -> None:
+    workflow = RefinableWorkflow()
+    repository = InMemoryApplicationRepository(environment=Environment.DEV)
+    application = create_app(
+        scan_workflow=workflow,
+        identity_provider=LocalIdentityProvider(),
+        application_repository=repository,
+    )
+    async with AsyncClient(
+        transport=ASGITransport(app=application), base_url="https://testserver"
+    ) as client:
+        csrf_headers = await sign_in(client)
+        scan_id, case_id = await _approval_ready_case(client, csrf_headers)
+        for _ in range(3):
+            await client.post(
+                f"/api/v1/scans/{scan_id}/cases/{case_id}/refine",
+                headers=csrf_headers,
+                json={"note": "Try again."},
+            )
+            await _poll_case_until_finished(client, scan_id, case_id)
+
+        rejected = await client.post(
+            f"/api/v1/scans/{scan_id}/cases/{case_id}/refine",
+            headers=csrf_headers,
+            json={"note": "One more time."},
+        )
+
+    assert rejected.status_code == 422
+    assert rejected.json()["error_code"] == "REFINEMENT_LIMIT_REACHED"
+
+
+@pytest.mark.anyio
+async def test_refine_case_rejects_a_manual_review_case() -> None:
+    class ManualReviewWorkflow(SuccessfulWorkflow):
+        async def ainvoke(
+            self, state: ScanState, *, config: Mapping[str, object]
+        ) -> ScanState:
+            self.configs.append(config)
+            return {
+                **state,
+                "result": ManualReviewResult(
+                    rationale="Evidence is insufficient.",
+                    trade_offs=(),
+                    risk_flags=("MANUAL_REVIEW_REQUIRED",),
+                    uncertainty="No model selection is available.",
+                    evidence_limitations=(),
+                ),
+            }
+
+    application = create_app(
+        scan_workflow=ManualReviewWorkflow(),
+        identity_provider=LocalIdentityProvider(),
+    )
+    async with AsyncClient(
+        transport=ASGITransport(app=application), base_url="https://testserver"
+    ) as client:
+        csrf_headers = await sign_in(client)
+        scan_id, case_id = await _approval_ready_case(client, csrf_headers)
+
+        rejected = await client.post(
+            f"/api/v1/scans/{scan_id}/cases/{case_id}/refine",
+            headers=csrf_headers,
+            json={"note": "Try again."},
+        )
+
+    assert rejected.status_code == 422
+    assert rejected.json()["error_code"] == "VALIDATION_FAILED"
+
+
+@pytest.mark.anyio
+async def test_concurrent_refinement_attempts_conflict() -> None:
+    """A second writer racing the same expected_revision loses, deterministically.
+
+    Two genuinely concurrent HTTP requests would race unpredictably in this
+    sandbox; ConflictingUpdateRepository instead forces the exact interleaving
+    a real race would produce -- the second update_case call for this case
+    sees a stale expected_revision -- so the resulting REVISION_CONFLICT
+    translation is tested deterministically.
+    """
+
+    workflow = SuccessfulWorkflow()
+    repository = ConflictingUpdateRepository()
+    application = create_app(
+        scan_workflow=workflow,
+        identity_provider=LocalIdentityProvider(),
+        application_repository=repository,
+    )
+    async with AsyncClient(
+        transport=ASGITransport(app=application), base_url="https://testserver"
+    ) as client:
+        csrf_headers = await sign_in(client)
+        scan_id, case_id = await _approval_ready_case(client, csrf_headers)
+
+        repository.raise_next_update = True
+        rejected = await client.post(
+            f"/api/v1/scans/{scan_id}/cases/{case_id}/refine",
+            headers=csrf_headers,
+            json={"note": "This attempt loses the simulated race."},
+        )
+
+    assert rejected.status_code == 409
+    assert rejected.json()["error_code"] == "REVISION_CONFLICT"
+
+
+@pytest.mark.anyio
+async def test_a_failed_refinement_still_counts_against_the_cap() -> None:
+    workflow = FailingRefinementWorkflow()
+    application = create_app(
+        scan_workflow=workflow,
+        identity_provider=LocalIdentityProvider(),
+    )
+    async with AsyncClient(
+        transport=ASGITransport(app=application), base_url="https://testserver"
+    ) as client:
+        csrf_headers = await sign_in(client)
+        scan_id, case_id = await _approval_ready_case(client, csrf_headers)
+
+        refined = await client.post(
+            f"/api/v1/scans/{scan_id}/cases/{case_id}/refine",
+            headers=csrf_headers,
+            json={"note": "Try again."},
+        )
+        assert refined.status_code == 202
+        completed = await _poll_case_until_finished(client, scan_id, case_id)
+
+    assert completed["status"] == "failed"
+    assert completed["refinement_count"] == 1
+    assert completed["error"]["error_code"] == "LLM_UNAVAILABLE"
 
 
 @pytest.mark.anyio

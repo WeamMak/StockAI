@@ -6,7 +6,7 @@ from datetime import date, datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Request, Response, status
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from procurement.agent.state import (
     ApprovalReadyResult,
@@ -135,6 +135,14 @@ class ScanErrorResponse(BaseModel):
     retry_count: int
 
 
+class RefineCaseRequest(BaseModel):
+    """Bounded officer note submitted to re-evaluate one case."""
+
+    model_config = _RESPONSE_CONFIG
+
+    note: str = Field(min_length=1, max_length=280)
+
+
 class CaseResponse(BaseModel):
     """Public representation of one case within a scan."""
 
@@ -156,6 +164,7 @@ class CaseResponse(BaseModel):
         | None
     )
     error: ScanErrorResponse | None
+    refinement_count: int
 
 
 class CaseSummaryResponse(BaseModel):
@@ -283,6 +292,7 @@ def case_response(snapshot: ScanSnapshot) -> CaseResponse:
         evidence=tuple(item.to_dict() for item in snapshot.evidence),
         result=result,
         error=_error_response(snapshot.error),
+        refinement_count=snapshot.refinement_count,
     )
 
 
@@ -365,3 +375,27 @@ async def get_case(scan_id: str, case_id: str, request: Request) -> CaseResponse
             safe_message="The requested case was not found.",
         )
     return case_response(await scan_service_from(request).get_case(case_id))
+
+
+@router.post(
+    "/{scan_id}/cases/{case_id}/refine",
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(require_csrf)],
+)
+async def refine_case(
+    scan_id: str,
+    case_id: str,
+    body: RefineCaseRequest,
+    request: Request,
+) -> CaseResponse:
+    """Reserve one bounded refinement attempt for an approval-ready case."""
+
+    if not case_id.startswith(f"{scan_id}:"):
+        raise DomainError(
+            error_code=ErrorCode.VALIDATION_FAILED,
+            safe_message="The requested case was not found.",
+        )
+    snapshot = await scan_service_from(request).refine_case(
+        case_id=case_id, note=body.note
+    )
+    return case_response(snapshot)
