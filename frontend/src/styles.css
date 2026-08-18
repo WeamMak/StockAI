@@ -211,7 +211,7 @@ h2 {
 .page-heading,
 .result-heading {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 2rem;
 }
@@ -281,6 +281,7 @@ h2 {
 }
 
 .back-button {
+  justify-self: start;
   margin-bottom: 1.5rem;
   padding: 0.55rem 0;
   color: #2847a1;
@@ -679,6 +680,29 @@ h2 {
   background: #ffffff;
   font-size: 0.72rem;
   font-weight: 750;
+}
+
+.view-recommendation-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.5rem 0.9rem;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  border-radius: 0.55rem;
+  color: var(--accent);
+  background: #ffffff;
+  font-size: 0.82rem;
+  font-weight: 750;
+  white-space: nowrap;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.view-recommendation-button:hover {
+  border-color: var(--accent);
+  background: #eef2ff;
 }
 
 .recommendation-summary {
