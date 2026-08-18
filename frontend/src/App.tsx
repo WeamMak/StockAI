@@ -87,6 +87,11 @@ export function App() {
                 setWorkspacePage("scans");
                 setSelectedScanId(scanId);
               }}
+              onSelectCase={(scanId, caseId) => {
+                setWorkspacePage("scans");
+                setSelectedScanId(scanId);
+                setSelectedCaseId(caseId);
+              }}
             />
           ) : selectedCaseId === null ? (
             <ScanDetailPage

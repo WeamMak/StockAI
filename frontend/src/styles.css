@@ -527,7 +527,7 @@ h2 {
   display: grid;
   align-items: start;
   gap: 1rem;
-  grid-template-columns: minmax(0, 2fr) minmax(18rem, 0.8fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(16rem, 0.8fr);
 }
 
 .dashboard-panel {
@@ -626,6 +626,23 @@ h2 {
 .status--running {
   color: #1e3a8a;
   background: #dbeafe;
+}
+
+.status--approval_ready,
+.status--confirmed {
+  color: #14532d;
+  background: #dcfce7;
+}
+
+.status--manual_review {
+  color: #1e3a8a;
+  background: #dbeafe;
+}
+
+.status--no_valid_offer,
+.status--error {
+  color: #7f1d1d;
+  background: #fee2e2;
 }
 
 .result-card {

@@ -4,14 +4,17 @@ import {
   ApiError,
   createManualScan,
   isAbortError,
+  listRecentCases,
   listScans,
+  type CaseSummary,
   type ScanAggregate,
 } from "../api/client";
 import { Icon } from "../components/Icon";
-import { formatDateTime } from "../presentation";
+import { formatCurrency, formatDate, formatDateTime, OUTCOME_LABEL } from "../presentation";
 
 interface OverviewPageProps {
   onSelectScan: (scanId: string) => void;
+  onSelectCase: (scanId: string, caseId: string) => void;
   view?: "home" | "scans";
 }
 
@@ -85,12 +88,22 @@ function outcomeClass(scan: ScanAggregate): string {
   return scan.status;
 }
 
-export function OverviewPage({ onSelectScan, view = "home" }: OverviewPageProps) {
+function recommendationIcon(outcome: string): "check" | "alert" {
+  return outcome === "approval_ready" || outcome === "confirmed" ? "check" : "alert";
+}
+
+export function OverviewPage({
+  onSelectScan,
+  onSelectCase,
+  view = "home",
+}: OverviewPageProps) {
   const [scans, setScans] = useState<ScanAggregate[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
   const [isStarting, setIsStarting] = useState(false);
   const startController = useRef<AbortController | null>(null);
+  const [recentCases, setRecentCases] = useState<CaseSummary[] | null>(null);
+  const [recentCasesError, setRecentCasesError] = useState<string | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -108,6 +121,21 @@ export function OverviewPage({ onSelectScan, view = "home" }: OverviewPageProps)
       controller.abort();
       startController.current?.abort();
     };
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void listRecentCases({ limit: 5, signal: controller.signal })
+      .then((cases) => {
+        setRecentCases(cases);
+        setRecentCasesError(null);
+      })
+      .catch((error: unknown) => {
+        if (!isAbortError(error)) {
+          setRecentCasesError(safeMessage(error));
+        }
+      });
+    return () => controller.abort();
   }, []);
 
   async function startManualScan() {
@@ -188,6 +216,57 @@ export function OverviewPage({ onSelectScan, view = "home" }: OverviewPageProps)
     </ul>
   );
 
+  const recentCasesContent = recentCasesError ? (
+    <p className="notice notice--error" role="alert">
+      {recentCasesError}
+    </p>
+  ) : recentCases === null ? (
+    <div className="loading-skeleton" role="status">
+      <span className="visually-hidden">Loading recent recommendations…</span>
+      <span />
+      <span />
+      <span />
+    </div>
+  ) : recentCases.length === 0 ? (
+    <div className="empty-state">
+      <h3>No recommendations yet</h3>
+      <p>Run a manual scan to create the first recommendation.</p>
+    </div>
+  ) : (
+    <ul className="scan-list" aria-label="Recent procurement recommendations">
+      {recentCases.map((row) => (
+        <li key={row.case_id}>
+          <button
+            className="scan-link"
+            type="button"
+            onClick={() => onSelectCase(row.scan_id, row.case_id)}
+            aria-label={`Open ${row.product_name}, ${
+              OUTCOME_LABEL[row.outcome] ?? row.outcome
+            }`}
+          >
+            <span
+              className={`scan-list-icon scan-list-icon--${
+                recommendationIcon(row.outcome) === "check" ? "approval" : "review"
+              }`}
+            >
+              <Icon name={recommendationIcon(row.outcome)} />
+            </span>
+            <span className="scan-list-copy">
+              <strong>{row.product_name}</strong>
+              <small>
+                Scan #{row.scan_id} · Need by {formatDate(row.need_by_date)}
+              </small>
+            </span>
+            <span className={`status status--${row.outcome}`}>
+              {OUTCOME_LABEL[row.outcome] ?? row.outcome}
+            </span>
+            <span>{row.amount ? formatCurrency(row.amount, "USD") : "—"}</span>
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+
   return (
     <section aria-labelledby="overview-title" className="page-stack">
       <div className="page-heading">
@@ -246,6 +325,18 @@ export function OverviewPage({ onSelectScan, view = "home" }: OverviewPageProps)
 
       {view === "home" ? (
         <div className="home-dashboard-grid">
+          <section
+            aria-label="Recent recommendations"
+            className="panel dashboard-panel"
+          >
+            <div className="panel-heading">
+              <span className="summary-icon summary-icon--blue">
+                <Icon name="recommendation" />
+              </span>
+              <h2>Recent recommendations</h2>
+            </div>
+            {recentCasesContent}
+          </section>
           <section aria-label="Recent scan activity" className="panel dashboard-panel">
             <div className="panel-heading">
               <span className="summary-icon summary-icon--blue"><Icon name="scans" /></span>

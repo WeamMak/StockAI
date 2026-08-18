@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -71,6 +71,31 @@ const FAILED_SCAN = {
   },
 };
 
+const RECENT_CASES = [
+  {
+    case_id: "scan-succeeded:product-101",
+    product_id: "product-101",
+    product_name: "Fictional Safety Gloves",
+    outcome: "approval_ready",
+    amount: "437.500000",
+    need_by_date: "2026-08-12",
+    scan_id: "scan-succeeded",
+    budget_status: "within_budget",
+    completed_at: "2026-08-05T10:00:05Z",
+  },
+  {
+    case_id: "scan-manual-review:product-102",
+    product_id: "product-102",
+    product_name: "Fictional Cable Ties",
+    outcome: "manual_review",
+    amount: null,
+    need_by_date: null,
+    scan_id: "scan-manual-review",
+    budget_status: "not_evaluated",
+    completed_at: "2026-08-05T10:00:07Z",
+  },
+];
+
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -88,11 +113,21 @@ describe("OverviewPage", () => {
     const request = new Promise<Response>((resolve) => {
       resolveRequest = resolve;
     });
-    vi.stubGlobal("fetch", vi.fn().mockReturnValue(request));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) =>
+        url.startsWith("/api/v1/cases")
+          ? Promise.resolve(jsonResponse({ cases: [] }))
+          : request,
+      ),
+    );
 
-    render(<OverviewPage onSelectScan={vi.fn()} />);
+    render(<OverviewPage onSelectScan={vi.fn()} onSelectCase={vi.fn()} />);
 
-    expect(screen.getByRole("status")).toHaveTextContent("Loading scans");
+    const recentScans = screen.getByRole("region", { name: "Recent scan activity" });
+    expect(within(recentScans).getByRole("status")).toHaveTextContent(
+      "Loading scans",
+    );
     resolveRequest?.(jsonResponse({ scans: [] }));
 
     expect(await screen.findByText("No scans yet")).toBeInTheDocument();
@@ -102,10 +137,16 @@ describe("OverviewPage", () => {
     const onSelectScan = vi.fn();
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(jsonResponse({ scans: [QUEUED_SCAN] })),
+      vi.fn().mockImplementation((url: string) =>
+        Promise.resolve(
+          url.startsWith("/api/v1/cases")
+            ? jsonResponse({ cases: [] })
+            : jsonResponse({ scans: [QUEUED_SCAN] }),
+        ),
+      ),
     );
 
-    render(<OverviewPage onSelectScan={onSelectScan} />);
+    render(<OverviewPage onSelectScan={onSelectScan} onSelectCase={vi.fn()} />);
 
     await userEvent.click(await screen.findByRole("button", { name: /scan-queued/i }));
 
@@ -115,20 +156,24 @@ describe("OverviewPage", () => {
   it("summarizes loaded scan outcomes without inventing data", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(
-        jsonResponse({
-          scans: [
-            QUEUED_SCAN,
-            { ...QUEUED_SCAN, scan_id: "scan-running", status: "running" },
-            SUCCEEDED_SCAN,
-            MANUAL_REVIEW_SCAN,
-            FAILED_SCAN,
-          ],
-        }),
+      vi.fn().mockImplementation((url: string) =>
+        Promise.resolve(
+          url.startsWith("/api/v1/cases")
+            ? jsonResponse({ cases: [] })
+            : jsonResponse({
+                scans: [
+                  QUEUED_SCAN,
+                  { ...QUEUED_SCAN, scan_id: "scan-running", status: "running" },
+                  SUCCEEDED_SCAN,
+                  MANUAL_REVIEW_SCAN,
+                  FAILED_SCAN,
+                ],
+              }),
+        ),
       ),
     );
 
-    render(<OverviewPage onSelectScan={vi.fn()} />);
+    render(<OverviewPage onSelectScan={vi.fn()} onSelectCase={vi.fn()} />);
 
     const summary = await screen.findByRole("region", { name: "Scan summary" });
     expect(summary).toHaveTextContent("5Total");
@@ -145,16 +190,70 @@ describe("OverviewPage", () => {
     ).toBeInTheDocument();
   });
 
+  it("lists recent recommendations with a link to their case", async () => {
+    const onSelectCase = vi.fn();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) => {
+        if (url.startsWith("/api/v1/cases")) {
+          return Promise.resolve(jsonResponse({ cases: RECENT_CASES }));
+        }
+        return Promise.resolve(jsonResponse({ scans: [] }));
+      }),
+    );
+
+    render(<OverviewPage onSelectScan={vi.fn()} onSelectCase={onSelectCase} />);
+
+    const panel = await screen.findByRole("region", {
+      name: "Recent recommendations",
+    });
+    expect(within(panel).getByText("Fictional Safety Gloves")).toBeInTheDocument();
+    expect(within(panel).getByText("Fictional Cable Ties")).toBeInTheDocument();
+    expect(within(panel).getByText("Manual review")).toBeInTheDocument();
+
+    await userEvent.click(within(panel).getByText("Fictional Safety Gloves"));
+    expect(onSelectCase).toHaveBeenCalledWith(
+      "scan-succeeded",
+      "scan-succeeded:product-101",
+    );
+  });
+
+  it("shows an empty state when there are no recent recommendations", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) => {
+        if (url.startsWith("/api/v1/cases")) {
+          return Promise.resolve(jsonResponse({ cases: [] }));
+        }
+        return Promise.resolve(jsonResponse({ scans: [] }));
+      }),
+    );
+
+    render(<OverviewPage onSelectScan={vi.fn()} onSelectCase={vi.fn()} />);
+
+    const panel = await screen.findByRole("region", {
+      name: "Recent recommendations",
+    });
+    expect(within(panel).getByText(/no recommendations yet/i)).toBeInTheDocument();
+  });
+
   it("starts a manual scan from a 202 response", async () => {
     const onSelectScan = vi.fn();
     const user = userEvent.setup();
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(jsonResponse({ scans: [] }))
-      .mockResolvedValueOnce(jsonResponse(QUEUED_SCAN, 202));
+      .mockImplementation((url: string, options?: RequestInit) => {
+        if (url.startsWith("/api/v1/cases")) {
+          return Promise.resolve(jsonResponse({ cases: [] }));
+        }
+        if (options?.method === "POST") {
+          return Promise.resolve(jsonResponse(QUEUED_SCAN, 202));
+        }
+        return Promise.resolve(jsonResponse({ scans: [] }));
+      });
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<OverviewPage onSelectScan={onSelectScan} />);
+    render(<OverviewPage onSelectScan={onSelectScan} onSelectCase={vi.fn()} />);
     await screen.findByText("No scans yet");
     const manualScanButton = screen.getByRole("button", {
       name: "Run manual scan",
@@ -173,20 +272,24 @@ describe("OverviewPage", () => {
   it("shows a safe list error without exposing an unsafe response", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(
-        jsonResponse(
-          {
-            error_code: "ODOO_UNAVAILABLE",
-            message: "Scans are temporarily unavailable.",
-            retryable: true,
-            unsafe_detail: "secret-token",
-          },
-          503,
+      vi.fn().mockImplementation((url: string) =>
+        Promise.resolve(
+          url.startsWith("/api/v1/cases")
+            ? jsonResponse({ cases: [] })
+            : jsonResponse(
+                {
+                  error_code: "ODOO_UNAVAILABLE",
+                  message: "Scans are temporarily unavailable.",
+                  retryable: true,
+                  unsafe_detail: "secret-token",
+                },
+                503,
+              ),
         ),
       ),
     );
 
-    render(<OverviewPage onSelectScan={vi.fn()} />);
+    render(<OverviewPage onSelectScan={vi.fn()} onSelectCase={vi.fn()} />);
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Scans are temporarily unavailable.",
