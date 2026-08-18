@@ -6,6 +6,7 @@ import {
   getCase,
   getScanAggregate,
   getSession,
+  listRecentCases,
   listScans,
 } from "../src/api/client";
 
@@ -44,6 +45,18 @@ const CASE_DETAIL_PAYLOAD = {
   evidence: [],
   result: null,
   error: null,
+};
+
+const CASE_SUMMARY_PAYLOAD = {
+  case_id: "scan-recent:product-1",
+  product_id: "product-1",
+  product_name: "Fictional Widget",
+  outcome: "approval_ready",
+  amount: "120.500000",
+  need_by_date: "2026-08-20",
+  scan_id: "scan-recent",
+  budget_status: "within_budget",
+  completed_at: "2026-08-18T10:00:40Z",
 };
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -112,6 +125,27 @@ describe("scan API client", () => {
     await expect(
       getCase("scan-queued", "scan-queued:product-101"),
     ).resolves.toEqual(CASE_DETAIL_PAYLOAD);
+  });
+
+  it("parses recent cases spanning multiple scans", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(jsonResponse({ cases: [CASE_SUMMARY_PAYLOAD] })),
+    );
+
+    await expect(listRecentCases()).resolves.toEqual([
+      {
+        case_id: "scan-recent:product-1",
+        product_id: "product-1",
+        product_name: "Fictional Widget",
+        outcome: "approval_ready",
+        amount: "120.500000",
+        need_by_date: "2026-08-20",
+        scan_id: "scan-recent",
+        budget_status: "within_budget",
+        completed_at: "2026-08-18T10:00:40Z",
+      },
+    ]);
   });
 
   it("parses a case result with a no_valid_offer outcome", async () => {

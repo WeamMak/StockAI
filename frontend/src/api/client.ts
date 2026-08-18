@@ -1,4 +1,5 @@
 const SCANS_PATH = "/api/v1/scans";
+const CASES_PATH = "/api/v1/cases";
 const SESSION_PATH = "/api/v1/session";
 const CSRF_COOKIE_NAME = "stockai_csrf";
 const MAX_SCAN_LIST_LENGTH = 100;
@@ -200,6 +201,9 @@ export interface CaseSummary {
   outcome: string;
   amount: string | null;
   need_by_date: string | null;
+  scan_id: string;
+  budget_status: string;
+  completed_at: string | null;
 }
 
 export interface ScanAggregate {
@@ -661,7 +665,10 @@ function parseCaseSummary(value: unknown): CaseSummary {
     typeof value.product_name !== "string" ||
     typeof value.outcome !== "string" ||
     !isNullableString(value.amount) ||
-    !isNullableString(value.need_by_date)
+    !isNullableString(value.need_by_date) ||
+    typeof value.scan_id !== "string" ||
+    typeof value.budget_status !== "string" ||
+    !isNullableString(value.completed_at)
   ) {
     return invalidResponse();
   }
@@ -672,6 +679,9 @@ function parseCaseSummary(value: unknown): CaseSummary {
     outcome: value.outcome,
     amount: value.amount,
     need_by_date: value.need_by_date,
+    scan_id: value.scan_id,
+    budget_status: value.budget_status,
+    completed_at: value.completed_at,
   };
 }
 
@@ -850,4 +860,25 @@ export async function getCase(
     { method: "GET", signal: options.signal },
   );
   return parseCaseDetail(response.body);
+}
+
+const MAX_RECENT_CASES_LENGTH = 20;
+
+export async function listRecentCases(
+  options: { limit?: number } & RequestOptions = {},
+): Promise<CaseSummary[]> {
+  const { limit, signal } = options;
+  const path =
+    limit === undefined
+      ? CASES_PATH
+      : `${CASES_PATH}?limit=${encodeURIComponent(String(limit))}`;
+  const response = await request(path, { method: "GET", signal });
+  if (
+    !isRecord(response.body) ||
+    !Array.isArray(response.body.cases) ||
+    response.body.cases.length > MAX_RECENT_CASES_LENGTH
+  ) {
+    return invalidResponse();
+  }
+  return response.body.cases.map(parseCaseSummary);
 }
