@@ -7,6 +7,7 @@ import hashlib
 import json
 import re
 from collections.abc import Mapping
+from datetime import date
 from decimal import Decimal
 from typing import Any, Protocol, cast
 
@@ -15,7 +16,7 @@ from botocore.config import Config  # type: ignore[import-untyped]
 from botocore.exceptions import ClientError  # type: ignore[import-untyped]
 
 from procurement.domain.audit import AuditEvent
-from procurement.domain.identifiers import CaseId, Environment, Revision
+from procurement.domain.identifiers import CaseId, Environment, Revision, ScanId
 from procurement.domain.models import UtcTimestamp
 from procurement.domain.policy.evidence import procurement_evidence_from_dict
 from procurement.ports.repositories import (
@@ -24,12 +25,16 @@ from procurement.ports.repositories import (
     CaseCreateResult,
     CasePage,
     CaseRecord,
+    CaseSummary,
     FailureRecord,
     IdempotencyConflictError,
     ImmutableRecordError,
     LoginTransactionRecord,
     RecommendationRecord,
     RevisionConflictError,
+    ScanCreateResult,
+    ScanPage,
+    ScanRecord,
     SessionRecord,
 )
 
@@ -102,6 +107,19 @@ class DynamoApplicationRepository(ApplicationRepository):
 
         payload = {
             "case_id": record.case_id.value,
+            "created_at": record.created_at.value.isoformat(),
+            "status": record.status,
+            "trigger": record.trigger,
+        }
+        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(canonical.encode()).hexdigest()
+
+    @staticmethod
+    def scan_fingerprint(record: ScanRecord) -> str:
+        """Return a stable request fingerprint without retaining request content."""
+
+        payload = {
+            "scan_id": record.scan_id.value,
             "created_at": record.created_at.value.isoformat(),
             "status": record.status,
             "trigger": record.trigger,
@@ -210,9 +228,11 @@ class DynamoApplicationRepository(ApplicationRepository):
         *,
         limit: int,
         cursor: str | None = None,
+        scan_id: str | None = None,
     ) -> CasePage:
         if type(limit) is not int or not 1 <= limit <= MAX_PAGE_SIZE:
             raise ValueError("case page limit must be between 1 and 100")
+        case_prefix = f"CASE#{scan_id}:" if scan_id is not None else "CASE#"
         request: dict[str, Any] = {
             "TableName": self._table_name,
             "KeyConditionExpression": (
@@ -220,7 +240,7 @@ class DynamoApplicationRepository(ApplicationRepository):
             ),
             "ExpressionAttributeValues": {
                 ":environment": {"S": self._partition_key},
-                ":case_prefix": {"S": "CASE#"},
+                ":case_prefix": {"S": case_prefix},
             },
             "ScanIndexForward": False,
             "Limit": limit,
@@ -232,6 +252,132 @@ class DynamoApplicationRepository(ApplicationRepository):
         last_key = cast(Mapping[str, Any] | None, response.get("LastEvaluatedKey"))
         return CasePage(
             records=tuple(self._case_from_item(item) for item in items),
+            next_cursor=self._encode_cursor(last_key) if last_key else None,
+        )
+
+    async def create_scan(
+        self,
+        record: ScanRecord,
+        *,
+        idempotency_key: str,
+        expires_at: UtcTimestamp,
+    ) -> ScanCreateResult:
+        self._validate_scan(record)
+        self._validate_expiry(expires_at)
+        self._validate_key(idempotency_key, name="idempotency key")
+        fingerprint = self.scan_fingerprint(record)
+        idempotency_item = {
+            "PK": {"S": self._partition_key},
+            "SK": {"S": f"IDEMPOTENCY#{idempotency_key}"},
+            "entity_type": {"S": "idempotency"},
+            "scan_id": {"S": record.scan_id.value},
+            "fingerprint": {"S": fingerprint},
+            "ttl": self._ttl(expires_at),
+        }
+        request = {
+            "TransactItems": [
+                {
+                    "Put": {
+                        "TableName": self._table_name,
+                        "Item": self._scan_item(record, expires_at=expires_at),
+                        "ConditionExpression": _CONDITIONAL_CREATE,
+                    }
+                },
+                {
+                    "Put": {
+                        "TableName": self._table_name,
+                        "Item": idempotency_item,
+                        "ConditionExpression": _CONDITIONAL_CREATE,
+                    }
+                },
+            ]
+        }
+        try:
+            self._client.transact_write_items(**request)
+        except ClientError as error:
+            if self._error_code(error) != "TransactionCanceledException":
+                raise
+            return await self._resolve_idempotent_scan_create(
+                record,
+                idempotency_key=idempotency_key,
+                fingerprint=fingerprint,
+            )
+        return ScanCreateResult(record=record, created=True)
+
+    async def update_scan(
+        self,
+        record: ScanRecord,
+        *,
+        expected_revision: Revision,
+        expires_at: UtcTimestamp,
+    ) -> ScanRecord:
+        self._validate_scan(record)
+        self._validate_expiry(expires_at)
+        if not isinstance(expected_revision, Revision):
+            raise ValueError("expected revision must be a Revision")
+        values = self._scan_attributes(record, expires_at=expires_at)
+        values.pop("scan_id")
+        names = {f"#{name}": name for name in values}
+        expression_values = {f":{name}": value for name, value in values.items()}
+        expression_values[":expected_revision"] = {"N": str(expected_revision.value)}
+        request = {
+            "TableName": self._table_name,
+            "Key": self._scan_key(record.scan_id),
+            "UpdateExpression": "SET "
+            + ", ".join(f"#{name} = :{name}" for name in values),
+            "ConditionExpression": (
+                "attribute_exists(PK) AND revision = :expected_revision"
+            ),
+            "ExpressionAttributeNames": names,
+            "ExpressionAttributeValues": expression_values,
+            "ReturnValues": "ALL_NEW",
+        }
+        try:
+            response = self._client.update_item(**request)
+        except ClientError as error:
+            if self._error_code(error) == "ConditionalCheckFailedException":
+                raise RevisionConflictError("The scan revision has changed.") from None
+            raise
+        attributes = cast(Mapping[str, Any], response.get("Attributes", {}))
+        return self._scan_from_item(attributes)
+
+    async def get_scan(self, scan_id: ScanId) -> ScanRecord | None:
+        self._validate_scan_id(scan_id)
+        response = self._client.get_item(
+            TableName=self._table_name,
+            Key=self._scan_key(scan_id),
+            ConsistentRead=True,
+        )
+        item = response.get("Item")
+        return self._scan_from_item(cast(Mapping[str, Any], item)) if item else None
+
+    async def list_scans(
+        self,
+        *,
+        limit: int,
+        cursor: str | None = None,
+    ) -> ScanPage:
+        if type(limit) is not int or not 1 <= limit <= MAX_PAGE_SIZE:
+            raise ValueError("scan page limit must be between 1 and 100")
+        request: dict[str, Any] = {
+            "TableName": self._table_name,
+            "KeyConditionExpression": (
+                "PK = :environment AND begins_with(SK, :scan_prefix)"
+            ),
+            "ExpressionAttributeValues": {
+                ":environment": {"S": self._partition_key},
+                ":scan_prefix": {"S": "SCAN#"},
+            },
+            "ScanIndexForward": False,
+            "Limit": limit,
+        }
+        if cursor is not None:
+            request["ExclusiveStartKey"] = self._decode_scan_cursor(cursor)
+        response = self._client.query(**request)
+        items = cast(list[Mapping[str, Any]], response.get("Items", []))
+        last_key = cast(Mapping[str, Any] | None, response.get("LastEvaluatedKey"))
+        return ScanPage(
+            records=tuple(self._scan_from_item(item) for item in items),
             next_cursor=self._encode_cursor(last_key) if last_key else None,
         )
 
@@ -428,6 +574,163 @@ class DynamoApplicationRepository(ApplicationRepository):
         if existing is None:
             raise IdempotencyConflictError("The idempotent case is unavailable.")
         return CaseCreateResult(record=existing, created=False)
+
+    async def _resolve_idempotent_scan_create(
+        self,
+        record: ScanRecord,
+        *,
+        idempotency_key: str,
+        fingerprint: str,
+    ) -> ScanCreateResult:
+        marker_response = self._client.get_item(
+            TableName=self._table_name,
+            Key={
+                "PK": {"S": self._partition_key},
+                "SK": {"S": f"IDEMPOTENCY#{idempotency_key}"},
+            },
+            ConsistentRead=True,
+        )
+        marker = cast(Mapping[str, Any] | None, marker_response.get("Item"))
+        if (
+            marker is None
+            or self._string(marker, "scan_id") != record.scan_id.value
+            or self._string(marker, "fingerprint") != fingerprint
+        ):
+            raise IdempotencyConflictError(
+                "The idempotency key belongs to another request."
+            )
+        existing = await self.get_scan(record.scan_id)
+        if existing is None:
+            raise IdempotencyConflictError("The idempotent scan is unavailable.")
+        return ScanCreateResult(record=existing, created=False)
+
+    def _scan_item(
+        self,
+        record: ScanRecord,
+        *,
+        expires_at: UtcTimestamp,
+    ) -> dict[str, Any]:
+        return {
+            **self._scan_key(record.scan_id),
+            **self._scan_attributes(record, expires_at=expires_at),
+        }
+
+    def _scan_attributes(
+        self,
+        record: ScanRecord,
+        *,
+        expires_at: UtcTimestamp,
+    ) -> dict[str, Any]:
+        values: dict[str, Any] = {
+            "entity_type": {"S": "scan"},
+            "scan_id": {"S": record.scan_id.value},
+            "revision": {"N": str(record.revision.value)},
+            "status": {"S": record.status},
+            "trigger": {"S": record.trigger},
+            "created_at": {"S": record.created_at.value.isoformat()},
+            "updated_at": {"S": record.updated_at.value.isoformat()},
+            "ttl": self._ttl(expires_at),
+        }
+        for name, timestamp in (
+            ("started_at", record.started_at),
+            ("completed_at", record.completed_at),
+        ):
+            if timestamp is not None:
+                values[name] = {"S": timestamp.value.isoformat()}
+        values["case_summaries"] = {
+            "L": [
+                {
+                    "M": {
+                        "case_id": {"S": summary.case_id},
+                        "product_id": {"S": summary.product_id},
+                        "product_name": {"S": summary.product_name},
+                        "outcome": {"S": summary.outcome},
+                        "scan_id": {"S": summary.scan_id},
+                        "budget_status": {"S": summary.budget_status},
+                        **(
+                            {"amount": {"S": format(summary.amount, "f")}}
+                            if summary.amount is not None
+                            else {}
+                        ),
+                        **(
+                            {"need_by_date": {"S": summary.need_by_date.isoformat()}}
+                            if summary.need_by_date is not None
+                            else {}
+                        ),
+                        **(
+                            {
+                                "completed_at": {
+                                    "S": summary.completed_at.value.isoformat()
+                                }
+                            }
+                            if summary.completed_at is not None
+                            else {}
+                        ),
+                    }
+                }
+                for summary in record.case_summaries
+            ]
+        }
+        if record.error is not None:
+            values["error"] = {
+                "M": {
+                    "error_code": {"S": record.error.error_code},
+                    "message": {"S": record.error.message},
+                    "retryable": {"BOOL": record.error.retryable},
+                    "retry_count": {"N": str(record.error.retry_count)},
+                }
+            }
+        return values
+
+    def _scan_from_item(self, item: Mapping[str, Any]) -> ScanRecord:
+        if not item:
+            raise ValueError("DynamoDB returned an empty scan")
+        summaries = []
+        for entry in item.get("case_summaries", {}).get("L", []):
+            summary_item = cast(Mapping[str, Any], entry["M"])
+            summaries.append(
+                CaseSummary(
+                    case_id=self._string(summary_item, "case_id"),
+                    product_id=self._string(summary_item, "product_id"),
+                    product_name=self._string(summary_item, "product_name"),
+                    outcome=self._string(summary_item, "outcome"),
+                    amount=(
+                        Decimal(self._string(summary_item, "amount"))
+                        if "amount" in summary_item
+                        else None
+                    ),
+                    need_by_date=(
+                        date.fromisoformat(self._string(summary_item, "need_by_date"))
+                        if "need_by_date" in summary_item
+                        else None
+                    ),
+                    scan_id=self._string(summary_item, "scan_id"),
+                    budget_status=self._string(summary_item, "budget_status"),
+                    completed_at=self._optional_timestamp(summary_item, "completed_at"),
+                )
+            )
+        error_item = cast(Mapping[str, Any] | None, item.get("error", {}).get("M"))
+        return ScanRecord(
+            scan_id=ScanId(self._environment, self._string(item, "scan_id")),
+            revision=Revision(self._number(item, "revision")),
+            status=self._string(item, "status"),
+            trigger=self._string(item, "trigger"),
+            created_at=UtcTimestamp.from_value(self._string(item, "created_at")),
+            updated_at=UtcTimestamp.from_value(self._string(item, "updated_at")),
+            started_at=self._optional_timestamp(item, "started_at"),
+            completed_at=self._optional_timestamp(item, "completed_at"),
+            case_summaries=tuple(summaries),
+            error=(
+                FailureRecord(
+                    error_code=self._string(error_item, "error_code"),
+                    message=self._string(error_item, "message"),
+                    retryable=bool(error_item["retryable"]["BOOL"]),
+                    retry_count=self._number(error_item, "retry_count"),
+                )
+                if error_item is not None
+                else None
+            ),
+        )
 
     def _case_item(
         self,
@@ -658,6 +961,12 @@ class DynamoApplicationRepository(ApplicationRepository):
             "SK": {"S": f"CASE#{case_id.value}"},
         }
 
+    def _scan_key(self, scan_id: ScanId) -> dict[str, Any]:
+        return {
+            "PK": {"S": self._partition_key},
+            "SK": {"S": f"SCAN#{scan_id.value}"},
+        }
+
     def _auth_key(self, prefix: str, digest: str) -> dict[str, Any]:
         return {
             "PK": {"S": self._partition_key},
@@ -675,6 +984,18 @@ class DynamoApplicationRepository(ApplicationRepository):
             or case_id.environment is not self._environment
         ):
             raise ValueError("case belongs to another environment")
+
+    def _validate_scan(self, record: ScanRecord) -> None:
+        if not isinstance(record, ScanRecord):
+            raise ValueError("record must be a ScanRecord")
+        self._validate_scan_id(record.scan_id)
+
+    def _validate_scan_id(self, scan_id: ScanId) -> None:
+        if (
+            not isinstance(scan_id, ScanId)
+            or scan_id.environment is not self._environment
+        ):
+            raise ValueError("scan belongs to another environment")
 
     @staticmethod
     def _validate_expiry(expires_at: UtcTimestamp) -> None:
@@ -736,4 +1057,19 @@ class DynamoApplicationRepository(ApplicationRepository):
                 raise ValueError
         except (ValueError, TypeError, json.JSONDecodeError) as error:
             raise ValueError("case cursor is invalid") from error
+        return {"PK": {"S": payload["PK"]}, "SK": {"S": payload["SK"]}}
+
+    def _decode_scan_cursor(self, cursor: str) -> dict[str, Any]:
+        try:
+            padding = "=" * (-len(cursor) % 4)
+            payload = json.loads(base64.urlsafe_b64decode(cursor + padding))
+            if (
+                not isinstance(payload, dict)
+                or payload.get("PK") != self._partition_key
+                or not isinstance(payload.get("SK"), str)
+                or not payload["SK"].startswith("SCAN#")
+            ):
+                raise ValueError
+        except (ValueError, TypeError, json.JSONDecodeError) as error:
+            raise ValueError("scan cursor is invalid") from error
         return {"PK": {"S": payload["PK"]}, "SK": {"S": payload["SK"]}}

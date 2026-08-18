@@ -14,8 +14,8 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from scripts.odoo.probe_contract import Json2Client
 
-from procurement.agent.graph import build_walking_skeleton_graph
-from procurement.agent.state import ApprovalReadyResult
+from procurement.agent.graph import build_walking_skeleton_workflow
+from procurement.agent.state import ApprovalReadyResult, UnresolvedResult
 from procurement.bootstrap.mcp import LocalMcpSettings, create_local_mcp_app
 from procurement.domain.identifiers import Environment
 from tests.contract.conftest import OdooContractStack, _run, running_odoo_contract
@@ -202,13 +202,25 @@ async def test_seeded_odoo_candidate_reaches_the_walking_skeleton_over_real_mcp(
         assert sum(offer.status.value == "eligible" for offer in evidence.offers) == 3
 
         llm = EvidenceAwareFakeStructuredLlm()
-        graph = build_walking_skeleton_graph(
+        workflow = build_walking_skeleton_workflow(
             mcp=transport,
             llm=llm,
             company_id=str(company_id),
         )
-        state = await graph.ainvoke(
-            {"scan_id": "scan-real-odoo-001", "environment": Environment.DEV}
+        discovered = await workflow.discover_candidates(
+            environment=Environment.DEV, scan_id="scan-real-odoo-001"
+        )
+        assert not isinstance(discovered, UnresolvedResult)
+        seeded_candidate = next(
+            candidate for candidate in discovered if candidate.product_id == product_id
+        )
+        state = await workflow.ainvoke(
+            {
+                "scan_id": "scan-real-odoo-001",
+                "environment": Environment.DEV,
+                "candidates": (seeded_candidate,),
+            },
+            config={"configurable": {"thread_id": "scan-real-odoo-001:case"}},
         )
         async with httpx.AsyncClient() as client:
             metrics = await client.get(metrics_url)

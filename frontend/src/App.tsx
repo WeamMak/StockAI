@@ -3,11 +3,13 @@ import { useEffect, useState } from "react";
 import { ApiError, getSession, isAbortError, type Session } from "./api/client";
 import { AppNavigation } from "./components/AppNavigation";
 import { OverviewPage } from "./pages/OverviewPage";
-import { ScanPage } from "./pages/ScanPage";
+import { RecommendationPage } from "./pages/RecommendationPage";
+import { ScanDetailPage } from "./pages/ScanDetailPage";
 import { SignInPage } from "./pages/SignInPage";
 
 export function App() {
   const [selectedScanId, setSelectedScanId] = useState<string | null>(null);
+  const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
   const [workspacePage, setWorkspacePage] = useState<"home" | "scans">("home");
   const [session, setSession] = useState<Session | null | undefined>(undefined);
   const [sessionError, setSessionError] = useState<string | undefined>();
@@ -44,6 +46,7 @@ export function App() {
             onClick={(event) => {
               event.preventDefault();
               setSelectedScanId(null);
+              setSelectedCaseId(null);
               setWorkspacePage("home");
             }}
           >
@@ -62,10 +65,12 @@ export function App() {
             active={selectedScanId === null ? workspacePage : "scans"}
             onHome={() => {
               setSelectedScanId(null);
+              setSelectedCaseId(null);
               setWorkspacePage("home");
             }}
             onScans={() => {
               setSelectedScanId(null);
+              setSelectedCaseId(null);
               setWorkspacePage("scans");
             }}
           />
@@ -82,14 +87,26 @@ export function App() {
                 setWorkspacePage("scans");
                 setSelectedScanId(scanId);
               }}
+              onSelectCase={(scanId, caseId) => {
+                setWorkspacePage("scans");
+                setSelectedScanId(scanId);
+                setSelectedCaseId(caseId);
+              }}
             />
-          ) : (
-            <ScanPage
+          ) : selectedCaseId === null ? (
+            <ScanDetailPage
               scanId={selectedScanId}
               onBack={() => {
                 setSelectedScanId(null);
                 setWorkspacePage("scans");
               }}
+              onSelectCase={setSelectedCaseId}
+            />
+          ) : (
+            <RecommendationPage
+              scanId={selectedScanId}
+              caseId={selectedCaseId}
+              onBack={() => setSelectedCaseId(null)}
             />
           )}
         </main>

@@ -3,13 +3,40 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ApiError,
   createManualScan,
-  getScan,
+  getCase,
+  getScanAggregate,
   getSession,
+  listRecentCases,
   listScans,
 } from "../src/api/client";
 
-const QUEUED_SCAN = {
+const QUEUED_SCAN_PAYLOAD = {
   scan_id: "scan-queued",
+  status: "queued",
+  trigger: "manual",
+  created_at: "2026-08-05T10:00:00Z",
+  started_at: null,
+  completed_at: null,
+  results: [],
+  outcome_counts: {},
+  error: null,
+};
+
+const QUEUED_SCAN_AGGREGATE = {
+  scan_id: "scan-queued",
+  status: "queued",
+  trigger: "manual",
+  created_at: "2026-08-05T10:00:00Z",
+  started_at: null,
+  completed_at: null,
+  results: [],
+  outcomeCounts: {},
+  error: null,
+};
+
+const CASE_DETAIL_PAYLOAD = {
+  scan_id: "scan-queued",
+  case_id: "scan-queued:product-101",
   status: "queued",
   trigger: "manual",
   created_at: "2026-08-05T10:00:00Z",
@@ -18,6 +45,18 @@ const QUEUED_SCAN = {
   evidence: [],
   result: null,
   error: null,
+};
+
+const CASE_SUMMARY_PAYLOAD = {
+  case_id: "scan-recent:product-1",
+  product_id: "product-1",
+  product_name: "Fictional Widget",
+  outcome: "approval_ready",
+  amount: "120.500000",
+  need_by_date: "2026-08-20",
+  scan_id: "scan-recent",
+  budget_status: "within_budget",
+  completed_at: "2026-08-18T10:00:40Z",
 };
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -34,10 +73,12 @@ afterEach(() => {
 describe("scan API client", () => {
   it("accepts only the documented 202 manual-scan response", async () => {
     document.cookie = "stockai_csrf=opaque-csrf-token; path=/";
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(QUEUED_SCAN, 202));
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(QUEUED_SCAN_PAYLOAD, 202));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(createManualScan()).resolves.toEqual(QUEUED_SCAN);
+    await expect(createManualScan()).resolves.toEqual(QUEUED_SCAN_AGGREGATE);
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/v1/scans",
       expect.objectContaining({
@@ -69,20 +110,68 @@ describe("scan API client", () => {
     });
   });
 
-  it("parses bounded scan-list and detail responses", async () => {
+  it("parses bounded scan-list, scan-aggregate, and case-detail responses", async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(jsonResponse({ scans: [QUEUED_SCAN] }))
-      .mockResolvedValueOnce(jsonResponse(QUEUED_SCAN));
+      .mockResolvedValueOnce(jsonResponse({ scans: [QUEUED_SCAN_PAYLOAD] }))
+      .mockResolvedValueOnce(jsonResponse(QUEUED_SCAN_PAYLOAD))
+      .mockResolvedValueOnce(jsonResponse(CASE_DETAIL_PAYLOAD));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(listScans()).resolves.toEqual([QUEUED_SCAN]);
-    await expect(getScan("scan-queued")).resolves.toEqual(QUEUED_SCAN);
+    await expect(listScans()).resolves.toEqual([QUEUED_SCAN_AGGREGATE]);
+    await expect(getScanAggregate("scan-queued")).resolves.toEqual(
+      QUEUED_SCAN_AGGREGATE,
+    );
+    await expect(
+      getCase("scan-queued", "scan-queued:product-101"),
+    ).resolves.toEqual(CASE_DETAIL_PAYLOAD);
+  });
+
+  it("parses recent cases spanning multiple scans", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(jsonResponse({ cases: [CASE_SUMMARY_PAYLOAD] })),
+    );
+
+    await expect(listRecentCases()).resolves.toEqual([
+      {
+        case_id: "scan-recent:product-1",
+        product_id: "product-1",
+        product_name: "Fictional Widget",
+        outcome: "approval_ready",
+        amount: "120.500000",
+        need_by_date: "2026-08-20",
+        scan_id: "scan-recent",
+        budget_status: "within_budget",
+        completed_at: "2026-08-18T10:00:40Z",
+      },
+    ]);
+  });
+
+  it("parses a case result with a no_valid_offer outcome", async () => {
+    const noValidOffer = {
+      ...CASE_DETAIL_PAYLOAD,
+      status: "succeeded",
+      completed_at: "2026-08-05T10:00:05Z",
+      result: {
+        outcome: "no_valid_offer",
+        product_id: "product-101",
+        product_name: "Fictional No-Valid-Offer Component",
+        rationale: "No approved vendor offer is eligible for this product.",
+        evidence_limitations: [],
+        read_only: true,
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(noValidOffer)));
+
+    await expect(
+      getCase("scan-queued", "scan-queued:product-101"),
+    ).resolves.toEqual(noValidOffer);
   });
 
   it("parses a historical approval without inventing T27 fields", async () => {
     const legacy = {
-      ...QUEUED_SCAN,
+      ...CASE_DETAIL_PAYLOAD,
       status: "succeeded",
       completed_at: "2026-08-05T10:00:05Z",
       result: {
@@ -101,7 +190,9 @@ describe("scan API client", () => {
     };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(legacy)));
 
-    await expect(getScan("scan-legacy")).resolves.toEqual(legacy);
+    await expect(
+      getCase("scan-queued", "scan-queued:product-legacy"),
+    ).resolves.toEqual(legacy);
   });
 
   it("rejects malformed success payloads with a safe error", async () => {
@@ -109,7 +200,9 @@ describe("scan API client", () => {
       "fetch",
       vi.fn().mockResolvedValue(
         jsonResponse({
-          scans: [{ ...QUEUED_SCAN, status: "unexpected", secret: "do-not-show" }],
+          scans: [
+            { ...QUEUED_SCAN_PAYLOAD, status: "unexpected", secret: "do-not-show" },
+          ],
         }),
       ),
     );

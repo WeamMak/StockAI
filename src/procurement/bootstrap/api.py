@@ -35,7 +35,7 @@ from procurement.adapters.aws.dynamodb import (
     DynamoClient,
     create_dynamodb_client,
 )
-from procurement.agent.graph import build_walking_skeleton_graph
+from procurement.agent.graph import build_walking_skeleton_workflow
 from procurement.agent.recommendation_schema import (
     RECOMMENDATION_JSON_SCHEMA,
     load_procurement_system_prompt,
@@ -602,7 +602,7 @@ def create_local_api_app(
                 endpoint_url=resolved.dynamodb_endpoint_url,
             )
         )
-    graph = build_walking_skeleton_graph(
+    workflow = build_walking_skeleton_workflow(
         mcp=StreamableHttpProcurementMcp(
             url=resolved.mcp_url,
             bearer_token=resolved.mcp_token,
@@ -628,7 +628,7 @@ def create_local_api_app(
         logger=logger,
         http_metrics=http_metrics,
         agent_metrics=agent_metrics,
-        scan_workflow=cast(ScanWorkflow, graph),
+        scan_workflow=cast(ScanWorkflow, workflow),
         application_repository=application_repository,
         identity_provider=identity_provider,
     )

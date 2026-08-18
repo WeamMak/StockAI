@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -11,8 +11,8 @@ const QUEUED_SCAN = {
   created_at: "2026-08-05T10:00:00Z",
   started_at: null,
   completed_at: null,
-  evidence: [],
-  result: null,
+  results: [],
+  outcome_counts: {},
   error: null,
 };
 
@@ -21,29 +21,20 @@ const SUCCEEDED_SCAN = {
   scan_id: "scan-succeeded",
   status: "succeeded",
   completed_at: "2026-08-05T10:00:05Z",
-  result: {
-    outcome: "approval_ready",
-    validation_level: "t27",
-    product_id: "product-101",
-    product_name: "Fictional Safety Gloves",
-    offer_id: "offer-101",
-    rationale: "Replenishment is required.",
-    trade_offs: ["Reliable delivery is favored."],
-    risk_flags: [],
-    uncertainty: "No material uncertainty.",
-    evidence_limitations: [],
-    evidence_digest: `sha256:${"a".repeat(64)}`,
-    quantity: "35.000000",
-    unit_price: "12.500000",
-    normalized_cost: "437.500000",
-    budget_status: "within_budget",
-    preference_profile_id: "preference-3",
-    preference_scope: "product",
-    preference_revision: 6,
-    priority_order: ["price", "reliability", "delivery"],
-    premium_outcome: "within_cap",
-    read_only: true,
-  },
+  results: [
+    {
+      case_id: "scan-succeeded:product-101",
+      product_id: "product-101",
+      product_name: "Fictional Safety Gloves",
+      outcome: "approval_ready",
+      amount: "437.500000",
+      need_by_date: "2026-08-12",
+      scan_id: "scan-succeeded",
+      budget_status: "within_budget",
+      completed_at: "2026-08-05T10:00:05Z",
+    },
+  ],
+  outcome_counts: { approval_ready: 1 },
 };
 
 const MANUAL_REVIEW_SCAN = {
@@ -51,15 +42,20 @@ const MANUAL_REVIEW_SCAN = {
   scan_id: "scan-manual-review",
   status: "succeeded",
   completed_at: "2026-08-05T10:00:07Z",
-  result: {
-    outcome: "manual_review",
-    rationale: "Compare eligible offers manually.",
-    trade_offs: ["Authoritative evidence remains available."],
-    risk_flags: ["LLM_OUTPUT_INVALID"],
-    uncertainty: "No validated model recommendation is available.",
-    evidence_limitations: ["The model response was invalid."],
-    read_only: true,
-  },
+  results: [
+    {
+      case_id: "scan-manual-review:product-102",
+      product_id: "product-102",
+      product_name: "Fictional Cable Ties",
+      outcome: "manual_review",
+      amount: null,
+      need_by_date: null,
+      scan_id: "scan-manual-review",
+      budget_status: "not_evaluated",
+      completed_at: "2026-08-05T10:00:07Z",
+    },
+  ],
+  outcome_counts: { manual_review: 1 },
 };
 
 const FAILED_SCAN = {
@@ -74,6 +70,52 @@ const FAILED_SCAN = {
     retry_count: 0,
   },
 };
+
+const OVER_BUDGET_SCAN = {
+  ...QUEUED_SCAN,
+  scan_id: "scan-over-budget",
+  status: "succeeded",
+  completed_at: "2026-08-05T10:00:08Z",
+  results: [
+    {
+      case_id: "scan-over-budget:product-103",
+      product_id: "product-103",
+      product_name: "Fictional Industrial Fasteners",
+      outcome: "approval_ready",
+      amount: "980.000000",
+      need_by_date: "2026-08-14",
+      scan_id: "scan-over-budget",
+      budget_status: "exception_required",
+      completed_at: "2026-08-05T10:00:08Z",
+    },
+  ],
+  outcome_counts: { approval_ready: 1 },
+};
+
+const RECENT_CASES = [
+  {
+    case_id: "scan-succeeded:product-101",
+    product_id: "product-101",
+    product_name: "Fictional Safety Gloves",
+    outcome: "approval_ready",
+    amount: "437.500000",
+    need_by_date: "2026-08-12",
+    scan_id: "scan-succeeded",
+    budget_status: "within_budget",
+    completed_at: "2026-08-05T10:00:05Z",
+  },
+  {
+    case_id: "scan-manual-review:product-102",
+    product_id: "product-102",
+    product_name: "Fictional Cable Ties",
+    outcome: "manual_review",
+    amount: null,
+    need_by_date: null,
+    scan_id: "scan-manual-review",
+    budget_status: "not_evaluated",
+    completed_at: "2026-08-05T10:00:07Z",
+  },
+];
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -92,11 +134,21 @@ describe("OverviewPage", () => {
     const request = new Promise<Response>((resolve) => {
       resolveRequest = resolve;
     });
-    vi.stubGlobal("fetch", vi.fn().mockReturnValue(request));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) =>
+        url.startsWith("/api/v1/cases")
+          ? Promise.resolve(jsonResponse({ cases: [] }))
+          : request,
+      ),
+    );
 
-    render(<OverviewPage onSelectScan={vi.fn()} />);
+    render(<OverviewPage onSelectScan={vi.fn()} onSelectCase={vi.fn()} />);
 
-    expect(screen.getByRole("status")).toHaveTextContent("Loading scans");
+    const recentScans = screen.getByRole("region", { name: "Recent scan activity" });
+    expect(within(recentScans).getByRole("status")).toHaveTextContent(
+      "Loading scans",
+    );
     resolveRequest?.(jsonResponse({ scans: [] }));
 
     expect(await screen.findByText("No scans yet")).toBeInTheDocument();
@@ -106,10 +158,16 @@ describe("OverviewPage", () => {
     const onSelectScan = vi.fn();
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(jsonResponse({ scans: [QUEUED_SCAN] })),
+      vi.fn().mockImplementation((url: string) =>
+        Promise.resolve(
+          url.startsWith("/api/v1/cases")
+            ? jsonResponse({ cases: [] })
+            : jsonResponse({ scans: [QUEUED_SCAN] }),
+        ),
+      ),
     );
 
-    render(<OverviewPage onSelectScan={onSelectScan} />);
+    render(<OverviewPage onSelectScan={onSelectScan} onSelectCase={vi.fn()} />);
 
     await userEvent.click(await screen.findByRole("button", { name: /scan-queued/i }));
 
@@ -119,34 +177,88 @@ describe("OverviewPage", () => {
   it("summarizes loaded scan outcomes without inventing data", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(
-        jsonResponse({
-          scans: [
-            QUEUED_SCAN,
-            { ...QUEUED_SCAN, scan_id: "scan-running", status: "running" },
-            SUCCEEDED_SCAN,
-            MANUAL_REVIEW_SCAN,
-            FAILED_SCAN,
-          ],
-        }),
+      vi.fn().mockImplementation((url: string) =>
+        Promise.resolve(
+          url.startsWith("/api/v1/cases")
+            ? jsonResponse({ cases: [] })
+            : jsonResponse({
+                scans: [
+                  QUEUED_SCAN,
+                  { ...QUEUED_SCAN, scan_id: "scan-running", status: "running" },
+                  SUCCEEDED_SCAN,
+                  MANUAL_REVIEW_SCAN,
+                  FAILED_SCAN,
+                  OVER_BUDGET_SCAN,
+                ],
+              }),
+        ),
       ),
     );
 
-    render(<OverviewPage onSelectScan={vi.fn()} />);
+    render(<OverviewPage onSelectScan={vi.fn()} onSelectCase={vi.fn()} />);
 
     const summary = await screen.findByRole("region", { name: "Scan summary" });
-    expect(summary).toHaveTextContent("5Total");
+    expect(summary).toHaveTextContent("6Total");
     expect(summary).toHaveTextContent("2In progress");
-    expect(summary).toHaveTextContent("1Approval ready");
+    expect(summary).toHaveTextContent("2Approval ready");
     expect(summary).toHaveTextContent("2Needs review");
-    expect(screen.getAllByText(/Completed Aug 5, 2026/)).toHaveLength(3);
+    expect(screen.getAllByText(/Completed Aug 5, 2026/)).toHaveLength(4);
     expect(screen.getByText("Manual review")).toBeInTheDocument();
     const attention = screen.getByRole("region", { name: "What needs attention" });
     expect(attention).toHaveTextContent("2Needs review");
-    expect(attention).toHaveTextContent("1Approval ready");
+    expect(attention).toHaveTextContent("2Approval ready");
+    expect(attention).toHaveTextContent("1Over-budget exceptions");
+    expect(attention).not.toHaveTextContent("In progress");
     expect(
       screen.getByRole("region", { name: "Recent scan activity" }),
     ).toBeInTheDocument();
+  });
+
+  it("lists recent recommendations with a link to their case", async () => {
+    const onSelectCase = vi.fn();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) => {
+        if (url.startsWith("/api/v1/cases")) {
+          return Promise.resolve(jsonResponse({ cases: RECENT_CASES }));
+        }
+        return Promise.resolve(jsonResponse({ scans: [] }));
+      }),
+    );
+
+    render(<OverviewPage onSelectScan={vi.fn()} onSelectCase={onSelectCase} />);
+
+    const panel = await screen.findByRole("region", {
+      name: "Recent recommendations",
+    });
+    expect(within(panel).getByText("Fictional Safety Gloves")).toBeInTheDocument();
+    expect(within(panel).getByText("Fictional Cable Ties")).toBeInTheDocument();
+    expect(within(panel).getByText("Manual review")).toBeInTheDocument();
+
+    await userEvent.click(within(panel).getByText("Fictional Safety Gloves"));
+    expect(onSelectCase).toHaveBeenCalledWith(
+      "scan-succeeded",
+      "scan-succeeded:product-101",
+    );
+  });
+
+  it("shows an empty state when there are no recent recommendations", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) => {
+        if (url.startsWith("/api/v1/cases")) {
+          return Promise.resolve(jsonResponse({ cases: [] }));
+        }
+        return Promise.resolve(jsonResponse({ scans: [] }));
+      }),
+    );
+
+    render(<OverviewPage onSelectScan={vi.fn()} onSelectCase={vi.fn()} />);
+
+    const panel = await screen.findByRole("region", {
+      name: "Recent recommendations",
+    });
+    expect(within(panel).getByText(/no recommendations yet/i)).toBeInTheDocument();
   });
 
   it("starts a manual scan from a 202 response", async () => {
@@ -154,11 +266,18 @@ describe("OverviewPage", () => {
     const user = userEvent.setup();
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(jsonResponse({ scans: [] }))
-      .mockResolvedValueOnce(jsonResponse(QUEUED_SCAN, 202));
+      .mockImplementation((url: string, options?: RequestInit) => {
+        if (url.startsWith("/api/v1/cases")) {
+          return Promise.resolve(jsonResponse({ cases: [] }));
+        }
+        if (options?.method === "POST") {
+          return Promise.resolve(jsonResponse(QUEUED_SCAN, 202));
+        }
+        return Promise.resolve(jsonResponse({ scans: [] }));
+      });
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<OverviewPage onSelectScan={onSelectScan} />);
+    render(<OverviewPage onSelectScan={onSelectScan} onSelectCase={vi.fn()} />);
     await screen.findByText("No scans yet");
     const manualScanButton = screen.getByRole("button", {
       name: "Run manual scan",
@@ -177,20 +296,24 @@ describe("OverviewPage", () => {
   it("shows a safe list error without exposing an unsafe response", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(
-        jsonResponse(
-          {
-            error_code: "ODOO_UNAVAILABLE",
-            message: "Scans are temporarily unavailable.",
-            retryable: true,
-            unsafe_detail: "secret-token",
-          },
-          503,
+      vi.fn().mockImplementation((url: string) =>
+        Promise.resolve(
+          url.startsWith("/api/v1/cases")
+            ? jsonResponse({ cases: [] })
+            : jsonResponse(
+                {
+                  error_code: "ODOO_UNAVAILABLE",
+                  message: "Scans are temporarily unavailable.",
+                  retryable: true,
+                  unsafe_detail: "secret-token",
+                },
+                503,
+              ),
         ),
       ),
     );
 
-    render(<OverviewPage onSelectScan={vi.fn()} />);
+    render(<OverviewPage onSelectScan={vi.fn()} onSelectCase={vi.fn()} />);
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Scans are temporarily unavailable.",

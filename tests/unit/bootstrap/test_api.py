@@ -244,6 +244,20 @@ async def _finished_scan(client: AsyncClient, scan_id: str) -> dict[str, object]
     raise AssertionError("Bedrock-backed scan did not finish")
 
 
+async def _finished_case(
+    client: AsyncClient, scan_id: str
+) -> tuple[dict[str, object], dict[str, object]]:
+    """Poll the scan to completion, then return (scan, its one case)."""
+
+    finished = await _finished_scan(client, scan_id)
+    results = cast(list[dict[str, object]], finished["results"])
+    assert len(results) == 1
+    case_response = await client.get(
+        f"/api/v1/scans/{scan_id}/cases/{results[0]['case_id']}"
+    )
+    return finished, cast(dict[str, object], case_response.json())
+
+
 def test_api_settings_select_only_explicit_local_or_bedrock_modes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -453,15 +467,15 @@ async def test_bedrock_mode_runs_api_graph_schema_and_metrics_with_mocked_aws(
     ) as client:
         csrf_headers = await sign_in(client)
         accepted = await client.post("/api/v1/scans", headers=csrf_headers)
-        finished = await _finished_scan(client, accepted.json()["scan_id"])
+        finished, case = await _finished_case(client, accepted.json()["scan_id"])
         metrics = await client.get("/metrics")
 
     assert accepted.status_code == 202
     assert finished["status"] == "succeeded"
-    result = cast(dict[str, object], finished["result"])
+    result = cast(dict[str, object], case["result"])
     assert result["product_id"] == "product-101"
     assert result["read_only"] is True
-    evidence = cast(list[dict[str, object]], finished["evidence"])
+    evidence = cast(list[dict[str, object]], case["evidence"])
     preferences = cast(dict[str, object], evidence[0]["preferences"])
     assert preferences["scope"] == "company"
     assert preferences["revision"] == 1
@@ -502,15 +516,17 @@ async def test_bedrock_invalid_output_becomes_safe_observable_manual_review(
     ) as client:
         csrf_headers = await sign_in(client)
         accepted = await client.post("/api/v1/scans", headers=csrf_headers)
-        finished = await _finished_scan(client, accepted.json()["scan_id"])
+        finished, case = await _finished_case(client, accepted.json()["scan_id"])
         metrics = await client.get("/metrics")
 
     assert finished["status"] == "succeeded"
-    result = cast(dict[str, object], finished["result"])
+    result = cast(dict[str, object], case["result"])
     assert result["outcome"] == "manual_review"
     assert result["risk_flags"] == ["LLM_OUTPUT_INVALID"]
     assert finished["error"] is None
+    assert case["error"] is None
     assert "private malformed output" not in json.dumps(finished)
+    assert "private malformed output" not in json.dumps(case)
     assert len(provider.requests) == 2
     assert 'procurement_llm_calls_total{status="error"} 1.0' in metrics.text
     assert (
@@ -544,15 +560,17 @@ async def test_bedrock_unavailable_becomes_safe_observable_manual_review(
     ) as client:
         csrf_headers = await sign_in(client)
         accepted = await client.post("/api/v1/scans", headers=csrf_headers)
-        finished = await _finished_scan(client, accepted.json()["scan_id"])
+        finished, case = await _finished_case(client, accepted.json()["scan_id"])
         metrics = await client.get("/metrics")
 
     assert finished["status"] == "succeeded"
-    result = cast(dict[str, object], finished["result"])
+    result = cast(dict[str, object], case["result"])
     assert result["outcome"] == "manual_review"
     assert result["risk_flags"] == ["LLM_UNAVAILABLE"]
     assert finished["error"] is None
+    assert case["error"] is None
     assert private_detail not in json.dumps(finished)
+    assert private_detail not in json.dumps(case)
     assert len(provider.requests) == 1
     assert 'procurement_llm_calls_total{status="error"} 1.0' in metrics.text
     assert (

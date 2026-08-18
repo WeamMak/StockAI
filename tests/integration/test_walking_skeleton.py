@@ -38,6 +38,13 @@ def test_local_processes_run_langgraph_over_real_mcp_transport(
                 accepted.headers["location"],
                 headers=auth_headers,
             )
+            scan_id = detail.json()["scan_id"]
+            case_id = detail.json()["results"][0]["case_id"]
+            case = client.get(
+                f"/api/v1/scans/{scan_id}/cases/{case_id}",
+                headers=auth_headers,
+            )
+            recent = client.get("/api/v1/cases", headers=auth_headers)
             api_metrics = client.get("/metrics").text
         mcp_metrics = httpx.get(
             f"{skeleton.mcp_url}/metrics",
@@ -49,7 +56,14 @@ def test_local_processes_run_langgraph_over_real_mcp_transport(
     assert accepted.status_code == 202
     assert detail.status_code == 200
     assert detail.json()["status"] == "succeeded"
-    result = detail.json()["result"]
+    assert case.status_code == 200
+    assert recent.status_code == 200
+    recent_cases = recent.json()["cases"]
+    assert any(row["case_id"] == case_id for row in recent_cases)
+    matching = next(row for row in recent_cases if row["case_id"] == case_id)
+    assert matching["scan_id"] == scan_id
+    assert matching["budget_status"] == "within_budget"
+    result = case.json()["result"]
     assert result["outcome"] == "approval_ready"
     assert result["product_id"] == "product-101"
     assert result["offer_id"] == "offer-101"
@@ -71,3 +85,35 @@ def test_local_processes_run_langgraph_over_real_mcp_transport(
         'procurement_mcp_tool_calls_total{status="success",'
         'tool="list_replenishment_candidates"} 1.0'
     ) in mcp_metrics
+
+
+def test_local_scan_evaluates_multiple_candidates_as_isolated_cases(
+    tmp_path: Path,
+) -> None:
+    with run_local_skeleton(tmp_path, erp_mode="multi") as skeleton:
+        with httpx.Client(base_url=skeleton.api_url, timeout=5) as client:
+            auth_headers = sign_in_sync(client)
+            accepted = client.post("/api/v1/scans", headers=auth_headers)
+            detail = _poll_scan(
+                client,
+                accepted.headers["location"],
+                headers=auth_headers,
+            )
+            scan_id = detail.json()["scan_id"]
+            cases = {
+                row["product_id"]: client.get(
+                    f"/api/v1/scans/{scan_id}/cases/{row['case_id']}",
+                    headers=auth_headers,
+                ).json()
+                for row in detail.json()["results"]
+            }
+
+    assert accepted.status_code == 202
+    assert detail.status_code == 200
+    body = detail.json()
+    assert body["status"] == "succeeded"
+    assert len(body["results"]) == 2
+    assert body["outcome_counts"] == {"approval_ready": 1, "no_valid_offer": 1}
+    assert cases["product-101"]["result"]["outcome"] == "approval_ready"
+    assert cases["product-102"]["result"]["outcome"] == "no_valid_offer"
+    assert cases["product-102"]["result"]["product_id"] == "product-102"
