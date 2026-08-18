@@ -237,6 +237,42 @@ async def test_manual_scan_returns_202_and_can_be_polled_to_completion() -> None
 
 
 @pytest.mark.anyio
+async def test_a_completed_case_persists_its_candidate_snapshot() -> None:
+    workflow = SuccessfulWorkflow()
+    repository = InMemoryApplicationRepository(environment=Environment.DEV)
+    application = create_app(
+        scan_workflow=workflow,
+        identity_provider=LocalIdentityProvider(),
+        application_repository=repository,
+    )
+    transport = ASGITransport(app=application)
+
+    async with AsyncClient(
+        transport=transport,
+        base_url="https://testserver",
+    ) as client:
+        csrf_headers = await sign_in(client)
+        accepted = await client.post("/api/v1/scans", headers=csrf_headers)
+        scan_id = accepted.json()["scan_id"]
+        finished = await _poll_until_finished(client, scan_id)
+        case_id = cast(list[dict[str, object]], finished["results"])[0]["case_id"]
+
+    record = await repository.get_case(CaseId(Environment.DEV, case_id))
+    candidate = _one_candidate()[0]
+    assert record is not None
+    assert record.candidate_snapshot is not None
+    assert record.candidate_snapshot.category_id == candidate.category_id
+    assert record.candidate_snapshot.reorder_minimum == candidate.reorder_minimum
+    assert record.candidate_snapshot.reorder_maximum == candidate.reorder_maximum
+    assert record.candidate_snapshot.projected_quantity == candidate.projected_quantity
+    assert (
+        record.candidate_snapshot.projected_trigger_date
+        == candidate.projected_trigger_date
+    )
+    assert record.refinement_count == 0
+
+
+@pytest.mark.anyio
 async def test_manual_scan_produces_one_independent_case_per_candidate() -> None:
     workflow = MultiCandidateWorkflow(candidate_count=3)
     application = create_app(

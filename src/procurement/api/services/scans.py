@@ -32,6 +32,7 @@ from procurement.observability.metrics import AgentMetrics, create_agent_metrics
 from procurement.ports.mcp import ReplenishmentCandidate
 from procurement.ports.repositories import (
     ApplicationRepository,
+    CandidateSnapshot,
     CaseRecord,
     CaseSummary,
     FailureRecord,
@@ -427,6 +428,13 @@ class ScanService:
             trigger=trigger,
             created_at=created_at,
             updated_at=created_at,
+            candidate_snapshot=CandidateSnapshot(
+                category_id=candidate.category_id,
+                reorder_minimum=candidate.reorder_minimum,
+                reorder_maximum=candidate.reorder_maximum,
+                projected_quantity=candidate.projected_quantity,
+                projected_trigger_date=candidate.projected_trigger_date,
+            ),
         )
         created = await self._repository.create_case(
             record,
