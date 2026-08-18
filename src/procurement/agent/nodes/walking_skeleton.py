@@ -15,7 +15,11 @@ from procurement.agent.state import (
 )
 from procurement.domain.errors import ErrorCode
 from procurement.domain.identifiers import Environment
-from procurement.domain.policy.evidence import ProcurementEvidence
+from procurement.domain.policy.evidence import (
+    EvidenceStatus,
+    OfferEvidence,
+    ProcurementEvidence,
+)
 from procurement.domain.policy.preferences import apply_preferences
 from procurement.observability.logging import log_event
 from procurement.observability.metrics import AgentMetrics
@@ -32,6 +36,34 @@ from procurement.ports.mcp import (
     ProcurementMcpPort,
     ReplenishmentCandidate,
 )
+
+_REJECTION_LABEL: dict[str, str] = {
+    "VENDOR_NOT_APPROVED": "vendor not approved",
+    "VENDOR_BLOCKED": "vendor blocked",
+    "OFFER_NOT_YET_VALID": "not yet valid",
+    "OFFER_EXPIRED": "offer expired",
+    "DELIVERY_AFTER_NEED_BY": "delivery after need-by date",
+}
+
+
+def _no_valid_offer_rationale(offers: tuple[OfferEvidence, ...]) -> str:
+    """Summarize why zero offers are eligible, from already-gathered evidence."""
+
+    if not offers:
+        return "No vendor offers exist for this product."
+    counts: dict[str, int] = {}
+    for offer in offers:
+        if offer.status is not EvidenceStatus.REJECTED:
+            continue
+        for code in offer.reason_codes:
+            counts[code] = counts.get(code, 0) + 1
+    clauses = [
+        f"{counts[code]} {'offer' if counts[code] == 1 else 'offers'} "
+        f"rejected ({label})"
+        for code, label in _REJECTION_LABEL.items()
+        if counts.get(code)
+    ]
+    return "No eligible offer: " + ", ".join(clauses) + "."
 
 
 @dataclass(frozen=True, slots=True)
@@ -189,9 +221,7 @@ class WalkingSkeletonNodes:
                 "result": NoValidOfferResult(
                     product_id=candidate.product_id,
                     product_name=candidate.product_name,
-                    rationale=(
-                        "No approved vendor offer is eligible for this product."
-                    ),
+                    rationale=_no_valid_offer_rationale(item.offers),
                 ),
             }
         if item.skip_reason_code == "BUDGET_UNAVAILABLE":

@@ -16,7 +16,10 @@ from tests.support.fakes.llm import FakeStructuredLlm
 from tests.support.recommendations import t27_recommendation
 
 from procurement.agent.graph import build_walking_skeleton_graph
-from procurement.agent.nodes.walking_skeleton import WalkingSkeletonNodes
+from procurement.agent.nodes.walking_skeleton import (
+    WalkingSkeletonNodes,
+    _no_valid_offer_rationale,
+)
 from procurement.agent.state import (
     ApprovalReadyResult,
     NoValidOfferResult,
@@ -25,7 +28,11 @@ from procurement.agent.state import (
 from procurement.bootstrap.mcp import _fictional_evidence
 from procurement.domain.errors import ErrorCode
 from procurement.domain.identifiers import Environment
-from procurement.domain.policy.evidence import ProcurementEvidence
+from procurement.domain.policy.evidence import (
+    EvidenceStatus,
+    OfferEvidence,
+    ProcurementEvidence,
+)
 from procurement.domain.policy.preferences import (
     PreferenceCriterion,
     PreferenceScope,
@@ -45,6 +52,18 @@ from procurement.ports.mcp import (
 
 def _evidence(environment: Environment = Environment.DEV) -> ProcurementEvidence:
     return _fictional_evidence(ProcurementEvidenceQuery(environment, "product-101", 14))
+
+
+def _offer(
+    *, offer_id: str = "offer-1", reason_codes: tuple[str, ...] = ()
+) -> OfferEvidence:
+    base = _evidence().offers[0]
+    return replace(
+        base,
+        offer_id=offer_id,
+        status=(EvidenceStatus.REJECTED if reason_codes else EvidenceStatus.ELIGIBLE),
+        reason_codes=reason_codes,
+    )
 
 
 def _candidate() -> ReplenishmentCandidate:
@@ -398,3 +417,60 @@ async def test_graph_treats_budget_unavailable_as_a_retryable_failure() -> None:
     assert result.error_code is ErrorCode.ODOO_UNAVAILABLE
     assert result.retryable is True
     assert llm.requests == []
+
+
+def test_no_valid_offer_rationale_for_zero_offers() -> None:
+    assert _no_valid_offer_rationale(()) == "No vendor offers exist for this product."
+
+
+def test_no_valid_offer_rationale_for_single_reason() -> None:
+    offers = (
+        _offer(offer_id="offer-1", reason_codes=("VENDOR_NOT_APPROVED",)),
+        _offer(offer_id="offer-2", reason_codes=("VENDOR_NOT_APPROVED",)),
+    )
+    assert _no_valid_offer_rationale(offers) == (
+        "No eligible offer: 2 offers rejected (vendor not approved)."
+    )
+
+
+def test_no_valid_offer_rationale_singular_offer_count() -> None:
+    offers = (_offer(offer_id="offer-1", reason_codes=("VENDOR_NOT_APPROVED",)),)
+    assert _no_valid_offer_rationale(offers) == (
+        "No eligible offer: 1 offer rejected (vendor not approved)."
+    )
+
+
+def test_no_valid_offer_rationale_for_multiple_reasons_in_priority_order() -> None:
+    offers = (
+        _offer(offer_id="offer-1", reason_codes=("DELIVERY_AFTER_NEED_BY",)),
+        _offer(offer_id="offer-2", reason_codes=("VENDOR_NOT_APPROVED",)),
+        _offer(offer_id="offer-3", reason_codes=("VENDOR_BLOCKED",)),
+    )
+    assert _no_valid_offer_rationale(offers) == (
+        "No eligible offer: 1 offer rejected (vendor not approved), "
+        "1 offer rejected (vendor blocked), "
+        "1 offer rejected (delivery after need-by date)."
+    )
+
+
+def test_no_valid_offer_rationale_offer_with_multiple_reasons_counts_in_both() -> None:
+    offers = (
+        _offer(
+            offer_id="offer-1",
+            reason_codes=("VENDOR_NOT_APPROVED", "VENDOR_BLOCKED"),
+        ),
+    )
+    assert _no_valid_offer_rationale(offers) == (
+        "No eligible offer: 1 offer rejected (vendor not approved), "
+        "1 offer rejected (vendor blocked)."
+    )
+
+
+def test_no_valid_offer_rationale_ignores_eligible_offers() -> None:
+    offers = (
+        _offer(offer_id="offer-1", reason_codes=()),
+        _offer(offer_id="offer-2", reason_codes=("VENDOR_NOT_APPROVED",)),
+    )
+    assert _no_valid_offer_rationale(offers) == (
+        "No eligible offer: 1 offer rejected (vendor not approved)."
+    )
