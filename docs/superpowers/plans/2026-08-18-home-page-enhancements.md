@@ -63,7 +63,7 @@ derived read model, not a stored item. React/TypeScript/Vitest.
   `completed_at: UtcTimestamp | None`. `CaseSummaryResponse` gains matching
   `scan_id: str`, `budget_status: str`, `completed_at: datetime | None`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 In `tests/unit/api/test_scans.py`, extend the existing assertions inside
 `test_manual_scan_returns_202_and_can_be_polled_to_completion` (currently
@@ -76,7 +76,7 @@ ending at line 233). Add these lines directly after the existing
     assert results[0]["completed_at"] is not None
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 ```bash
 cd /home/weam/StockAI && uv run pytest tests/unit/api/test_scans.py::test_manual_scan_returns_202_and_can_be_polled_to_completion -v
@@ -85,7 +85,7 @@ cd /home/weam/StockAI && uv run pytest tests/unit/api/test_scans.py::test_manual
 Expected: FAIL with `KeyError: 'scan_id'` (or similar — the response body
 does not yet have these keys on each result row).
 
-- [ ] **Step 3: Add the fields to `CaseSummary`**
+- [x] **Step 3: Add the fields to `CaseSummary`**
 
 In `src/procurement/ports/repositories.py`, replace the `CaseSummary` class
 (currently lines 103-113):
@@ -106,7 +106,7 @@ class CaseSummary:
     completed_at: UtcTimestamp | None
 ```
 
-- [ ] **Step 4: Update `ScanService._summarize` to populate the new fields**
+- [x] **Step 4: Update `ScanService._summarize` to populate the new fields**
 
 Read `src/procurement/api/services/scans.py:569-594` first to confirm the
 exact current body, then update the `CaseSummary(...)` construction at the
@@ -130,7 +130,7 @@ end of `_summarize` to add the three new fields:
         )
 ```
 
-- [ ] **Step 5: Add the fields to `CaseSummaryResponse` and its mapping**
+- [x] **Step 5: Add the fields to `CaseSummaryResponse` and its mapping**
 
 In `src/procurement/api/routes/scans.py`, update `CaseSummaryResponse`
 (currently lines 160-170):
@@ -192,7 +192,7 @@ from procurement.ports.repositories import CaseSummary
 
 (`CaseSummary` is needed to type `case_summary_response`'s parameter.)
 
-- [ ] **Step 6: Run test to verify it passes**
+- [x] **Step 6: Run test to verify it passes**
 
 ```bash
 cd /home/weam/StockAI && uv run pytest tests/unit/api/test_scans.py -v
@@ -204,7 +204,7 @@ row, only specific keys, so adding fields should not break anything else;
 confirm this by reading any test that does assert full-row equality before
 concluding, and update it if one exists).
 
-- [ ] **Step 7: Run focused quality checks**
+- [x] **Step 7: Run focused quality checks**
 
 ```bash
 cd /home/weam/StockAI && uv run ruff check src/procurement/ports/repositories.py src/procurement/api/services/scans.py src/procurement/api/routes/scans.py tests/unit/api/test_scans.py
@@ -213,7 +213,7 @@ uv run mypy src/procurement/ports/repositories.py src/procurement/api/services/s
 
 Expected: both pass.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/procurement/ports/repositories.py src/procurement/api/services/scans.py \
@@ -239,7 +239,7 @@ git commit -m "feat(persistence): add scan_id/budget_status/completed_at to Case
   `GET /api/v1/cases?limit=5` → `RecentCasesResponse { cases:
   tuple[CaseSummaryResponse, ...] }`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `tests/unit/api/test_cases.py`, following the exact
 `create_app`/`ASGITransport`/`sign_in`/`MultiCandidateWorkflow` pattern
@@ -341,7 +341,7 @@ async def test_recent_cases_defaults_to_no_history() -> None:
     assert recent.json()["cases"] == []
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```bash
 cd /home/weam/StockAI && uv run pytest tests/unit/api/test_cases.py -v
@@ -352,7 +352,7 @@ Expected: FAIL — `GET /api/v1/cases` returns 404 (route doesn't exist) or
 import correctly (those already exist in `test_scans.py`) but the route
 itself is missing.
 
-- [ ] **Step 3: Add `_summarize_record` and `list_recent_cases` to `ScanService`**
+- [x] **Step 3: Add `_summarize_record` and `list_recent_cases` to `ScanService`**
 
 `CaseRecord` is already imported (`from procurement.ports.repositories
 import (ApplicationRepository, CaseRecord, CaseSummary, ...)`, currently
@@ -406,7 +406,7 @@ Add these two methods to the `ScanService` class, placed directly after
         )
 ```
 
-- [ ] **Step 4: Add the route**
+- [x] **Step 4: Add the route**
 
 Read `src/procurement/api/routes/cases.py` in full first (it is short —
 27 lines). Replace its entire contents:
@@ -479,7 +479,7 @@ The bare `GET /api/v1/cases` route is declared before `/{case_id}` in this
 file for readability, but path shape (no segment vs. one segment) means
 there is no ordering-dependent collision risk either way.
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 ```bash
 cd /home/weam/StockAI && uv run pytest tests/unit/api/test_cases.py tests/unit/api/test_scans.py -v
@@ -487,7 +487,7 @@ cd /home/weam/StockAI && uv run pytest tests/unit/api/test_cases.py tests/unit/a
 
 Expected: PASS.
 
-- [ ] **Step 6: Extend the real-MCP-transport integration test**
+- [x] **Step 6: Extend the real-MCP-transport integration test**
 
 Read `tests/integration/test_walking_skeleton.py` in full first (currently
 113 lines). In `test_local_processes_run_langgraph_over_real_mcp_transport`
@@ -510,7 +510,7 @@ line (currently line 58):
     assert matching["budget_status"] == "within_budget"
 ```
 
-- [ ] **Step 7: Run the integration test to verify it passes**
+- [x] **Step 7: Run the integration test to verify it passes**
 
 ```bash
 cd /home/weam/StockAI && uv run pytest tests/integration/test_walking_skeleton.py -v
@@ -520,7 +520,7 @@ Expected: PASS — both tests in this file (the extended happy-path test and
 the pre-existing multi-candidate isolation test, unaffected by this
 change).
 
-- [ ] **Step 8: Run focused quality checks**
+- [x] **Step 8: Run focused quality checks**
 
 ```bash
 cd /home/weam/StockAI && uv run ruff check src/procurement/api/services/scans.py src/procurement/api/routes/cases.py tests/unit/api/test_cases.py tests/integration/test_walking_skeleton.py
@@ -536,7 +536,7 @@ for the exact formatting `ruff format` prefers, then run `uv run ruff
 format src/procurement/api/routes/cases.py` to let it resolve the wrapping
 automatically rather than hand-formatting).
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add src/procurement/api/services/scans.py src/procurement/api/routes/cases.py \
@@ -550,7 +550,7 @@ git commit -m "feat(api): add cross-scan recent-cases listing endpoint"
 
 **Files:** none (verification-only task, no code changes)
 
-- [ ] **Step 1: Run the complete backend quality gate**
+- [x] **Step 1: Run the complete backend quality gate**
 
 ```bash
 cd /home/weam/StockAI && uv run ruff format --check src tests scripts odoo
@@ -563,7 +563,7 @@ Expected: all PASS. (Skip the Makefile's `actionlint` step if it is not
 installed in this environment — that is a pre-existing environment gap
 unrelated to this sub-project's changes, not a regression to fix here.)
 
-- [ ] **Step 2: Run integration tests**
+- [x] **Step 2: Run integration tests**
 
 ```bash
 cd /home/weam/StockAI && uv run pytest tests/integration -q
@@ -574,13 +574,13 @@ Expected: PASS — no integration test currently exercises `GET
 shared files (`services/scans.py`, `routes/scans.py`) didn't regress the
 existing real-MCP-transport/DynamoDB-backed scan flows.
 
-- [ ] **Step 3: Fix any failures found**
+- [x] **Step 3: Fix any failures found**
 
 If either step surfaces a failure, fix it with its own failing-test-first
 cycle matching the failing file's existing test conventions, then re-run
 Steps 1-2 until both pass.
 
-- [ ] **Step 4: Commit any fixes from Step 3**
+- [x] **Step 4: Commit any fixes from Step 3**
 
 ```bash
 git add -A
@@ -605,7 +605,7 @@ git commit -m "fix: reconcile backend regressions found by full verification"
 - New: `listRecentCases(options?: { limit?: number } & RequestOptions):
   Promise<CaseSummary[]>`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 In `frontend/tests/api-client.test.ts`, add a new fixture near the top,
 next to the existing `CASE_DETAIL_PAYLOAD` (currently lines 36-47):
@@ -656,7 +656,7 @@ test at line 100):
 Add `listRecentCases` to the existing `import { ... } from "../src/api/client"`
 block at the top of the file.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 ```bash
 cd /home/weam/StockAI/frontend && npx vitest run tests/api-client.test.ts -t "recent cases"
@@ -665,7 +665,7 @@ cd /home/weam/StockAI/frontend && npx vitest run tests/api-client.test.ts -t "re
 Expected: FAIL — `listRecentCases` does not exist yet, so the import
 itself fails to compile.
 
-- [ ] **Step 3: Extend `CaseSummary` and its parser**
+- [x] **Step 3: Extend `CaseSummary` and its parser**
 
 In `frontend/src/api/client.ts`, update the `CaseSummary` interface
 (currently lines 196-203):
@@ -717,7 +717,7 @@ function parseCaseSummary(value: unknown): CaseSummary {
 }
 ```
 
-- [ ] **Step 4: Add `listRecentCases`**
+- [x] **Step 4: Add `listRecentCases`**
 
 Add `const CASES_PATH = "/api/v1/cases";` at the top of the file, next to
 the existing `const SCANS_PATH = "/api/v1/scans";` and `const SESSION_PATH
@@ -747,7 +747,7 @@ export async function listRecentCases(
 }
 ```
 
-- [ ] **Step 5: Run test to verify it passes**
+- [x] **Step 5: Run test to verify it passes**
 
 ```bash
 cd /home/weam/StockAI/frontend && npx vitest run tests/api-client.test.ts
@@ -755,7 +755,7 @@ cd /home/weam/StockAI/frontend && npx vitest run tests/api-client.test.ts
 
 Expected: PASS.
 
-- [ ] **Step 6: Update existing fixtures that now fail strict validation**
+- [x] **Step 6: Update existing fixtures that now fail strict validation**
 
 `CaseSummary` is no longer satisfied by a case-summary object missing
 `scan_id`/`budget_status`/`completed_at`. Two other test files construct
@@ -800,7 +800,7 @@ three fields to each (`scan_id` matching that fixture's own `scan_id`,
 `"not_evaluated"` for the manual-review one, `completed_at` matching that
 fixture's own `completed_at`).
 
-- [ ] **Step 7: Run full frontend test suite**
+- [x] **Step 7: Run full frontend test suite**
 
 ```bash
 cd /home/weam/StockAI/frontend && npm test -- --run
@@ -809,7 +809,7 @@ cd /home/weam/StockAI/frontend && npm test -- --run
 Expected: PASS — every test file, including the two fixture updates from
 Step 6.
 
-- [ ] **Step 8: Run typecheck, lint, and build**
+- [x] **Step 8: Run typecheck, lint, and build**
 
 ```bash
 cd /home/weam/StockAI/frontend && npm run typecheck && npm run lint && npm run build
@@ -817,7 +817,7 @@ cd /home/weam/StockAI/frontend && npm run typecheck && npm run lint && npm run b
 
 Expected: all PASS.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add frontend/src/api/client.ts frontend/tests/api-client.test.ts \
@@ -840,7 +840,7 @@ git commit -m "feat(frontend): add listRecentCases and extend CaseSummary parsin
 This is a pure refactor with no behavior change — verified by the existing
 `scan-detail.test.tsx` suite continuing to pass unmodified, not a new test.
 
-- [ ] **Step 1: Move the constants**
+- [x] **Step 1: Move the constants**
 
 In `frontend/src/presentation.ts`, add at the end of the file (after
 `formatRatioPercent`, currently ending at line 83):
@@ -880,7 +880,7 @@ import {
 (Replacing the existing `import { formatCurrency, formatDate,
 formatDateTime } from "../presentation";` line at the top of the file.)
 
-- [ ] **Step 2: Run the existing test suite to confirm no behavior changed**
+- [x] **Step 2: Run the existing test suite to confirm no behavior changed**
 
 ```bash
 cd /home/weam/StockAI/frontend && npx vitest run tests/scan-detail.test.tsx
@@ -889,7 +889,7 @@ cd /home/weam/StockAI/frontend && npx vitest run tests/scan-detail.test.tsx
 Expected: PASS — same 4 tests as before, unmodified, confirming the move
 didn't change runtime behavior.
 
-- [ ] **Step 3: Run typecheck and lint**
+- [x] **Step 3: Run typecheck and lint**
 
 ```bash
 cd /home/weam/StockAI/frontend && npm run typecheck && npm run lint
@@ -897,7 +897,7 @@ cd /home/weam/StockAI/frontend && npm run typecheck && npm run lint
 
 Expected: both PASS.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add frontend/src/presentation.ts frontend/src/pages/ScanDetailPage.tsx
@@ -919,7 +919,7 @@ git commit -m "refactor(frontend): share OUTCOME_LABEL/OUTCOME_COLOR via present
   caseId: string) => void`. `App.tsx` passes a handler that sets both
   `selectedScanId` and `selectedCaseId` in one update.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `frontend/tests/overview.test.tsx`, add a new fixture near the top,
 next to the existing `SUCCEEDED_SCAN`/`MANUAL_REVIEW_SCAN` fixtures
@@ -1058,7 +1058,7 @@ rewrite to each of the file's other pre-existing `vi.stubGlobal("fetch",
 ...)` calls, keeping each test's original non-cases payload on the `:`
 branch unchanged.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```bash
 cd /home/weam/StockAI/frontend && npx vitest run tests/overview.test.tsx
@@ -1067,7 +1067,7 @@ cd /home/weam/StockAI/frontend && npx vitest run tests/overview.test.tsx
 Expected: FAIL — no "Recent recommendations" region exists yet, and
 `onSelectCase` is not yet a valid prop.
 
-- [ ] **Step 3: Add the panel to `OverviewPage.tsx`**
+- [x] **Step 3: Add the panel to `OverviewPage.tsx`**
 
 In `frontend/src/pages/OverviewPage.tsx`, update the imports (currently
 lines 1-11):
@@ -1224,7 +1224,7 @@ uses `formatDate` instead (need-by dates are calendar dates, not
 timestamps, matching `ScanDetailPage.tsx`'s existing convention for the
 same field).
 
-- [ ] **Step 4: Update `App.tsx`**
+- [x] **Step 4: Update `App.tsx`**
 
 In `frontend/src/App.tsx`, update the `OverviewPage` usage (currently
 lines 84-90):
@@ -1244,7 +1244,7 @@ lines 84-90):
             />
 ```
 
-- [ ] **Step 5: Add CSS for the 3-column grid**
+- [x] **Step 5: Add CSS for the 3-column grid**
 
 In `frontend/src/styles.css`, update `.home-dashboard-grid` (currently
 lines 526-531):
@@ -1301,7 +1301,7 @@ This is a CSS-only addition — it changes no JSX/logic in `ScanDetailPage.tsx`
 fixing the same pre-existing gap there as a side effect, since both pages
 reference these class names already.
 
-- [ ] **Step 6: Run tests to verify they pass**
+- [x] **Step 6: Run tests to verify they pass**
 
 ```bash
 cd /home/weam/StockAI/frontend && npx vitest run tests/overview.test.tsx
@@ -1310,7 +1310,7 @@ cd /home/weam/StockAI/frontend && npx vitest run tests/overview.test.tsx
 Expected: PASS — new tests plus every pre-existing test, with their fetch
 mocks updated per Step 1's note.
 
-- [ ] **Step 7: Run full frontend verification**
+- [x] **Step 7: Run full frontend verification**
 
 ```bash
 cd /home/weam/StockAI/frontend && npm run typecheck && npm run lint && npm test -- --run && npm run build
@@ -1318,7 +1318,7 @@ cd /home/weam/StockAI/frontend && npm run typecheck && npm run lint && npm test 
 
 Expected: all PASS.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add frontend/src/pages/OverviewPage.tsx frontend/src/App.tsx frontend/src/styles.css \
@@ -1340,7 +1340,7 @@ git commit -m "feat(frontend): add Recent recommendations panel to the home page
   The attention panel's third card renders "Over-budget exceptions"
   instead of "In progress".
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 In `frontend/tests/overview.test.tsx`, extend the existing
 `"summarizes loaded scan outcomes without inventing data"` test (find its
@@ -1380,7 +1380,7 @@ and add these assertions after the test's existing ones:
     expect(attention).not.toHaveTextContent("In progress");
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 ```bash
 cd /home/weam/StockAI/frontend && npx vitest run tests/overview.test.tsx -t "summarizes loaded scan outcomes"
@@ -1389,7 +1389,7 @@ cd /home/weam/StockAI/frontend && npx vitest run tests/overview.test.tsx -t "sum
 Expected: FAIL — the attention panel still shows "In progress", not
 "Over-budget exceptions", and the over-budget count isn't computed at all.
 
-- [ ] **Step 3: Add `overBudgetCount` and update the attention panel**
+- [x] **Step 3: Add `overBudgetCount` and update the attention panel**
 
 In `frontend/src/pages/OverviewPage.tsx`, add a new helper next to
 `scanCounts` (currently ending at line 73):
@@ -1428,7 +1428,7 @@ Replace the attention panel's third card (currently lines 275-280):
                 </article>
 ```
 
-- [ ] **Step 4: Add the CSS variant**
+- [x] **Step 4: Add the CSS variant**
 
 In `frontend/src/styles.css`, add next to the existing
 `.attention-card--progress` rule (currently lines 599-601), which is no
@@ -1441,7 +1441,7 @@ generic reusable class name, not specific to this one card:
 }
 ```
 
-- [ ] **Step 5: Run test to verify it passes**
+- [x] **Step 5: Run test to verify it passes**
 
 ```bash
 cd /home/weam/StockAI/frontend && npx vitest run tests/overview.test.tsx
@@ -1449,7 +1449,7 @@ cd /home/weam/StockAI/frontend && npx vitest run tests/overview.test.tsx
 
 Expected: PASS.
 
-- [ ] **Step 6: Run full frontend verification**
+- [x] **Step 6: Run full frontend verification**
 
 ```bash
 cd /home/weam/StockAI/frontend && npm run typecheck && npm run lint && npm test -- --run && npm run build
@@ -1457,7 +1457,7 @@ cd /home/weam/StockAI/frontend && npm run typecheck && npm run lint && npm test 
 
 Expected: all PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add frontend/src/pages/OverviewPage.tsx frontend/src/styles.css frontend/tests/overview.test.tsx
@@ -1471,13 +1471,13 @@ git commit -m "feat(frontend): swap in-progress attention card for over-budget e
 **Files:** none (verification-only task, no code changes expected; fixes
 if verification surfaces them)
 
-- [ ] **Step 1: Re-read the spec section by section**
+- [x] **Step 1: Re-read the spec section by section**
 
 Re-read `docs/superpowers/specs/2026-08-18-home-page-enhancements-design.md`
 end to end and confirm each Goal and each item in the "Design" section maps
 to a completed task above. List any gap found.
 
-- [ ] **Step 2: Full backend verification**
+- [x] **Step 2: Full backend verification**
 
 ```bash
 cd /home/weam/StockAI && uv run ruff format --check src tests scripts odoo
@@ -1489,7 +1489,7 @@ uv run pytest -q tests/integration
 
 Expected: all PASS.
 
-- [ ] **Step 3: Full frontend verification**
+- [x] **Step 3: Full frontend verification**
 
 ```bash
 cd /home/weam/StockAI/frontend && npm run typecheck && npm run lint && npm test -- --run && npm run build
@@ -1497,7 +1497,7 @@ cd /home/weam/StockAI/frontend && npm run typecheck && npm run lint && npm test 
 
 Expected: all PASS.
 
-- [ ] **Step 4: Manual browser verification**
+- [x] **Step 4: Manual browser verification**
 
 ```bash
 cd /home/weam/StockAI && make compose-up
@@ -1520,13 +1520,13 @@ Then:
 cd /home/weam/StockAI && make compose-down
 ```
 
-- [ ] **Step 5: Fix any issues found**
+- [x] **Step 5: Fix any issues found**
 
 If manual verification surfaces a real bug (matching the precedent set
 during T27C's own final review, which caught a missing-polling bug this
 way), fix it with its own failing-test-first cycle, then re-run Steps 2-4.
 
-- [ ] **Step 6: Commit any fixes from Step 5**
+- [x] **Step 6: Commit any fixes from Step 5**
 
 ```bash
 git add -A
