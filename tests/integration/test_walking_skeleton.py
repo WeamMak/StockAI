@@ -117,3 +117,37 @@ def test_local_scan_evaluates_multiple_candidates_as_isolated_cases(
     assert cases["product-101"]["result"]["outcome"] == "approval_ready"
     assert cases["product-102"]["result"]["outcome"] == "no_valid_offer"
     assert cases["product-102"]["result"]["product_id"] == "product-102"
+
+
+def test_local_case_can_be_refined_once_with_an_officer_note(
+    tmp_path: Path,
+) -> None:
+    with run_local_skeleton(tmp_path) as skeleton:
+        with httpx.Client(base_url=skeleton.api_url, timeout=5) as client:
+            auth_headers = sign_in_sync(client)
+            accepted = client.post("/api/v1/scans", headers=auth_headers)
+            detail = _poll_scan(
+                client,
+                accepted.headers["location"],
+                headers=auth_headers,
+            )
+            scan_id = detail.json()["scan_id"]
+            case_id = detail.json()["results"][0]["case_id"]
+
+            refined = client.post(
+                f"/api/v1/scans/{scan_id}/cases/{case_id}/refine",
+                headers=auth_headers,
+                json={"note": "Prioritize delivery speed this time."},
+            )
+            refined_detail = _poll_scan(
+                client,
+                f"/api/v1/scans/{scan_id}/cases/{case_id}",
+                headers=auth_headers,
+            )
+
+    assert refined.status_code == 202
+    assert refined.json()["status"] == "running"
+    assert refined_detail.status_code == 200
+    assert refined_detail.json()["status"] == "succeeded"
+    assert refined_detail.json()["refinement_count"] == 1
+    assert refined_detail.json()["result"]["outcome"] == "approval_ready"
