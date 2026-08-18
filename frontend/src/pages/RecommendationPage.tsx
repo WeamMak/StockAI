@@ -10,6 +10,7 @@ import {
 } from "../api/client";
 import { ProcurementEvidence } from "../components/ProcurementEvidence";
 import { RecommendationHeader } from "../components/RecommendationHeader";
+import { RefinementPanel } from "../components/RefinementPanel";
 import { Icon } from "../components/Icon";
 import { formatDateTime } from "../presentation";
 
@@ -215,6 +216,13 @@ export function RecommendationPage({
 }: RecommendationPageProps) {
   const [scan, setScan] = useState<CaseDetail | null>(null);
   const [requestError, setRequestError] = useState<UiError | null>(null);
+  const [refinementNonce, setRefinementNonce] = useState(0);
+
+  function handleRefined(nextScan: CaseDetail) {
+    setScan(nextScan);
+    setRequestError(null);
+    setRefinementNonce((value) => value + 1);
+  }
 
   useEffect(() => {
     let active = true;
@@ -260,7 +268,7 @@ export function RecommendationPage({
       }
       controller?.abort();
     };
-  }, [caseId, maxPollAttempts, pollIntervalMs, scanId]);
+  }, [caseId, maxPollAttempts, pollIntervalMs, scanId, refinementNonce]);
 
   return (
     <section aria-labelledby="scan-title" className="page-stack">
@@ -316,6 +324,14 @@ export function RecommendationPage({
                   ? scan.result.offer_id
                   : null
               }
+            />
+          ) : null}
+          {scan.result.outcome === "approval_ready" ? (
+            <RefinementPanel
+              scanId={scanId}
+              caseId={caseId}
+              refinementCount={scan.refinement_count}
+              onRefined={handleRefined}
             />
           ) : null}
         </>

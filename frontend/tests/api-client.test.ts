@@ -225,7 +225,8 @@ describe("scan API client", () => {
   });
 
   it("rejects a refine response missing refinement_count", async () => {
-    const { refinement_count: _omit, ...malformed } = CASE_DETAIL_PAYLOAD;
+    const malformed: Record<string, unknown> = { ...CASE_DETAIL_PAYLOAD };
+    delete malformed.refinement_count;
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(jsonResponse(malformed, 202)),
