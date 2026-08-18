@@ -183,8 +183,13 @@ export function ScanDetailPage({
                     <span>
                       {row.amount ? formatCurrency(row.amount, "USD") : "—"}
                     </span>
-                    <button type="button" onClick={() => onSelectCase(row.case_id)}>
+                    <button
+                      className="view-recommendation-button"
+                      type="button"
+                      onClick={() => onSelectCase(row.case_id)}
+                    >
                       View recommendation
+                      <span aria-hidden="true">›</span>
                     </button>
                   </li>
                 ))}
