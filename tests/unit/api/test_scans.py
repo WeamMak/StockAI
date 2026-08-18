@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import cast
 
@@ -10,17 +11,18 @@ import anyio
 import pytest
 from httpx2 import ASGITransport, AsyncClient
 from tests.support.local_identity import LocalIdentityProvider, sign_in
-from tests.support.recommendations import t27_approval_result
+from tests.support.recommendations import t27_approval_result, t27_request
 
 from procurement.agent.state import ScanState
 from procurement.api.app import create_app
 from procurement.api.auth.session import UserRole
 from procurement.api.config import ApiSettings
-from procurement.api.routes.scans import scan_response
+from procurement.api.routes.scans import case_response
 from procurement.api.services.scans import ScanService, ScanTrigger
 from procurement.domain.errors import DomainError, ErrorCode
 from procurement.domain.identifiers import CaseId, Environment, Revision
 from procurement.domain.models import UtcTimestamp
+from procurement.ports.mcp import ReplenishmentCandidate
 from procurement.ports.repositories import (
     CaseRecord,
     InMemoryApplicationRepository,
@@ -29,11 +31,21 @@ from procurement.ports.repositories import (
 )
 
 
+def _one_candidate() -> tuple[ReplenishmentCandidate, ...]:
+    return t27_request().candidates
+
+
 class SuccessfulWorkflow:
-    """Complete one fictional read-only scan without external dependencies."""
+    """Complete one fictional read-only scan producing one approval-ready case."""
 
     def __init__(self) -> None:
         self.configs: list[Mapping[str, object]] = []
+
+    async def discover_candidates(
+        self, *, environment: Environment, scan_id: str
+    ) -> tuple[ReplenishmentCandidate, ...]:
+        del environment, scan_id
+        return _one_candidate()
 
     async def ainvoke(
         self,
@@ -45,6 +57,50 @@ class SuccessfulWorkflow:
         return {
             **state,
             "result": t27_approval_result(),
+        }
+
+
+class MultiCandidateWorkflow:
+    """Complete one scan producing several independent per-product cases."""
+
+    def __init__(self, *, candidate_count: int) -> None:
+        self.candidate_count = candidate_count
+        self.configs: list[Mapping[str, object]] = []
+
+    async def discover_candidates(
+        self, *, environment: Environment, scan_id: str
+    ) -> tuple[ReplenishmentCandidate, ...]:
+        del environment, scan_id
+        base = _one_candidate()[0]
+        return tuple(
+            ReplenishmentCandidate(
+                product_id=f"product-{index}",
+                product_name=f"Fictional Product {index}",
+                category_id=base.category_id,
+                reorder_minimum=base.reorder_minimum,
+                reorder_maximum=base.reorder_maximum,
+                projected_quantity=base.projected_quantity,
+                projected_trigger_date=base.projected_trigger_date,
+                skip_reason_code=None,
+            )
+            for index in range(self.candidate_count)
+        )
+
+    async def ainvoke(
+        self,
+        state: ScanState,
+        *,
+        config: Mapping[str, object],
+    ) -> ScanState:
+        self.configs.append(config)
+        candidate = state["candidates"][0]
+        return {
+            **state,
+            "result": replace(
+                t27_approval_result(),
+                product_id=candidate.product_id,
+                product_name=candidate.product_name,
+            ),
         }
 
 
@@ -65,6 +121,12 @@ class BlockingWorkflow(SuccessfulWorkflow):
 
 
 class NeverFinishesWorkflow:
+    async def discover_candidates(
+        self, *, environment: Environment, scan_id: str
+    ) -> tuple[ReplenishmentCandidate, ...]:
+        del environment, scan_id
+        return _one_candidate()
+
     async def ainvoke(
         self,
         state: ScanState,
@@ -132,6 +194,8 @@ async def test_manual_scan_returns_202_and_can_be_polled_to_completion() -> None
         accepted_body = accepted.json()
         scan_id = accepted_body["scan_id"]
         finished = await _poll_until_finished(client, scan_id)
+        case_id = cast(list[dict[str, object]], finished["results"])[0]["case_id"]
+        case = await client.get(f"/api/v1/scans/{scan_id}/cases/{case_id}")
         listed = await client.get("/api/v1/scans")
         metrics = await client.get("/metrics")
 
@@ -140,7 +204,15 @@ async def test_manual_scan_returns_202_and_can_be_polled_to_completion() -> None
     assert accepted_body["status"] == "queued"
     assert finished["status"] == "succeeded"
     assert finished["trigger"] == "manual"
-    result = cast(dict[str, object], finished["result"])
+    assert finished["error"] is None
+    results = cast(list[dict[str, object]], finished["results"])
+    assert len(results) == 1
+    assert results[0]["outcome"] == "approval_ready"
+    assert results[0]["scan_id"] == scan_id
+    assert results[0]["budget_status"] == "within_budget"
+    assert results[0]["completed_at"] is not None
+    assert finished["outcome_counts"] == {"approval_ready": 1}
+    result = cast(dict[str, object], case.json()["result"])
     assert result["outcome"] == "approval_ready"
     assert result["validation_level"] == "t27"
     assert result["product_id"] == "product-101"
@@ -150,7 +222,7 @@ async def test_manual_scan_returns_202_and_can_be_polled_to_completion() -> None
     assert result["budget_status"] == "within_budget"
     assert result["preference_revision"] == 1
     assert result["read_only"] is True
-    assert finished["error"] is None
+    assert case.json()["error"] is None
     assert listed.status_code == 200
     assert listed.json()["scans"][0]["scan_id"] == scan_id
     assert (
@@ -160,14 +232,44 @@ async def test_manual_scan_returns_202_and_can_be_polled_to_completion() -> None
         'procurement_scan_results_total{error_code="none",outcome="approval_ready"} 1.0'
     ) in metrics.text
     assert workflow.configs == [
-        {"configurable": {"thread_id": scan_id}},
+        {"configurable": {"thread_id": f"{scan_id}:product-101"}},
     ]
+
+
+@pytest.mark.anyio
+async def test_manual_scan_produces_one_independent_case_per_candidate() -> None:
+    workflow = MultiCandidateWorkflow(candidate_count=3)
+    application = create_app(
+        scan_workflow=workflow,
+        identity_provider=LocalIdentityProvider(),
+    )
+    transport = ASGITransport(app=application)
+
+    async with AsyncClient(
+        transport=transport,
+        base_url="https://testserver",
+    ) as client:
+        csrf_headers = await sign_in(client)
+        accepted = await client.post("/api/v1/scans", headers=csrf_headers)
+        scan_id = accepted.json()["scan_id"]
+        finished = await _poll_until_finished(client, scan_id)
+
+    results = cast(list[dict[str, object]], finished["results"])
+    assert len(results) == 3
+    assert {row["product_id"] for row in results} == {
+        "product-0",
+        "product-1",
+        "product-2",
+    }
+    assert len({row["case_id"] for row in results}) == 3
+    assert finished["outcome_counts"] == {"approval_ready": 3}
+    assert len(workflow.configs) == 3
 
 
 def test_historical_success_remains_approval_ready_without_t27_claims() -> None:
     timestamp = UtcTimestamp(datetime(2026, 8, 15, 19, 5, tzinfo=UTC))
     record = CaseRecord(
-        case_id=CaseId(Environment.DEV, "scan-legacy"),
+        case_id=CaseId(Environment.DEV, "scan-legacy:product-legacy"),
         revision=Revision(2),
         status="succeeded",
         trigger="manual",
@@ -182,9 +284,10 @@ def test_historical_success_remains_approval_ready_without_t27_claims() -> None:
         ),
     )
 
-    response = scan_response(ScanService._snapshot(record)).model_dump()
+    response = case_response(ScanService._snapshot(record)).model_dump()
     result = cast(dict[str, object], response["result"])
 
+    assert response["scan_id"] == "scan-legacy"
     assert result["outcome"] == "approval_ready"
     assert result["validation_level"] == "legacy"
     assert result["offer_id"] is None
@@ -375,11 +478,16 @@ async def test_non_human_workflow_has_a_bounded_deadline() -> None:
     ) as client:
         csrf_headers = await sign_in(client)
         accepted = await client.post("/api/v1/scans", headers=csrf_headers)
-        finished = await _poll_until_finished(client, accepted.json()["scan_id"])
+        scan_id = accepted.json()["scan_id"]
+        finished = await _poll_until_finished(client, scan_id)
+        results = cast(list[dict[str, object]], finished["results"])
+        case_id = results[0]["case_id"]
+        case = await client.get(f"/api/v1/scans/{scan_id}/cases/{case_id}")
 
-    assert finished["status"] == "failed"
-    assert finished["result"] is None
-    assert finished["error"] == {
+    assert finished["status"] == "succeeded"
+    assert len(results) == 1
+    assert results[0]["outcome"] == "error"
+    assert case.json()["error"] == {
         "error_code": ErrorCode.MCP_TIMEOUT.value,
         "message": "The procurement scan exceeded its workflow deadline.",
         "retryable": True,

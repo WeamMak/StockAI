@@ -69,7 +69,7 @@ def test_local_timeout_is_bounded_observable_and_safe(tmp_path: Path) -> None:
     assert accepted.status_code == 202
     assert detail.status_code == 200
     assert detail.json()["status"] == "failed"
-    assert detail.json()["result"] is None
+    assert detail.json()["results"] == []
     assert detail.json()["error"] == {
         "error_code": "MCP_TIMEOUT",
         "message": "The procurement source timed out.",

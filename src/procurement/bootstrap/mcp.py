@@ -49,7 +49,7 @@ from procurement.ports.erp import (
     ReplenishmentCandidatesQuery,
 )
 
-_SUPPORTED_MODES = frozenset({"success", "timeout", "odoo"})
+_SUPPORTED_MODES = frozenset({"success", "timeout", "multi", "odoo"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,7 +72,7 @@ class LocalMcpSettings:
     def __post_init__(self) -> None:
         if self.erp_mode not in _SUPPORTED_MODES:
             raise ValueError(
-                "PROCUREMENT_LOCAL_ERP_MODE must be success, timeout, or odoo"
+                "PROCUREMENT_LOCAL_ERP_MODE must be success, timeout, multi, or odoo"
             )
         if self.erp_url is not None:
             parsed_url = httpx.URL(self.erp_url)
@@ -180,11 +180,24 @@ class LocalFictionalErp(ErpPort):
         del query
         if self.mode == "timeout":
             await asyncio.sleep(3_600)
-        return CandidatePage(
-            items=(
+        items: tuple[ReplenishmentCandidateRecord, ...] = (
+            ReplenishmentCandidateRecord(
+                product_id="product-101",
+                product_name="Fictional Safety Gloves",
+                category_id="category-safety",
+                reorder_minimum=Decimal("10.000000"),
+                reorder_maximum=Decimal("40.000000"),
+                projected_quantity=Decimal("8.000000"),
+                projected_trigger_date=date(2026, 8, 8),
+                skip_reason_code=None,
+            ),
+        )
+        if self.mode == "multi":
+            items = (
+                *items,
                 ReplenishmentCandidateRecord(
-                    product_id="product-101",
-                    product_name="Fictional Safety Gloves",
+                    product_id="product-102",
+                    product_name="Fictional Cable Ties",
                     category_id="category-safety",
                     reorder_minimum=Decimal("10.000000"),
                     reorder_maximum=Decimal("40.000000"),
@@ -192,9 +205,8 @@ class LocalFictionalErp(ErpPort):
                     projected_trigger_date=date(2026, 8, 8),
                     skip_reason_code=None,
                 ),
-            ),
-            next_cursor=None,
-        )
+            )
+        return CandidatePage(items=items, next_cursor=None)
 
     async def get_procurement_evidence(
         self, query: ProcurementEvidenceQuery
@@ -383,12 +395,13 @@ def _fictional_evidence(query: ProcurementEvidenceQuery) -> ProcurementEvidence:
         ),
         as_of=as_of,
     )
+    has_eligible_offer = query.product_id != "product-102"
     offer = evaluate_offer(
         offer=VendorOffer(
             offer_id="offer-101",
             vendor_id="vendor-101",
             vendor_name="Fictional Approved Supplies",
-            approved=True,
+            approved=has_eligible_offer,
             blocked=False,
             valid_from=None,
             valid_until=None,
@@ -423,7 +436,11 @@ def _fictional_evidence(query: ProcurementEvidenceQuery) -> ProcurementEvidence:
         environment=query.environment,
         evidence_id=f"{query.environment.value}:evidence-{query.product_id}",
         product_id=query.product_id,
-        product_name="Fictional Safety Gloves",
+        product_name=(
+            "Fictional Cable Ties"
+            if query.product_id == "product-102"
+            else "Fictional Safety Gloves"
+        ),
         category_id="category-safety",
         captured_at=datetime.now(tz=UTC),
         shortage=shortage,

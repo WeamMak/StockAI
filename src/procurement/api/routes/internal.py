@@ -7,8 +7,8 @@ import secrets
 from fastapi import APIRouter, Request, Response, status
 
 from procurement.api.routes.scans import (
-    ScanResponse,
-    scan_response,
+    ScanAggregateResponse,
+    scan_aggregate_response,
     scan_service_from,
 )
 from procurement.api.services.scans import ScanTrigger
@@ -43,10 +43,12 @@ def _authorize_cron(request: Request) -> None:
 
 
 @router.post("/scans", status_code=status.HTTP_202_ACCEPTED)
-async def create_internal_scan(request: Request, response: Response) -> ScanResponse:
+async def create_internal_scan(
+    request: Request, response: Response
+) -> ScanAggregateResponse:
     """Schedule the same scan workflow using only the Cron authority."""
 
     _authorize_cron(request)
     snapshot = await scan_service_from(request).start_scan(trigger=ScanTrigger.CRON)
     response.headers["Location"] = f"/api/v1/scans/{snapshot.scan_id}"
-    return scan_response(snapshot)
+    return scan_aggregate_response(snapshot)

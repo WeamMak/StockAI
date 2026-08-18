@@ -81,3 +81,19 @@ export function formatRatioPercent(value: string | null): string {
         style: "percent",
       }).format(parsed);
 }
+
+export const OUTCOME_LABEL: Record<string, string> = {
+  approval_ready: "Approval ready",
+  manual_review: "Manual review",
+  no_valid_offer: "No valid offer",
+  confirmed: "Confirmed",
+  error: "Error",
+};
+
+export const OUTCOME_COLOR: Record<string, string> = {
+  approval_ready: "#2f9e58",
+  manual_review: "#3157c8",
+  no_valid_offer: "#c0392b",
+  confirmed: "#2f9e58",
+  error: "#c0392b",
+};

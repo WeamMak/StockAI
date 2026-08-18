@@ -49,20 +49,28 @@ class AgentMetrics:
         trigger: str,
         status: str,
         duration_seconds: float,
-        outcome: str,
-        error_code: ErrorCode | None,
     ) -> None:
-        """Record one terminal background scan and its bounded result."""
+        """Record one terminal background scan's own orchestration health."""
 
         safe_trigger = trigger if trigger in {"manual", "cron"} else "unknown"
         safe_status = status if status in {"success", "error"} else "error"
-        safe_outcome = (
-            outcome
-            if outcome in {"approval_ready", "manual_review", "unresolved"}
-            else "unresolved"
-        )
         self.scans.labels(trigger=safe_trigger, status=safe_status).inc()
         self.scan_duration.labels(trigger=safe_trigger).observe(duration_seconds)
+
+    def observe_case_result(
+        self,
+        *,
+        outcome: str,
+        error_code: ErrorCode | None,
+    ) -> None:
+        """Record one terminal case's bounded result, independent of its scan."""
+
+        safe_outcome = (
+            outcome
+            if outcome
+            in {"approval_ready", "manual_review", "no_valid_offer", "unresolved"}
+            else "unresolved"
+        )
         self.scan_results.labels(
             outcome=safe_outcome,
             error_code=error_code.value if error_code is not None else "none",

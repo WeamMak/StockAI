@@ -64,6 +64,12 @@ class CaseId(EnvironmentBoundIdentifier):
     __slots__ = ()
 
 
+class ScanId(EnvironmentBoundIdentifier):
+    """Stable identifier for one scan run, aggregating its cases."""
+
+    __slots__ = ()
+
+
 class EvidenceId(EnvironmentBoundIdentifier):
     """Stable identifier for one captured procurement evidence record."""
 

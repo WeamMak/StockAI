@@ -17,7 +17,7 @@ from httpx2 import ASGITransport, AsyncClient
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
-from procurement.agent.graph import build_walking_skeleton_graph
+from procurement.agent.graph import build_walking_skeleton_workflow
 from procurement.api.app import create_app
 from procurement.api.observability import create_http_metrics
 from procurement.api.services.scans import ScanWorkflow
@@ -255,7 +255,7 @@ async def test_api_scan_runs_langgraph_and_real_mcp_transport() -> None:
     llm = EvidenceAwareFakeStructuredLlm()
 
     async with _running_mcp_server() as (mcp_url, mcp_metrics_url):
-        graph = build_walking_skeleton_graph(
+        workflow = build_walking_skeleton_workflow(
             mcp=RealTransportMcpClient(
                 url=mcp_url,
                 bearer_token=BEARER_TOKEN,
@@ -266,7 +266,7 @@ async def test_api_scan_runs_langgraph_and_real_mcp_transport() -> None:
         application = create_app(
             http_metrics=http_metrics,
             agent_metrics=agent_metrics,
-            scan_workflow=cast(ScanWorkflow, graph),
+            scan_workflow=cast(ScanWorkflow, workflow),
             identity_provider=LocalIdentityProvider(),
         )
         transport = ASGITransport(app=application)
@@ -282,6 +282,8 @@ async def test_api_scan_runs_langgraph_and_real_mcp_transport() -> None:
                 if detail.json()["status"] not in {"queued", "running"}:
                     break
                 await anyio.sleep(0.01)
+            case_id = detail.json()["results"][0]["case_id"]
+            case = await client.get(f"/api/v1/scans/{scan_id}/cases/{case_id}")
             api_metrics = await client.get("/metrics")
         async with httpx.AsyncClient() as client:
             mcp_metrics = await client.get(mcp_metrics_url)
@@ -289,7 +291,8 @@ async def test_api_scan_runs_langgraph_and_real_mcp_transport() -> None:
     assert accepted.status_code == 202
     assert detail.status_code == 200
     assert detail.json()["status"] == "succeeded"
-    assert detail.json()["result"]["product_id"] == "product-101"
+    assert case.status_code == 200
+    assert case.json()["result"]["product_id"] == "product-101"
     assert len(llm.requests) == 1
     assert (
         'procurement_agent_mcp_calls_total{status="success",'

@@ -9,6 +9,7 @@ import pytest
 from tests.smoke import test_dev_skeleton as smoke
 from tests.smoke.test_dev_skeleton import (
     METRIC_QUERIES,
+    _approval_ready_case_summary,
     _metric_total,
     _targets_are_up,
     _wait_for_metric_deltas,
@@ -32,6 +33,24 @@ def _payload(*values: str, jobs: tuple[str, ...] = ()) -> dict[str, Any]:
 def test_metric_total_treats_absent_series_as_zero_and_sums_replicas() -> None:
     assert _metric_total({"data": {"result": []}}) == 0.0
     assert _metric_total(_payload("2", "3")) == 5.0
+
+
+def test_approval_ready_case_summary_uses_scan_aggregate_contract() -> None:
+    approval_ready = {
+        "case_id": "scan-1:product-1",
+        "outcome": "approval_ready",
+    }
+    completed = {
+        "results": [
+            {
+                "case_id": "scan-1:product-2",
+                "outcome": "no_valid_offer",
+            },
+            approval_ready,
+        ]
+    }
+
+    assert _approval_ready_case_summary(completed) is approval_ready
 
 
 def test_target_health_requires_both_jobs_and_every_target_up() -> None:

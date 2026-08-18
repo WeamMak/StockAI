@@ -1,11 +1,12 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ScanPage } from "../src/pages/ScanPage";
+import { RecommendationPage } from "../src/pages/RecommendationPage";
 
 const BASE_SCAN = {
   scan_id: "scan-101",
+  case_id: "scan-101:product-101",
   status: "succeeded",
   trigger: "manual",
   created_at: "2026-08-05T10:00:00Z",
@@ -134,7 +135,34 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("ScanPage", () => {
+describe("RecommendationPage", () => {
+  it("shows evidence only for the recommended product, not every evaluated candidate", async () => {
+    const otherCandidateEvidence = {
+      ...BASE_SCAN.evidence[0],
+      evidence_id: "dev:evidence-product-999",
+      product_id: "product-999",
+      product_name: "Fictional Other Candidate",
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          ...BASE_SCAN,
+          evidence: [otherCandidateEvidence, BASE_SCAN.evidence[0]],
+        }),
+      ),
+    );
+
+    render(<RecommendationPage scanId="scan-101" caseId="scan-101:product-101" onBack={vi.fn()} />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Deterministic procurement evidence" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("dev:evidence-product-101")).toBeInTheDocument();
+    expect(screen.queryByText("Fictional Other Candidate")).not.toBeInTheDocument();
+    expect(screen.queryByText("dev:evidence-product-999")).not.toBeInTheDocument();
+  });
+
   it("shows loading before rendering an approval-ready result", async () => {
     const user = userEvent.setup();
     let resolveRequest: ((response: Response) => void) | undefined;
@@ -143,7 +171,7 @@ describe("ScanPage", () => {
     });
     vi.stubGlobal("fetch", vi.fn().mockReturnValue(request));
 
-    render(<ScanPage scanId="scan-101" onBack={vi.fn()} />);
+    render(<RecommendationPage scanId="scan-101" caseId="scan-101:product-101" onBack={vi.fn()} />);
 
     expect(screen.getByRole("status")).toHaveTextContent("Loading scan");
     resolveRequest?.(jsonResponse(BASE_SCAN));
@@ -180,7 +208,7 @@ describe("ScanPage", () => {
     const user = userEvent.setup();
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(BASE_SCAN)));
 
-    render(<ScanPage scanId="scan-101" onBack={vi.fn()} />);
+    render(<RecommendationPage scanId="scan-101" caseId="scan-101:product-101" onBack={vi.fn()} />);
 
     const summary = await screen.findByRole("region", {
       name: "Recommendation summary",
@@ -188,7 +216,7 @@ describe("ScanPage", () => {
     expect(summary).toHaveTextContent("Approval ready");
     expect(summary).toHaveTextContent("Aug 12, 2026");
     expect(summary).toHaveTextContent("35 units");
-    expect(summary).toHaveTextContent("1 eligible offer");
+    expect(summary).toHaveTextContent("1 eligible");
     expect(summary).toHaveTextContent("$437.50");
     expect(summary).toHaveTextContent("Within budget");
     const reasoning = screen.getByRole("region", { name: "AI reasoning" });
@@ -216,20 +244,19 @@ describe("ScanPage", () => {
   it("shows truthful icon-card highlights and risk status", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(BASE_SCAN)));
 
-    render(<ScanPage scanId="scan-101" onBack={vi.fn()} />);
+    render(<RecommendationPage scanId="scan-101" caseId="scan-101:product-101" onBack={vi.fn()} />);
 
     const highlights = await screen.findByRole("region", {
       name: "Decision highlights",
     });
+    expect(highlights).toHaveTextContent("Offers considered1 eligible1 total reviewed");
     expect(highlights).toHaveTextContent(
-      "Existing coveragePartial5 units from existing sources",
+      "Uncovered target gap35 unitsAt Aug 12, 2026 stockout",
     );
     expect(highlights).toHaveTextContent(
-      "Uncovered target gap35 unitsAt Aug 12, 2026 stockout · target 40 units",
+      "Recommended vendorFictional Approved Supplies$437.50",
     );
-    expect(highlights).toHaveTextContent("Offer$437.50");
-    expect(highlights).toHaveTextContent("Selected offer-101");
-    expect(highlights).toHaveTextContent("RecommendationApproval ready");
+    expect(highlights).toHaveTextContent("Budget statusWithin budget$4,402.50 remaining");
 
     const risks = screen.getByRole("region", {
       name: "Risks and limitations",
@@ -249,7 +276,7 @@ describe("ScanPage", () => {
       ),
     );
 
-    render(<ScanPage scanId="scan-101" onBack={vi.fn()} />);
+    render(<RecommendationPage scanId="scan-101" caseId="scan-101:product-101" onBack={vi.fn()} />);
 
     const risks = await screen.findByRole("region", {
       name: "Risks and limitations",
@@ -258,7 +285,6 @@ describe("ScanPage", () => {
   });
 
   it("shows a projection graph and separates rejected offers", async () => {
-    const user = userEvent.setup();
     const eligibleOffer = BASE_SCAN.evidence[0].offers[0];
     vi.stubGlobal(
       "fetch",
@@ -286,7 +312,7 @@ describe("ScanPage", () => {
       ),
     );
 
-    render(<ScanPage scanId="scan-101" onBack={vi.fn()} />);
+    render(<RecommendationPage scanId="scan-101" caseId="scan-101:product-101" onBack={vi.fn()} />);
 
     expect(
       await screen.findByRole("img", {
@@ -296,28 +322,26 @@ describe("ScanPage", () => {
     expect(
       screen.getByText("Projected inventory after existing coverage"),
     ).toBeInTheDocument();
-    expect(screen.getByText("Only eligible offer")).toBeInTheDocument();
-    expect(screen.getByText("Fictional Approved Supplies")).toBeInTheDocument();
-
-    const rejected = screen
-      .getByText("View rejected offers (1)")
-      .closest("details");
-    expect(rejected).not.toBeNull();
-    expect(rejected).not.toHaveAttribute("open");
-    await user.click(screen.getByText("View rejected offers (1)"));
-    expect(rejected).toHaveAttribute("open");
-    expect(screen.getByText("Fictional Late Supplies")).toBeInTheDocument();
-    expect(screen.getByText("delivery after need by")).toBeInTheDocument();
+    const offersSection = screen.getByRole("region", { name: "Vendor offers" });
+    expect(within(offersSection).getAllByRole("listitem")).toHaveLength(2);
+    expect(
+      within(offersSection).getByText("Fictional Approved Supplies"),
+    ).toBeInTheDocument();
+    expect(
+      within(offersSection).getByText("Fictional Late Supplies"),
+    ).toBeInTheDocument();
+    expect(within(offersSection).getByText("Not eligible")).toBeInTheDocument();
   });
 
   it("presents applied preferences as ordered policy information", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(BASE_SCAN)));
 
-    render(<ScanPage scanId="scan-101" onBack={vi.fn()} />);
+    render(<RecommendationPage scanId="scan-101" caseId="scan-101:product-101" onBack={vi.fn()} />);
 
-    await screen.findByText("Applied preferences", {
-      selector: "summary > span",
-    });
+    await screen.findByRole("heading", { name: "Applied preferences" });
+    expect(
+      document.querySelector(".evidence-disclosures .disclosure"),
+    ).toBeNull();
 
     expect(screen.getByText("Product scope")).toBeInTheDocument();
     expect(
@@ -353,7 +377,7 @@ describe("ScanPage", () => {
       ),
     );
 
-    render(<ScanPage scanId="scan-101" onBack={vi.fn()} />);
+    render(<RecommendationPage scanId="scan-101" caseId="scan-101:product-101" onBack={vi.fn()} />);
 
     expect(
       await screen.findByRole("heading", { name: "Manual review required" }),
@@ -379,7 +403,7 @@ describe("ScanPage", () => {
       ),
     );
 
-    render(<ScanPage scanId="scan-101" onBack={vi.fn()} />);
+    render(<RecommendationPage scanId="scan-101" caseId="scan-101:product-101" onBack={vi.fn()} />);
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "The procurement source timed out.",
@@ -402,8 +426,9 @@ describe("ScanPage", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(
-      <ScanPage
+      <RecommendationPage
         scanId="scan-101"
+        caseId="scan-101:product-101"
         onBack={vi.fn()}
         pollIntervalMs={20}
         maxPollAttempts={2}
@@ -434,8 +459,9 @@ describe("ScanPage", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(
-      <ScanPage
+      <RecommendationPage
         scanId="scan-101"
+        caseId="scan-101:product-101"
         onBack={vi.fn()}
         pollIntervalMs={1}
         maxPollAttempts={2}
@@ -449,7 +475,7 @@ describe("ScanPage", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it("shows deterministic evidence with a safe manual-review fallback", async () => {
+  it("shows a safe manual-review fallback without a recommended-product evidence section", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
@@ -468,15 +494,23 @@ describe("ScanPage", () => {
       ),
     );
 
-    render(<ScanPage scanId="scan-101" onBack={vi.fn()} />);
+    render(<RecommendationPage scanId="scan-101" caseId="scan-101:product-101" onBack={vi.fn()} />);
 
+    const summary = await screen.findByRole("region", {
+      name: "Recommendation summary",
+    });
+    expect(summary).toHaveTextContent("Manual review");
+    expect(summary).toHaveTextContent("No draft created");
     expect(
-      await screen.findByRole("region", { name: "Manual review summary" }),
-    ).toHaveTextContent("No draft created");
+      screen.getByRole("heading", { name: "Compare eligible offers" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Contextual model judgment could not be safely accepted."),
+    ).toBeInTheDocument();
     expect(screen.getByText("Compare the eligible offers manually.")).toBeInTheDocument();
     expect(
-      screen.getByRole("heading", { name: "Deterministic procurement evidence" }),
-    ).toBeInTheDocument();
+      screen.queryByRole("heading", { name: "Deterministic procurement evidence" }),
+    ).not.toBeInTheDocument();
   });
 
   it("keeps historical successful recommendations approval-ready", async () => {
@@ -504,12 +538,12 @@ describe("ScanPage", () => {
       ),
     );
 
-    render(<ScanPage scanId="scan-101" onBack={vi.fn()} />);
+    render(<RecommendationPage scanId="scan-101" caseId="scan-101:product-101" onBack={vi.fn()} />);
 
     const summary = await screen.findByRole("region", {
       name: "Recommendation summary",
     });
-    expect(summary).toHaveTextContent("Approval ready");
+    expect(summary).toHaveTextContent("Historical recommendation");
     expect(summary).toHaveTextContent("Predates T27 validation");
     expect(summary).not.toHaveTextContent("Selected offer-101");
     expect(
@@ -529,8 +563,9 @@ describe("ScanPage", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const view = render(
-      <ScanPage
+      <RecommendationPage
         scanId="scan-101"
+        caseId="scan-101:product-101"
         onBack={vi.fn()}
         pollIntervalMs={20}
         maxPollAttempts={5}
