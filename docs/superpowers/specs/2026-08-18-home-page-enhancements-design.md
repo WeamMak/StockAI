@@ -25,9 +25,10 @@ home view (`view="home"`) closer to `home_page.png`. The "Scans" view
 
 - Add a **"Recent recommendations"** panel: the 5 most recent individual
   case results across all scans (not scoped to one scan), matching
-  `home_page.png`'s left-hand panel.
-- Add outcome icons to the existing **"Recent scans"** panel's rows, matching
-  the mockup's per-row icon treatment.
+  `home_page.png`'s left-hand panel, styled with the same per-row outcome
+  icon treatment `OverviewPage.tsx`'s existing "Recent scans" rows already
+  use (`scan-list-icon`/`Icon` — confirmed already implemented at
+  `OverviewPage.tsx:160-171`; no change needed there).
 - Change the **"What needs attention"** panel's three cards from
   (Needs review / Approval ready / In progress) to (Needs review /
   Approval ready / **Over-budget exceptions**), matching the mockup's exact
@@ -186,11 +187,12 @@ acceptable, non-blocking cosmetic edge case for this MVP panel).
 - `OUTCOME_LABEL`/`OUTCOME_COLOR` (currently defined only inside
   `ScanDetailPage.tsx`) move to `frontend/src/presentation.ts` so both pages
   import the same mapping instead of duplicating it.
-- **"Recent scans"** panel rows: add the coarse outcome icon (`check` for
-  `outcomeClass(scan) === "approval"`, `alert` otherwise, `document` for
-  in-progress) — this already exists as the `outcomeClass`/icon logic used
-  elsewhere in the file; applying it to this list's rows is a direct reuse,
-  not new logic.
+- **"Recent scans"** panel: unchanged — it already renders a per-row
+  outcome icon (`scan-list-icon`/`Icon`, `OverviewPage.tsx:160-171`). The
+  "Recent recommendations" panel's row icon reuses the same coarse mapping
+  (`check` for `approval_ready`/`confirmed`, `alert` otherwise), applied to
+  `CaseSummary.outcome` instead of `ScanAggregate`'s scan-level
+  `outcomeClass`.
 - **"What needs attention"** panel: the third card changes from "In
   progress" (`counts.inProgress`) to "Over-budget exceptions", computed by
   a new `overBudgetCount(scans: ScanAggregate[])` helper that counts cases
@@ -233,11 +235,11 @@ already independent, non-blocking states.
   confirm a case created through a real scan is visible through
   `GET /api/v1/cases`.
 - Frontend: `client.ts` parser tests for the three new `CaseSummary` fields
-  and `listRecentCases`. `OverviewPage` tests for: the new panel's rows and
-  empty state, `onSelectCase` being called with `(scanId, caseId)` on row
-  click, the icon added to "Recent scans" rows, and the attention panel's
-  "Over-budget exceptions" card replacing "In progress" (count computed
-  correctly from mixed `budget_status` values across fetched scans).
+  and `listRecentCases`. `OverviewPage` tests for: the new panel's rows,
+  row icons, and empty state, `onSelectCase` being called with `(scanId,
+  caseId)` on row click, and the attention panel's "Over-budget exceptions"
+  card replacing "In progress" (count computed correctly from mixed
+  `budget_status` values across fetched scans).
 
 ## Open questions
 
