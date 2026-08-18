@@ -258,6 +258,7 @@ class WalkingSkeletonNodes:
                         for item in state["evidence"]
                         if item.skip_reason_code is None
                     ),
+                    officer_note=state.get("officer_note"),
                 )
             )
         except LlmUnavailableError as error:

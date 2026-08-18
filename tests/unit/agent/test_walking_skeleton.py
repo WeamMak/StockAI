@@ -212,6 +212,55 @@ async def test_graph_returns_one_approval_ready_read_only_result() -> None:
 
 
 @pytest.mark.anyio
+async def test_officer_note_reaches_the_recommendation_request() -> None:
+    mcp = FakeMcp(
+        page=CandidatePage(
+            environment=Environment.DEV,
+            candidates=(_candidate(),),
+            next_cursor=None,
+        )
+    )
+    llm = FakeStructuredLlm(response=t27_recommendation())
+    graph = build_walking_skeleton_graph(mcp=mcp, llm=llm, metrics=create_agent_metrics())
+
+    await graph.ainvoke(
+        {
+            "scan_id": "scan-001",
+            "environment": Environment.DEV,
+            "candidates": (_candidate(),),
+            "officer_note": "Prioritize delivery speed this time.",
+        }
+    )
+
+    assert len(llm.requests) == 1
+    assert llm.requests[0].officer_note == "Prioritize delivery speed this time."
+
+
+@pytest.mark.anyio
+async def test_missing_officer_note_leaves_the_recommendation_request_unset() -> None:
+    mcp = FakeMcp(
+        page=CandidatePage(
+            environment=Environment.DEV,
+            candidates=(_candidate(),),
+            next_cursor=None,
+        )
+    )
+    llm = FakeStructuredLlm(response=t27_recommendation())
+    graph = build_walking_skeleton_graph(mcp=mcp, llm=llm, metrics=create_agent_metrics())
+
+    await graph.ainvoke(
+        {
+            "scan_id": "scan-001",
+            "environment": Environment.DEV,
+            "candidates": (_candidate(),),
+        }
+    )
+
+    assert len(llm.requests) == 1
+    assert llm.requests[0].officer_note is None
+
+
+@pytest.mark.anyio
 async def test_checkpoint_retains_result_but_not_transient_odoo_data() -> None:
     saver = InMemorySaver()
     mcp = FakeMcp(
