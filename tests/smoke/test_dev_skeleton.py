@@ -136,6 +136,22 @@ def _poll_scan(
     raise AssertionError(f"the live {environment} scan did not reach a terminal state")
 
 
+def _approval_ready_case_summary(completed: dict[str, Any]) -> dict[str, Any]:
+    """Return one approval-ready case summary from a terminal scan aggregate."""
+
+    results = completed.get("results")
+    assert isinstance(results, list)
+    approval_ready = [
+        result
+        for result in results
+        if isinstance(result, dict) and result.get("outcome") == "approval_ready"
+    ]
+    assert approval_ready, "the live scan produced no approval-ready case"
+    case_id = approval_ready[0].get("case_id")
+    assert isinstance(case_id, str) and case_id
+    return approval_ready[0]
+
+
 def _grafana_password(environment: str) -> str:
     response = _aws_client("secretsmanager").get_secret_value(
         SecretId=f"weam-stockai/{environment}/grafana-admin-password"
@@ -319,6 +335,15 @@ def run_exact_walking_skeleton(environment: str) -> None:
         assert accepted.status_code == 202
         location = accepted.headers["location"]
         completed = _poll_scan(client, location, environment=environment)
+        assert completed["status"] == "succeeded", completed.get("error")
+        approval_summary = _approval_ready_case_summary(completed)
+        case_id = str(approval_summary["case_id"])
+        case_response = client.get(f"{location}/cases/{case_id}")
+        case_response.raise_for_status()
+        case_detail = case_response.json()
+        assert isinstance(case_detail, dict)
+        assert case_detail["status"] == "succeeded", case_detail.get("error")
+        assert case_detail["case_id"] == case_id
         listed = client.get("/api/v1/scans")
         listed.raise_for_status()
         assert any(
@@ -326,11 +351,10 @@ def run_exact_walking_skeleton(environment: str) -> None:
             for scan in listed.json()["scans"]
         )
 
-    assert completed["status"] == "succeeded", completed.get("error")
-    assert completed["result"]["outcome"] == "approval_ready"
+    assert case_detail["result"]["outcome"] == "approval_ready"
     applied_preferences = [
         evidence.get("preferences")
-        for evidence in completed["evidence"]
+        for evidence in case_detail["evidence"]
         if evidence.get("preferences") is not None
     ]
     assert applied_preferences
@@ -346,23 +370,34 @@ def run_exact_walking_skeleton(environment: str) -> None:
     scan_id = str(completed["scan_id"])
 
     dynamodb = _aws_client("dynamodb")
-    item = dynamodb.get_item(
+    scan_item = dynamodb.get_item(
         TableName=f"weam-stockai-{environment}-application",
         Key={
             "PK": {"S": f"ENV#{environment}"},
-            "SK": {"S": f"CASE#{scan_id}"},
+            "SK": {"S": f"SCAN#{scan_id}"},
         },
         ConsistentRead=True,
     ).get("Item")
-    assert item is not None
-    assert item["status"]["S"] == "succeeded"
-    assert item["case_id"]["S"] == scan_id
+    assert scan_item is not None
+    assert scan_item["status"]["S"] == "succeeded"
+    assert scan_item["scan_id"]["S"] == scan_id
+    case_item = dynamodb.get_item(
+        TableName=f"weam-stockai-{environment}-application",
+        Key={
+            "PK": {"S": f"ENV#{environment}"},
+            "SK": {"S": f"CASE#{case_id}"},
+        },
+        ConsistentRead=True,
+    ).get("Item")
+    assert case_item is not None
+    assert case_item["status"]["S"] == "succeeded"
+    assert case_item["case_id"]["S"] == case_id
     audit_items = dynamodb.query(
         TableName=f"weam-stockai-{environment}-application",
         KeyConditionExpression="PK = :pk AND begins_with(SK, :prefix)",
         ExpressionAttributeValues={
             ":pk": {"S": f"ENV#{environment}"},
-            ":prefix": {"S": f"AUDIT#{scan_id}#"},
+            ":prefix": {"S": f"AUDIT#{case_id}#"},
         },
         ConsistentRead=True,
     )["Items"]
@@ -375,7 +410,7 @@ def run_exact_walking_skeleton(environment: str) -> None:
     checkpoints = dynamodb.query(
         TableName=f"weam-stockai-{environment}-checkpoints",
         KeyConditionExpression="PK = :pk",
-        ExpressionAttributeValues={":pk": {"S": f"CHECKPOINT_{scan_id}"}},
+        ExpressionAttributeValues={":pk": {"S": f"CHECKPOINT_{case_id}"}},
         ConsistentRead=True,
     )["Items"]
     assert checkpoints
