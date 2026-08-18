@@ -225,6 +225,47 @@ class ScanService:
         page = await self._repository.list_scans(limit=MAX_SCAN_HISTORY)
         return tuple(self._scan_snapshot(record) for record in page.records)
 
+    async def list_recent_cases(self, *, limit: int) -> tuple[CaseSummary, ...]:
+        """Return a bounded newest-first list of cases spanning every scan."""
+
+        page = await self._repository.list_cases(limit=limit)
+        summaries = (self._summarize_record(record) for record in page.records)
+        return tuple(summary for summary in summaries if summary is not None)
+
+    @staticmethod
+    def _summarize_record(record: CaseRecord) -> CaseSummary | None:
+        if record.status == ScanStatus.SKIPPED.value:
+            return None
+        product_id = record.result.product_id if record.result is not None else None
+        product_name = record.result.product_name if record.result is not None else None
+        if product_id is None or product_name is None:
+            if not record.evidence:
+                return None
+            product_id = record.evidence[0].product_id
+            product_name = record.evidence[0].product_name
+        if record.result is not None:
+            outcome = record.result.outcome
+            amount = record.result.normalized_cost
+            budget_status = record.result.budget_status
+        else:
+            outcome = "error"
+            amount = None
+            budget_status = "not_evaluated"
+        need_by_date = (
+            record.evidence[0].shortage.need_by_date if record.evidence else None
+        )
+        return CaseSummary(
+            case_id=record.case_id.value,
+            product_id=product_id,
+            product_name=product_name,
+            outcome=outcome,
+            amount=amount,
+            need_by_date=need_by_date,
+            scan_id=record.case_id.value.split(":", 1)[0],
+            budget_status=budget_status,
+            completed_at=record.completed_at,
+        )
+
     async def get_scan(self, scan_id: str) -> ScanAggregateSnapshot:
         """Return one scan or a stable safe not-found error."""
 
