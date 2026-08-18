@@ -98,7 +98,10 @@ function ScanHeading({
 
 function findRecommendedEvidence(scan: CaseDetail): ProcurementEvidenceRecord | null {
   const result = scan.result;
-  if (result === null || result.outcome !== "approval_ready") {
+  if (
+    result === null ||
+    (result.outcome !== "approval_ready" && result.outcome !== "no_valid_offer")
+  ) {
     return null;
   }
   return scan.evidence.find((item) => item.product_id === result.product_id) ?? null;

@@ -513,6 +513,43 @@ describe("RecommendationPage", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("shows evidence for a no_valid_offer result", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          ...BASE_SCAN,
+          result: {
+            outcome: "no_valid_offer",
+            product_id: "product-101",
+            product_name: "Fictional Safety Gloves",
+            rationale: "No eligible offer: 1 offer rejected (vendor not approved).",
+            evidence_limitations: [],
+            read_only: true,
+          },
+        }),
+      ),
+    );
+
+    render(
+      <RecommendationPage
+        scanId="scan-101"
+        caseId="scan-101:product-101"
+        onBack={vi.fn()}
+      />,
+    );
+
+    expect(
+      await screen.findByText(
+        "No eligible offer: 1 offer rejected (vendor not approved).",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Deterministic procurement evidence" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Fictional Approved Supplies")).toBeInTheDocument();
+  });
+
   it("keeps historical successful recommendations approval-ready", async () => {
     vi.stubGlobal(
       "fetch",
