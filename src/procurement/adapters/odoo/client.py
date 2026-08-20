@@ -933,7 +933,10 @@ class OdooErpAdapter(ErpPort):
         """
 
         try:
-            vendor_id = int(command.vendor_id)
+            vendor_id = _prefixed_positive_integer(
+                command.vendor_id,
+                prefix="vendor-",
+            )
             product_id = int(command.product_id)
             if vendor_id <= 0 or product_id <= 0:
                 raise ValueError("invalid draft vendor or product identifier")
@@ -1006,6 +1009,18 @@ def _single_mapping(raw: object) -> Mapping[str, object]:
     if not isinstance(raw, list) or len(raw) != 1 or not isinstance(raw[0], Mapping):
         raise ValueError("expected one Odoo record")
     return raw[0]
+
+
+def _prefixed_positive_integer(value: object, *, prefix: str) -> int:
+    if not isinstance(value, str) or not value.startswith(prefix):
+        raise ValueError("invalid prefixed identifier")
+    raw_identifier = value.removeprefix(prefix)
+    if not raw_identifier.isascii() or not raw_identifier.isdecimal():
+        raise ValueError("invalid prefixed identifier")
+    identifier = int(raw_identifier)
+    if identifier <= 0 or value != f"{prefix}{identifier}":
+        raise ValueError("invalid prefixed identifier")
+    return identifier
 
 
 def _relationship_id(raw: object) -> int:

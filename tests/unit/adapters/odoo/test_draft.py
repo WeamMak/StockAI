@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import date
 from decimal import Decimal
 
@@ -11,6 +12,7 @@ import pytest
 
 from procurement.adapters.odoo.client import OdooErpAdapter, OdooJson2Client
 from procurement.adapters.odoo.draft import OdooDraftMappingError
+from procurement.adapters.odoo.mappers import OdooMappingError
 from procurement.ports.erp import (
     DraftWriteAmbiguousError,
     PurchaseOrderDraft,
@@ -30,7 +32,7 @@ def _client(respond: httpx.MockTransport) -> OdooJson2Client:
 def _command() -> PurchaseOrderDraftCommand:
     return PurchaseOrderDraftCommand(
         origin="scan-001:product-101",
-        vendor_id="7",
+        vendor_id="vendor-7",
         currency_code="USD",
         product_id="31",
         product_name="Fictional Safety Gloves",
@@ -205,6 +207,28 @@ async def test_create_purchase_order_draft_resolves_currency_and_uom_then_create
     assert order_line["product_uom_id"] == 9
     assert order_line["product_qty"] == 10.0
     assert order_line["price_unit"] == 12.5
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "vendor_id",
+    ["7", "vendor-0", "vendor-01", "vendor--1", "vendor-x", "other-7"],
+)
+async def test_create_purchase_order_draft_rejects_invalid_vendor_identifiers(
+    vendor_id: str,
+) -> None:
+    def should_not_call_odoo(_request: httpx.Request) -> httpx.Response:
+        raise AssertionError("invalid vendor identifiers must fail before Odoo calls")
+
+    adapter = OdooErpAdapter(
+        client=_client(httpx.MockTransport(should_not_call_odoo)),
+        company_id=7,
+    )
+
+    with pytest.raises(OdooMappingError):
+        await adapter.create_purchase_order_draft(
+            replace(_command(), vendor_id=vendor_id)
+        )
 
 
 @pytest.mark.anyio
