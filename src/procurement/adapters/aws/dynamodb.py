@@ -22,6 +22,7 @@ from procurement.domain.policy.evidence import procurement_evidence_from_dict
 from procurement.ports.repositories import (
     ApplicationRepository,
     ApprovalRecord,
+    CandidateSnapshot,
     CaseCreateResult,
     CasePage,
     CaseRecord,
@@ -41,6 +42,16 @@ from procurement.ports.repositories import (
 MAX_PAGE_SIZE = 100
 _SAFE_KEY_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$", re.ASCII)
 _CONDITIONAL_CREATE = "attribute_not_exists(PK) AND attribute_not_exists(SK)"
+_OPTIONAL_CASE_ATTRIBUTES = frozenset(
+    {
+        "started_at",
+        "completed_at",
+        "result",
+        "evidence",
+        "error",
+        "candidate_snapshot",
+    }
+)
 
 
 class DynamoClient(Protocol):
@@ -189,14 +200,19 @@ class DynamoApplicationRepository(ApplicationRepository):
             raise ValueError("expected revision must be a Revision")
         values = self._case_attributes(record, expires_at=expires_at)
         values.pop("case_id")
-        names = {f"#{name}": name for name in values}
+        remove_names = _OPTIONAL_CASE_ATTRIBUTES - values.keys()
+        names = {f"#{name}": name for name in (*values, *remove_names)}
         expression_values = {f":{name}": value for name, value in values.items()}
         expression_values[":expected_revision"] = {"N": str(expected_revision.value)}
+        update_expression = "SET " + ", ".join(f"#{name} = :{name}" for name in values)
+        if remove_names:
+            update_expression += " REMOVE " + ", ".join(
+                f"#{name}" for name in remove_names
+            )
         request = {
             "TableName": self._table_name,
             "Key": self._case_key(record.case_id),
-            "UpdateExpression": "SET "
-            + ", ".join(f"#{name} = :{name}" for name in values),
+            "UpdateExpression": update_expression,
             "ConditionExpression": (
                 "attribute_exists(PK) AND revision = :expected_revision"
             ),
@@ -821,6 +837,22 @@ class DynamoApplicationRepository(ApplicationRepository):
                     "retry_count": {"N": str(record.error.retry_count)},
                 }
             }
+        if record.candidate_snapshot is not None:
+            snapshot = record.candidate_snapshot
+            values["candidate_snapshot"] = {
+                "M": {
+                    "category_id": {"S": snapshot.category_id},
+                    "reorder_minimum": {"S": format(snapshot.reorder_minimum, "f")},
+                    "reorder_maximum": {"S": format(snapshot.reorder_maximum, "f")},
+                    "projected_quantity": {
+                        "S": format(snapshot.projected_quantity, "f")
+                    },
+                    "projected_trigger_date": {
+                        "S": snapshot.projected_trigger_date.isoformat()
+                    },
+                }
+            }
+        values["refinement_count"] = {"N": str(record.refinement_count)}
         return values
 
     def _case_from_item(self, item: Mapping[str, Any]) -> CaseRecord:
@@ -828,6 +860,9 @@ class DynamoApplicationRepository(ApplicationRepository):
             raise ValueError("DynamoDB returned an empty case")
         result_item = cast(Mapping[str, Any] | None, item.get("result", {}).get("M"))
         error_item = cast(Mapping[str, Any] | None, item.get("error", {}).get("M"))
+        snapshot_item = cast(
+            Mapping[str, Any] | None, item.get("candidate_snapshot", {}).get("M")
+        )
         return CaseRecord(
             case_id=CaseId(self._environment, self._string(item, "case_id")),
             revision=Revision(self._number(item, "revision")),
@@ -952,6 +987,30 @@ class DynamoApplicationRepository(ApplicationRepository):
                 )
                 if error_item is not None
                 else None
+            ),
+            candidate_snapshot=(
+                CandidateSnapshot(
+                    category_id=self._string(snapshot_item, "category_id"),
+                    reorder_minimum=Decimal(
+                        self._string(snapshot_item, "reorder_minimum")
+                    ),
+                    reorder_maximum=Decimal(
+                        self._string(snapshot_item, "reorder_maximum")
+                    ),
+                    projected_quantity=Decimal(
+                        self._string(snapshot_item, "projected_quantity")
+                    ),
+                    projected_trigger_date=date.fromisoformat(
+                        self._string(snapshot_item, "projected_trigger_date")
+                    ),
+                )
+                if snapshot_item is not None
+                else None
+            ),
+            refinement_count=(
+                self._number(item, "refinement_count")
+                if "refinement_count" in item
+                else 0
             ),
         )
 

@@ -128,3 +128,4 @@ class ScanState(TypedDict, total=False):
     recommendation: Annotated[StructuredRecommendation, UntrackedValue]
     result: ScanResult
     skip_reason: str
+    officer_note: str

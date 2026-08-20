@@ -86,6 +86,7 @@ async def test_domain_error_uses_the_safe_public_envelope() -> None:
         (ErrorCode.APPROVAL_STALE, 409, False),
         (ErrorCode.BUDGET_JUSTIFICATION_REQUIRED, 422, False),
         (ErrorCode.RECONCILIATION_REQUIRED, 409, False),
+        (ErrorCode.REFINEMENT_LIMIT_REACHED, 422, False),
     ],
 )
 async def test_domain_error_codes_have_stable_http_semantics(

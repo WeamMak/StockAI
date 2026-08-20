@@ -12,6 +12,7 @@ const BASE_SCAN = {
   created_at: "2026-08-05T10:00:00Z",
   started_at: "2026-08-05T10:00:01Z",
   completed_at: "2026-08-05T10:00:02Z",
+  refinement_count: 0,
   evidence: [
     {
       environment: "dev",
@@ -330,7 +331,7 @@ describe("RecommendationPage", () => {
     expect(
       within(offersSection).getByText("Fictional Late Supplies"),
     ).toBeInTheDocument();
-    expect(within(offersSection).getByText("Not eligible")).toBeInTheDocument();
+    expect(within(offersSection).getByText("Delivery too late")).toBeInTheDocument();
   });
 
   it("presents applied preferences as ordered policy information", async () => {
@@ -513,6 +514,43 @@ describe("RecommendationPage", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("shows evidence for a no_valid_offer result", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          ...BASE_SCAN,
+          result: {
+            outcome: "no_valid_offer",
+            product_id: "product-101",
+            product_name: "Fictional Safety Gloves",
+            rationale: "No eligible offer: 1 offer rejected (vendor not approved).",
+            evidence_limitations: [],
+            read_only: true,
+          },
+        }),
+      ),
+    );
+
+    render(
+      <RecommendationPage
+        scanId="scan-101"
+        caseId="scan-101:product-101"
+        onBack={vi.fn()}
+      />,
+    );
+
+    expect(
+      await screen.findByText(
+        "No eligible offer: 1 offer rejected (vendor not approved).",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Deterministic procurement evidence" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Fictional Approved Supplies")).toBeInTheDocument();
+  });
+
   it("keeps historical successful recommendations approval-ready", async () => {
     vi.stubGlobal(
       "fetch",
@@ -576,5 +614,50 @@ describe("RecommendationPage", () => {
 
     await new Promise((resolve) => window.setTimeout(resolve, 30));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+  });
+
+  it("shows a refinement panel for an approval-ready result and restarts polling after a submission", async () => {
+    const user = userEvent.setup();
+    const runningScan = {
+      ...BASE_SCAN,
+      status: "running",
+      result: null,
+      completed_at: null,
+      refinement_count: 0,
+    };
+    const refinedScan = {
+      ...BASE_SCAN,
+      refinement_count: 1,
+      result: {
+        ...BASE_SCAN.result,
+        rationale: "Refined: Prioritize delivery speed.",
+      },
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(BASE_SCAN))
+      .mockResolvedValueOnce(jsonResponse(runningScan, 202))
+      .mockResolvedValueOnce(jsonResponse(refinedScan));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <RecommendationPage scanId="scan-101" caseId="scan-101:product-101" onBack={vi.fn()} />,
+    );
+
+    await screen.findByLabelText("Refinement note");
+    await user.type(
+      screen.getByLabelText("Refinement note"),
+      "Prioritize delivery speed.",
+    );
+    await user.click(screen.getByRole("button", { name: "Submit refinement" }));
+
+    expect(
+      await screen.findByText("Refined: Prioritize delivery speed."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("1 of 3 refinements used")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls[1][0]).toBe(
+      "/api/v1/scans/scan-101/cases/scan-101%3Aproduct-101/refine",
+    );
   });
 });

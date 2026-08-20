@@ -20,9 +20,21 @@ function sortOffers(
   return [...selected, ...rest];
 }
 
+const REJECTION_LABEL: Record<string, string> = {
+  VENDOR_NOT_APPROVED: "Vendor not approved",
+  VENDOR_BLOCKED: "Vendor blocked",
+  OFFER_NOT_YET_VALID: "Not yet valid",
+  OFFER_EXPIRED: "Offer expired",
+  DELIVERY_AFTER_NEED_BY: "Delivery too late",
+};
+const REJECTION_PRIORITY = Object.keys(REJECTION_LABEL);
+
 function statusLabel(offer: OfferEvidence): string {
-  if (offer.reason_codes.includes("VENDOR_NOT_APPROVED")) {
-    return "Vendor not approved";
+  const matched = REJECTION_PRIORITY.find((code) =>
+    offer.reason_codes.includes(code),
+  );
+  if (matched) {
+    return REJECTION_LABEL[matched];
   }
   return offer.status === "eligible" ? "Eligible" : "Not eligible";
 }

@@ -333,6 +333,8 @@ class BedrockStructuredLlm(StructuredLlmPort):
                 "top_level_decision_field": "decision",
             },
         }
+        if request.officer_note is not None:
+            evidence["officer_note"] = request.officer_note
         serialized_evidence = (
             json.dumps(
                 evidence,

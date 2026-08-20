@@ -834,6 +834,56 @@ h2 {
   line-height: 1.5;
 }
 
+.refinement-panel {
+  padding: 1rem;
+  border: 1px solid #dce4fa;
+  border-radius: 0.8rem;
+  background: #fff;
+}
+
+.refinement-panel h3 {
+  margin: 0 0 0.5rem;
+  color: #3157c8;
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.refinement-hint {
+  margin: 0 0 0.6rem;
+  color: #51617c;
+  font-size: 0.8rem;
+}
+
+.refinement-panel textarea {
+  width: 100%;
+  min-height: 4.5rem;
+  padding: 0.6rem;
+  border: 1px solid #cbd5f0;
+  border-radius: 0.5rem;
+  font: inherit;
+  resize: vertical;
+}
+
+.refinement-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 0.6rem;
+}
+
+.refinement-count {
+  color: #51617c;
+  font-size: 0.75rem;
+}
+
+.refinement-limit {
+  margin: 0;
+  color: #92400e;
+  font-size: 0.83rem;
+}
+
 .uncertainty-block {
   margin-top: 0.75rem;
   padding-top: 0.75rem;

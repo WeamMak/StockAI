@@ -8,6 +8,7 @@ import {
   getSession,
   listRecentCases,
   listScans,
+  refineCase,
 } from "../src/api/client";
 
 const QUEUED_SCAN_PAYLOAD = {
@@ -45,6 +46,7 @@ const CASE_DETAIL_PAYLOAD = {
   evidence: [],
   result: null,
   error: null,
+  refinement_count: 0,
 };
 
 const CASE_SUMMARY_PAYLOAD = {
@@ -193,6 +195,51 @@ describe("scan API client", () => {
     await expect(
       getCase("scan-queued", "scan-queued:product-legacy"),
     ).resolves.toEqual(legacy);
+  });
+
+  it("posts a bounded note and parses the resulting running case", async () => {
+    document.cookie = "stockai_csrf=opaque-csrf-token; path=/";
+    const runningCase = {
+      ...CASE_DETAIL_PAYLOAD,
+      status: "running",
+      started_at: "2026-08-05T10:05:00Z",
+      refinement_count: 0,
+    };
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(runningCase, 202));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      refineCase("scan-queued", "scan-queued:product-101", "Prioritize delivery."),
+    ).resolves.toEqual(runningCase);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/scans/scan-queued/cases/scan-queued%3Aproduct-101/refine",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ note: "Prioritize delivery." }),
+        headers: expect.objectContaining({
+          "X-CSRF-Token": "opaque-csrf-token",
+          "Content-Type": "application/json",
+        }),
+      }),
+    );
+  });
+
+  it("rejects a refine response missing refinement_count", async () => {
+    const malformed: Record<string, unknown> = { ...CASE_DETAIL_PAYLOAD };
+    delete malformed.refinement_count;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(jsonResponse(malformed, 202)),
+    );
+
+    const error = await refineCase(
+      "scan-queued",
+      "scan-queued:product-101",
+      "Prioritize delivery.",
+    ).catch((reason: unknown) => reason);
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toMatchObject({ code: "INVALID_RESPONSE" });
   });
 
   it("rejects malformed success payloads with a safe error", async () => {

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -25,6 +25,7 @@ from procurement.domain.policy.preferences import (
 )
 from procurement.ports.repositories import (
     ApprovalRecord,
+    CandidateSnapshot,
     CaseRecord,
     IdempotencyConflictError,
     ImmutableRecordError,
@@ -146,6 +147,55 @@ async def test_case_round_trip_preserves_immutable_preference_snapshot() -> None
     assert restored == record
     assert restored is not None
     assert restored.evidence[0].preferences == evidence.preferences
+
+
+@pytest.mark.anyio
+async def test_case_round_trip_preserves_candidate_snapshot_and_refinement_count() -> (
+    None
+):
+    client = RecordingDynamoClient()
+    repository = DynamoApplicationRepository(
+        client=client, table_name=TABLE_NAME, environment=Environment.DEV
+    )
+    record = CaseRecord(
+        case_id=CASE_ID,
+        revision=Revision(2),
+        status="succeeded",
+        trigger="manual",
+        created_at=CREATED_AT,
+        updated_at=UPDATED_AT,
+        candidate_snapshot=CandidateSnapshot(
+            category_id="category-safety",
+            reorder_minimum=Decimal("10.000000"),
+            reorder_maximum=Decimal("40.000000"),
+            projected_quantity=Decimal("8.000000"),
+            projected_trigger_date=date(2026, 8, 9),
+        ),
+        refinement_count=2,
+    )
+    client.queue(
+        "get_item",
+        {"Item": repository._case_item(record, expires_at=EXPIRES_AT)},
+    )
+
+    restored = await repository.get_case(CASE_ID)
+
+    assert restored == record
+
+
+@pytest.mark.anyio
+async def test_case_without_candidate_snapshot_restores_zero_refinement_count() -> None:
+    client = RecordingDynamoClient()
+    repository = DynamoApplicationRepository(
+        client=client, table_name=TABLE_NAME, environment=Environment.DEV
+    )
+    client.queue("get_item", {"Item": _case_item()})
+
+    restored = await repository.get_case(CASE_ID)
+
+    assert restored is not None
+    assert restored.candidate_snapshot is None
+    assert restored.refinement_count == 0
 
 
 def _transaction_cancelled() -> ClientError:
@@ -279,6 +329,38 @@ async def test_revisioned_update_uses_an_optimistic_condition() -> None:
     assert request["ExpressionAttributeValues"][":expected_revision"] == {"N": "1"}
     assert request["ExpressionAttributeValues"][":revision"] == {"N": "2"}
     assert updated.revision == Revision(2)
+
+
+@pytest.mark.anyio
+async def test_update_removes_a_result_that_no_longer_applies() -> None:
+    """A refinement clears result to reserve the running slot; DynamoDB must drop
+    the stale attribute rather than leaving a previous successful result in place
+    underneath the new running status.
+    """
+
+    client = RecordingDynamoClient()
+    repository = DynamoApplicationRepository(
+        client=client,
+        table_name=TABLE_NAME,
+        environment=Environment.DEV,
+    )
+    client.queue(
+        "update_item",
+        {"Attributes": _case_item(revision=2, status="running")},
+    )
+
+    await repository.update_case(
+        _record(revision=2, status="running"),
+        expected_revision=Revision(1),
+        expires_at=EXPIRES_AT,
+    )
+
+    request = client.calls[0][1]
+    assert "#result" in request["ExpressionAttributeNames"]
+    assert request["ExpressionAttributeNames"]["#result"] == "result"
+    assert ":result" not in request["ExpressionAttributeValues"]
+    assert "REMOVE" in request["UpdateExpression"]
+    assert "#result" in request["UpdateExpression"].split("REMOVE", 1)[1]
 
 
 @pytest.mark.anyio
