@@ -197,6 +197,42 @@ describe("scan API client", () => {
     ).resolves.toEqual(legacy);
   });
 
+  it("parses a pending-approval case awaiting a manager decision", async () => {
+    const pendingApproval = {
+      ...CASE_DETAIL_PAYLOAD,
+      status: "pending_approval",
+      completed_at: "2026-08-20T10:00:05Z",
+      result: {
+        outcome: "approval_ready",
+        validation_level: "t27",
+        product_id: "product-101",
+        product_name: "Fictional Safety Gloves",
+        offer_id: "offer-101",
+        rationale: "Projected stock is below the reorder minimum.",
+        trade_offs: ["Reliable delivery is favored."],
+        risk_flags: [],
+        uncertainty: "Vendor history is limited.",
+        evidence_limitations: [],
+        evidence_digest: `sha256:${"a".repeat(64)}`,
+        quantity: "35.000000",
+        unit_price: "12.500000",
+        normalized_cost: "437.500000",
+        budget_status: "within_budget",
+        preference_profile_id: "preference-3",
+        preference_scope: "product",
+        preference_revision: 6,
+        priority_order: ["price", "reliability", "delivery"],
+        premium_outcome: "within_cap",
+        read_only: true,
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(pendingApproval)));
+
+    await expect(
+      getCase("scan-queued", "scan-queued:product-101"),
+    ).resolves.toEqual(pendingApproval);
+  });
+
   it("posts a bounded note and parses the resulting running case", async () => {
     document.cookie = "stockai_csrf=opaque-csrf-token; path=/";
     const runningCase = {

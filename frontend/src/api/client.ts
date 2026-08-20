@@ -9,7 +9,8 @@ export type ScanStatus =
   | "running"
   | "succeeded"
   | "failed"
-  | "skipped";
+  | "skipped"
+  | "pending_approval";
 export type ScanTrigger = "manual" | "cron";
 
 export interface VendorPerformanceEvidence {
@@ -611,7 +612,14 @@ function parsePreferences(value: unknown): AppliedPreferences | null {
   };
 }
 
-const CASE_STATUSES = ["queued", "running", "succeeded", "failed", "skipped"];
+const CASE_STATUSES = [
+  "queued",
+  "running",
+  "succeeded",
+  "failed",
+  "skipped",
+  "pending_approval",
+];
 
 function parseCaseDetail(value: unknown): CaseDetail {
   if (
@@ -639,6 +647,7 @@ function parseCaseDetail(value: unknown): CaseDetail {
   const evidence = value.evidence.map(parseEvidence);
   if (
     (value.status === "succeeded" && result === null) ||
+    (value.status === "pending_approval" && result === null) ||
     (value.status === "failed" && error === null) ||
     (["queued", "running"].includes(value.status) &&
       (result !== null || error !== null))

@@ -297,6 +297,7 @@ stateDiagram-v2
     Detected --> Skipped: ineligible or covered
     Detected --> GatheringEvidence: replenishment required
     GatheringEvidence --> ManualReview: no valid offer / evidence or dependency failure
+    GatheringEvidence --> GatheringEvidence: manager-requested refinement (bounded officer note, capped at 3, only before a draft exists)
     GatheringEvidence --> PendingApproval: valid recommendation and draft PO
     PendingApproval --> Rejected: manager rejects
     Rejected --> Cancelled: draft cancellation succeeds
@@ -312,6 +313,19 @@ stateDiagram-v2
 
 [Project decision] Every state transition creates an immutable audit event with actor, time, correlation identifiers, source revision, and sanitized outcome.
 
+[Project decision] A manager may request at most 3 refinements of a case
+that has a current `approval_ready` recommendation, each supplying a bounded
+free-text note that is threaded to the LLM as untrusted business data
+alongside the original evidence. Refinement re-runs deterministic evidence
+gathering and LLM reasoning for that one candidate only, may change the
+outcome (including back to `no_valid_offer` or `manual_review`), and is a
+self-loop on `GatheringEvidence`: it is only permitted before T28 draft
+creation moves the case to `PendingApproval`. Once a draft exists, further
+refinement is rejected — draft creation is what closes the refinement
+window, so `T28` must reject a refinement request for a case whose draft
+already exists (or whose state is no longer eligible), not merely rely on
+the outcome/status check refinement already performs.
+
 ### 7.3 Manager decisions
 
 | Decision | Classification | Behavior |
@@ -319,6 +333,7 @@ stateDiagram-v2
 | Approve | `[Project decision]` | Immutably persist approval bound to the exact case, vendor, quantity, amount, budget status, evidence hash, and PO revision; then resume the graph and request confirmation. |
 | Approve budget exception | `[Project decision]` | Require an explicit exception flag and non-empty manager justification before confirmation. |
 | Reject | `[Project decision]` | Preserve the decision and evidence, cancel the Odoo draft through MCP, and close the case. |
+| Refine | `[Project decision]` | Before a draft exists, accept a bounded officer note (at most 3 times per case), clear the stale result, and re-run evidence gathering and LLM reasoning for that one candidate; reject the request once a draft exists or the case is otherwise no longer eligible. |
 
 [Project decision] The MVP exposes no manager request-change, draft-update, or
 reapproval workflow. The already implemented revision-aware Odoo draft-update

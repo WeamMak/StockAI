@@ -45,6 +45,8 @@ from procurement.ports.erp import (
     ErpUnavailableError,
     ProcurementEvidenceQuery,
     ProcurementPreferenceQuery,
+    PurchaseOrderDraft,
+    PurchaseOrderDraftCommand,
     ReplenishmentCandidateRecord,
     ReplenishmentCandidatesQuery,
 )
@@ -222,6 +224,34 @@ class LocalFictionalErp(ErpPort):
             await asyncio.sleep(3_600)
         return _fictional_preference(query)
 
+    async def find_purchase_order_draft(
+        self, *, origin: str
+    ) -> PurchaseOrderDraft | None:
+        del origin
+        return None
+
+    async def create_purchase_order_draft(
+        self, command: PurchaseOrderDraftCommand
+    ) -> PurchaseOrderDraft:
+        """Return one fixed fictional draft; local mode has no real Odoo to
+        write to and no idempotency store, so this never persists anything
+        or returns an existing draft for a repeated call."""
+
+        if self.mode == "timeout":
+            await asyncio.sleep(3_600)
+        return _fictional_draft(command)
+
+
+def _fictional_draft(command: PurchaseOrderDraftCommand) -> PurchaseOrderDraft:
+    return PurchaseOrderDraft(
+        po_id=1,
+        write_date="2026-01-01 00:00:00",
+        state="draft",
+        partner_id=1,
+        currency_id=1,
+        amount_total=command.quantity * command.unit_price,
+    )
+
 
 def _candidate_record(raw: object) -> ReplenishmentCandidateRecord:
     if not isinstance(raw, Mapping) or set(raw) != {
@@ -353,6 +383,20 @@ class LocalHttpFictionalErp(ErpPort):
             raise TimeoutError from None
         except (httpx.HTTPError, InvalidOperation, TypeError, ValueError) as error:
             raise ErpUnavailableError from error
+
+    async def find_purchase_order_draft(
+        self, *, origin: str
+    ) -> PurchaseOrderDraft | None:
+        del origin
+        return None
+
+    async def create_purchase_order_draft(
+        self, command: PurchaseOrderDraftCommand
+    ) -> PurchaseOrderDraft:
+        """Return one fixed fictional draft; the fake Compose Odoo service
+        does not yet expose a draft-creation endpoint to call."""
+
+        return _fictional_draft(command)
 
 
 def _fictional_preference(query: ProcurementPreferenceQuery) -> ProcurementPreference:

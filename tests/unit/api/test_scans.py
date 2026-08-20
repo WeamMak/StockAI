@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import replace
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import cast
 
 import anyio
@@ -25,6 +26,7 @@ from procurement.domain.models import UtcTimestamp
 from procurement.ports.mcp import ReplenishmentCandidate
 from procurement.ports.repositories import (
     CaseRecord,
+    DraftRecord,
     InMemoryApplicationRepository,
     RecommendationRecord,
     RevisionConflictError,
@@ -511,6 +513,56 @@ async def test_refine_case_rejects_a_manual_review_case() -> None:
     ) as client:
         csrf_headers = await sign_in(client)
         scan_id, case_id = await _approval_ready_case(client, csrf_headers)
+
+        rejected = await client.post(
+            f"/api/v1/scans/{scan_id}/cases/{case_id}/refine",
+            headers=csrf_headers,
+            json={"note": "Try again."},
+        )
+
+    assert rejected.status_code == 422
+    assert rejected.json()["error_code"] == "VALIDATION_FAILED"
+
+
+@pytest.mark.anyio
+async def test_refine_case_rejects_a_case_that_already_has_a_draft() -> None:
+    """Once T28 draft creation records a `DraftRecord` on a case, the manager
+    refinement window (spec.md §7.2: only before a draft exists) must be
+    closed even though the case's status/outcome still read approval_ready.
+    """
+
+    workflow = SuccessfulWorkflow()
+    repository = InMemoryApplicationRepository(environment=Environment.DEV)
+    application = create_app(
+        scan_workflow=workflow,
+        identity_provider=LocalIdentityProvider(),
+        application_repository=repository,
+    )
+    async with AsyncClient(
+        transport=ASGITransport(app=application), base_url="https://testserver"
+    ) as client:
+        csrf_headers = await sign_in(client)
+        scan_id, case_id = await _approval_ready_case(client, csrf_headers)
+
+        record = await repository.get_case(CaseId(Environment.DEV, case_id))
+        assert record is not None
+        drafted = replace(
+            record,
+            revision=record.revision.next(),
+            draft=DraftRecord(
+                po_id=42,
+                write_date="2026-08-20 00:00:00",
+                state="draft",
+                partner_id=7,
+                currency_id=1,
+                amount_total=Decimal("100.00"),
+            ),
+        )
+        await repository.update_case(
+            drafted,
+            expected_revision=record.revision,
+            expires_at=UtcTimestamp(datetime.now(tz=UTC)),
+        )
 
         rejected = await client.post(
             f"/api/v1/scans/{scan_id}/cases/{case_id}/refine",

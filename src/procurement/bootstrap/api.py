@@ -71,9 +71,12 @@ from procurement.ports.llm import (
 )
 from procurement.ports.mcp import (
     CandidatePage,
+    McpDraftReconciliationRequiredError,
     McpTimeoutError,
     McpUnavailableError,
     ProcurementMcpPort,
+    PurchaseOrderDraft,
+    PurchaseOrderDraftCommand,
     ReplenishmentCandidate,
 )
 from procurement.ports.repositories import (
@@ -84,6 +87,7 @@ from procurement.ports.repositories import (
 _MCP_TOOL_NAME = "list_replenishment_candidates"
 _MCP_EVIDENCE_TOOL_NAME = "get_procurement_evidence"
 _MCP_PREFERENCES_TOOL_NAME = "get_procurement_preferences"
+_MCP_CREATE_DRAFT_TOOL_NAME = "create_purchase_order_draft"
 _MIN_TOKEN_LENGTH = 32
 _MAX_TOKEN_LENGTH = 512
 
@@ -372,8 +376,11 @@ def _raise_mcp_error(result: CallToolResult) -> None:
     retry_count = payload.get("retry_count", 0) if payload is not None else 0
     if type(retry_count) is not int or not 0 <= retry_count <= 2:
         retry_count = 0
-    if payload is not None and payload.get("error_code") == ErrorCode.MCP_TIMEOUT.value:
+    error_code = payload.get("error_code") if payload is not None else None
+    if error_code == ErrorCode.MCP_TIMEOUT.value:
         raise McpTimeoutError(retry_count=retry_count)
+    if error_code == ErrorCode.RECONCILIATION_REQUIRED.value:
+        raise McpDraftReconciliationRequiredError(retry_count=retry_count)
     raise McpUnavailableError(retry_count=retry_count)
 
 
@@ -420,6 +427,26 @@ def _candidate_page(payload: Mapping[str, object]) -> CandidatePage:
         next_cursor=(
             str(payload["next_cursor"]) if payload["next_cursor"] is not None else None
         ),
+    )
+
+
+def _purchase_order_draft(payload: Mapping[str, object]) -> PurchaseOrderDraft:
+    if set(payload) != {
+        "po_id",
+        "write_date",
+        "state",
+        "partner_id",
+        "currency_id",
+        "amount_total",
+    }:
+        raise ValueError("purchase-order draft payload is invalid")
+    return PurchaseOrderDraft(
+        po_id=int(cast(int, payload["po_id"])),
+        write_date=str(payload["write_date"]),
+        state=str(payload["state"]),
+        partner_id=int(cast(int, payload["partner_id"])),
+        currency_id=int(cast(int, payload["currency_id"])),
+        amount_total=Decimal(str(payload["amount_total"])),
     )
 
 
@@ -549,6 +576,50 @@ class StreamableHttpProcurementMcp(ProcurementMcpPort):
             raise McpUnavailableError(retry_count=0)
         try:
             return preference_from_dict(dict(result.structuredContent))
+        except (InvalidOperation, TypeError, ValueError) as error:
+            raise McpUnavailableError(retry_count=0, private_detail=error) from None
+
+    async def create_purchase_order_draft(
+        self,
+        *,
+        environment: Environment,
+        command: PurchaseOrderDraftCommand,
+    ) -> PurchaseOrderDraft:
+        try:
+            async with httpx.AsyncClient(
+                headers={"Authorization": f"Bearer {self.bearer_token}"},
+                timeout=self.timeout_seconds,
+            ) as http_client:
+                async with streamable_http_client(
+                    self.url,
+                    http_client=http_client,
+                ) as (read_stream, write_stream, _):
+                    async with ClientSession(read_stream, write_stream) as session:
+                        await session.initialize()
+                        result = await session.call_tool(
+                            _MCP_CREATE_DRAFT_TOOL_NAME,
+                            arguments={
+                                "environment": environment.value,
+                                "origin": command.origin,
+                                "vendor_id": command.vendor_id,
+                                "currency_code": command.currency_code,
+                                "product_id": command.product_id,
+                                "product_name": command.product_name,
+                                "quantity": format(command.quantity, "f"),
+                                "unit_price": format(command.unit_price, "f"),
+                                "need_by_date": command.need_by_date.isoformat(),
+                            },
+                        )
+        except httpx.TimeoutException:
+            raise McpTimeoutError(retry_count=0) from None
+        except Exception as error:
+            raise McpUnavailableError(retry_count=0, private_detail=error) from None
+        if result.isError:
+            _raise_mcp_error(result)
+        if not isinstance(result.structuredContent, Mapping):
+            raise McpUnavailableError(retry_count=0)
+        try:
+            return _purchase_order_draft(result.structuredContent)
         except (InvalidOperation, TypeError, ValueError) as error:
             raise McpUnavailableError(retry_count=0, private_detail=error) from None
 
