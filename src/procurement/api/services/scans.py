@@ -99,6 +99,7 @@ class ScanSnapshot:
     )
     error: ScanFailure | None
     refinement_count: int
+    draft: DraftRecord | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -271,6 +272,7 @@ class ScanService:
             scan_id=record.case_id.value.split(":", 1)[0],
             budget_status=budget_status,
             completed_at=record.completed_at,
+            status=record.status,
         )
 
     async def get_scan(self, scan_id: str) -> ScanAggregateSnapshot:
@@ -828,6 +830,7 @@ class ScanService:
             scan_id=terminal.case_id.value.split(":", 1)[0],
             budget_status=budget_status,
             completed_at=terminal.completed_at,
+            status=terminal.status,
         )
 
     async def _append_audit(self, record: CaseRecord) -> None:
@@ -996,6 +999,7 @@ class ScanService:
             result=result,
             error=error,
             refinement_count=record.refinement_count,
+            draft=record.draft,
         )
 
     @staticmethod

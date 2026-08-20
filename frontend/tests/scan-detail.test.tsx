@@ -29,6 +29,7 @@ const AGGREGATE = {
       scan_id: "scan-4278",
       budget_status: "within_budget",
       completed_at: "2026-08-18T14:41:00Z",
+      status: "succeeded",
     },
     {
       case_id: "scan-4278:product-2",
@@ -40,6 +41,7 @@ const AGGREGATE = {
       scan_id: "scan-4278",
       budget_status: "not_evaluated",
       completed_at: "2026-08-18T14:41:00Z",
+      status: "succeeded",
     },
   ],
   outcome_counts: { approval_ready: 1, no_valid_offer: 1 },
@@ -68,6 +70,30 @@ describe("ScanDetailPage", () => {
     expect(within(results).getByText("No valid offer")).toBeInTheDocument();
     const donut = screen.getByRole("img", { name: /outcome breakdown/i });
     expect(donut).toBeInTheDocument();
+  });
+
+  it("shows pending approval, not approval ready, once a case has a draft", async () => {
+    const pending = {
+      ...AGGREGATE,
+      results: [
+        { ...AGGREGATE.results[0], status: "pending_approval" },
+        AGGREGATE.results[1],
+      ],
+      outcome_counts: { pending_approval: 1, no_valid_offer: 1 },
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(pending)));
+
+    render(
+      <ScanDetailPage scanId="scan-4278" onBack={vi.fn()} onSelectCase={vi.fn()} />,
+    );
+
+    const results = await screen.findByRole("region", {
+      name: "Results from this scan",
+    });
+    expect(within(results).getByText("Pending approval")).toBeInTheDocument();
+    expect(within(results).queryByText("Approval ready")).not.toBeInTheDocument();
+    const donut = screen.getByRole("img", { name: /outcome breakdown/i });
+    expect(donut).toHaveAccessibleName(/1 pending approval/i);
   });
 
   it("calls onSelectCase with the row's case id when clicked", async () => {

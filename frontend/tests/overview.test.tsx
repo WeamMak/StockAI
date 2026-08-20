@@ -32,6 +32,7 @@ const SUCCEEDED_SCAN = {
       scan_id: "scan-succeeded",
       budget_status: "within_budget",
       completed_at: "2026-08-05T10:00:05Z",
+      status: "succeeded",
     },
   ],
   outcome_counts: { approval_ready: 1 },
@@ -53,6 +54,7 @@ const MANUAL_REVIEW_SCAN = {
       scan_id: "scan-manual-review",
       budget_status: "not_evaluated",
       completed_at: "2026-08-05T10:00:07Z",
+      status: "succeeded",
     },
   ],
   outcome_counts: { manual_review: 1 },
@@ -87,6 +89,7 @@ const OVER_BUDGET_SCAN = {
       scan_id: "scan-over-budget",
       budget_status: "exception_required",
       completed_at: "2026-08-05T10:00:08Z",
+      status: "succeeded",
     },
   ],
   outcome_counts: { approval_ready: 1 },
@@ -103,6 +106,7 @@ const RECENT_CASES = [
     scan_id: "scan-succeeded",
     budget_status: "within_budget",
     completed_at: "2026-08-05T10:00:05Z",
+    status: "succeeded",
   },
   {
     case_id: "scan-manual-review:product-102",
@@ -114,6 +118,7 @@ const RECENT_CASES = [
     scan_id: "scan-manual-review",
     budget_status: "not_evaluated",
     completed_at: "2026-08-05T10:00:07Z",
+    status: "succeeded",
   },
 ];
 

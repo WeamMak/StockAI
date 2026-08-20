@@ -47,6 +47,7 @@ const CASE_DETAIL_PAYLOAD = {
   result: null,
   error: null,
   refinement_count: 0,
+  draft: null,
 };
 
 const CASE_SUMMARY_PAYLOAD = {
@@ -59,6 +60,7 @@ const CASE_SUMMARY_PAYLOAD = {
   scan_id: "scan-recent",
   budget_status: "within_budget",
   completed_at: "2026-08-18T10:00:40Z",
+  status: "succeeded",
 };
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -146,6 +148,7 @@ describe("scan API client", () => {
         scan_id: "scan-recent",
         budget_status: "within_budget",
         completed_at: "2026-08-18T10:00:40Z",
+        status: "succeeded",
       },
     ]);
   });
@@ -224,6 +227,14 @@ describe("scan API client", () => {
         priority_order: ["price", "reliability", "delivery"],
         premium_outcome: "within_cap",
         read_only: true,
+      },
+      draft: {
+        po_id: 5,
+        write_date: "2026-08-20 10:00:00",
+        state: "draft",
+        partner_id: 7,
+        currency_id: 1,
+        amount_total: "192.000000",
       },
     };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(pendingApproval)));

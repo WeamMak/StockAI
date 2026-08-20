@@ -142,6 +142,7 @@ class CaseSummary:
     scan_id: str
     budget_status: str
     completed_at: UtcTimestamp | None
+    status: str
 
 
 @dataclass(frozen=True, slots=True)

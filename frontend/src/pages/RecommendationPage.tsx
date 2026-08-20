@@ -12,7 +12,7 @@ import { ProcurementEvidence } from "../components/ProcurementEvidence";
 import { RecommendationHeader } from "../components/RecommendationHeader";
 import { RefinementPanel } from "../components/RefinementPanel";
 import { Icon } from "../components/Icon";
-import { formatDateTime } from "../presentation";
+import { formatCurrency, formatDateTime } from "../presentation";
 
 const DEFAULT_POLL_INTERVAL_MS = 1_000;
 const DEFAULT_MAX_POLL_ATTEMPTS = 130;
@@ -315,6 +315,19 @@ export function RecommendationPage({
         <ErrorState error={scan.error} />
       ) : scan.result ? (
         <>
+          {scan.status === "pending_approval" && scan.draft ? (
+            <section className="notice notice--review" role="status">
+              <h2>Pending manager approval</h2>
+              <p>
+                A draft purchase order has been created and is awaiting a
+                manager decision.
+              </p>
+              <p>
+                Draft PO #{scan.draft.po_id} ·{" "}
+                {formatCurrency(scan.draft.amount_total, "USD")}
+              </p>
+            </section>
+          ) : null}
           <RecommendationSummary scan={scan} evidence={findRecommendedEvidence(scan)} />
           {findRecommendedEvidence(scan) ? (
             <ProcurementEvidence
@@ -326,7 +339,8 @@ export function RecommendationPage({
               }
             />
           ) : null}
-          {scan.result.outcome === "approval_ready" ? (
+          {scan.result.outcome === "approval_ready" &&
+          scan.status !== "pending_approval" ? (
             <RefinementPanel
               scanId={scanId}
               caseId={caseId}
