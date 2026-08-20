@@ -83,10 +83,27 @@
   and 62 React tests (2 new backend: API exposure end to end via HTTP, and
   the aggregate-breakdown labeling tested directly; 2 new frontend: the
   pending notice/hidden-refine control, and the results-list/donut badge).
-  `npm run typecheck`, `lint`, `test`, and `build` all pass. Step 6 (real
-  Odoo dev creation, a process-restart-mid-write drill, and dev-smoke)
-  remains outstanding; `docker`-gated contract/DynamoDB-Local/e2e tests
-  remain unverified in this WSL environment (pre-existing limitation).
+  `npm run typecheck`, `lint`, `test`, and `build` all pass.
+
+  A live-testing session surfaced and fixed one pre-existing bug (not
+  introduced by T28, but made far more visible by the new `pending_approval`
+  status): `ScanRecord.case_summaries` is written once when a scan finishes
+  and never refreshed, so the Scan Detail page could show `approval_ready`
+  forever for a case that later gained a draft, while the Home page's
+  live-derived "Recent recommendations" correctly showed `pending_approval`
+  for the same case. Fixed by making `ScanService.get_scan` re-derive
+  results live via `list_cases(scan_id=...)`
+  (`_live_case_summaries`/`_live_case_summary`), which also closes a related
+  gap where an evidence-less early failure could vanish entirely from its
+  own scan's results. `list_scans()`'s bulk history list still uses the
+  stored snapshot (a live per-case lookup for every scan in a list would be
+  N+1-expensive). `uv run mypy` passed 191 files; the full unit + real-
+  transport integration suite passed 460 Python tests (1 new regression:
+  `get_scan` reflects a case status change made after the scan completed).
+
+  Step 6 (real Odoo dev creation, a process-restart-mid-write drill, and
+  dev-smoke) remains outstanding; `docker`-gated contract/DynamoDB-Local/e2e
+  tests remain unverified in this WSL environment (pre-existing limitation).
 - T27C scan-cardinality (one independent case per candidate) is merged to
   `main` (PR #60, `84a9d87`). Two further sub-projects merged in the same PR
   were tracked only as `docs/superpowers/plans/` side documents, not as

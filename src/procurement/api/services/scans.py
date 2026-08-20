@@ -46,6 +46,7 @@ from procurement.ports.repositories import (
 
 DEFAULT_WORKFLOW_TIMEOUT_SECONDS = 120.0
 MAX_SCAN_HISTORY = 100
+MAX_CASES_PER_SCAN = 100
 MAX_REFINEMENTS = 3
 _RETENTION_DAYS = {Environment.DEV: 30, Environment.PROD: 365}
 
@@ -276,7 +277,16 @@ class ScanService:
         )
 
     async def get_scan(self, scan_id: str) -> ScanAggregateSnapshot:
-        """Return one scan or a stable safe not-found error."""
+        """Return one scan or a stable safe not-found error.
+
+        Its per-case results are re-derived live from the current
+        `CaseRecord`s rather than trusting `ScanRecord.case_summaries`,
+        which is written once when the scan completes and is never updated
+        afterward -- a case refined, or moved to `pending_approval` by a
+        draft, after its scan already finished would otherwise show stale
+        forever here while the live case-detail and recent-cases views
+        already show the current state.
+        """
 
         try:
             id_ = ScanId(self._environment, scan_id)
@@ -288,7 +298,50 @@ class ScanService:
                 error_code=ErrorCode.VALIDATION_FAILED,
                 safe_message="The requested scan was not found.",
             )
-        return self._scan_snapshot(record)
+        results = await self._live_case_summaries(scan_id)
+        return self._scan_snapshot(record, results=results)
+
+    async def _live_case_summaries(self, scan_id: str) -> tuple[CaseSummary, ...]:
+        page = await self._repository.list_cases(
+            limit=MAX_CASES_PER_SCAN, scan_id=scan_id
+        )
+        summaries = (self._live_case_summary(record) for record in page.records)
+        return tuple(summary for summary in summaries if summary is not None)
+
+    @staticmethod
+    def _live_case_summary(record: CaseRecord) -> CaseSummary | None:
+        """Like `_summarize_record`, but never drops a case for lacking a
+        product name. `_summarize_record` does that for the cross-scan
+        recent-cases list, where an evidence-less early failure isn't worth
+        a row; here, a scan's own results must always account for every one
+        of its non-skipped cases, or the count silently goes missing again
+        exactly like the staleness this method exists to fix.
+        """
+
+        summary = ScanService._summarize_record(record)
+        if summary is not None or record.status == ScanStatus.SKIPPED.value:
+            return summary
+        _, _, product_id = record.case_id.value.partition(":")
+        if record.result is not None:
+            outcome = record.result.outcome
+            amount = record.result.normalized_cost
+            budget_status = record.result.budget_status
+        else:
+            outcome = "error"
+            amount = None
+            budget_status = "not_evaluated"
+        return CaseSummary(
+            case_id=record.case_id.value,
+            product_id=product_id,
+            product_name=product_id,
+            outcome=outcome,
+            amount=amount,
+            need_by_date=None,
+            scan_id=record.case_id.value.split(":", 1)[0],
+            budget_status=budget_status,
+            completed_at=record.completed_at,
+            status=record.status,
+        )
 
     async def get_case(self, case_id: str) -> ScanSnapshot:
         """Return one case or a stable safe not-found error."""
@@ -1003,7 +1056,11 @@ class ScanService:
         )
 
     @staticmethod
-    def _scan_snapshot(record: ScanRecord) -> ScanAggregateSnapshot:
+    def _scan_snapshot(
+        record: ScanRecord,
+        *,
+        results: tuple[CaseSummary, ...] | None = None,
+    ) -> ScanAggregateSnapshot:
         error = (
             ScanFailure(
                 error_code=ErrorCode(record.error.error_code),
@@ -1025,6 +1082,6 @@ class ScanService:
             completed_at=(
                 record.completed_at.value if record.completed_at is not None else None
             ),
-            results=record.case_summaries,
+            results=results if results is not None else record.case_summaries,
             error=error,
         )
