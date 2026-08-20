@@ -27,6 +27,7 @@ from procurement.ports.repositories import (
     CasePage,
     CaseRecord,
     CaseSummary,
+    DraftRecord,
     FailureRecord,
     IdempotencyConflictError,
     ImmutableRecordError,
@@ -50,6 +51,7 @@ _OPTIONAL_CASE_ATTRIBUTES = frozenset(
         "evidence",
         "error",
         "candidate_snapshot",
+        "draft",
     }
 )
 
@@ -853,6 +855,18 @@ class DynamoApplicationRepository(ApplicationRepository):
                 }
             }
         values["refinement_count"] = {"N": str(record.refinement_count)}
+        if record.draft is not None:
+            draft = record.draft
+            values["draft"] = {
+                "M": {
+                    "po_id": {"N": str(draft.po_id)},
+                    "write_date": {"S": draft.write_date},
+                    "state": {"S": draft.state},
+                    "partner_id": {"N": str(draft.partner_id)},
+                    "currency_id": {"N": str(draft.currency_id)},
+                    "amount_total": {"S": format(draft.amount_total, "f")},
+                }
+            }
         return values
 
     def _case_from_item(self, item: Mapping[str, Any]) -> CaseRecord:
@@ -863,6 +877,7 @@ class DynamoApplicationRepository(ApplicationRepository):
         snapshot_item = cast(
             Mapping[str, Any] | None, item.get("candidate_snapshot", {}).get("M")
         )
+        draft_item = cast(Mapping[str, Any] | None, item.get("draft", {}).get("M"))
         return CaseRecord(
             case_id=CaseId(self._environment, self._string(item, "case_id")),
             revision=Revision(self._number(item, "revision")),
@@ -1011,6 +1026,18 @@ class DynamoApplicationRepository(ApplicationRepository):
                 self._number(item, "refinement_count")
                 if "refinement_count" in item
                 else 0
+            ),
+            draft=(
+                DraftRecord(
+                    po_id=self._number(draft_item, "po_id"),
+                    write_date=self._string(draft_item, "write_date"),
+                    state=self._string(draft_item, "state"),
+                    partner_id=self._number(draft_item, "partner_id"),
+                    currency_id=self._number(draft_item, "currency_id"),
+                    amount_total=Decimal(self._string(draft_item, "amount_total")),
+                )
+                if draft_item is not None
+                else None
             ),
         )
 

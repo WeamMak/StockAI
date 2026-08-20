@@ -36,8 +36,11 @@ from procurement.ports.erp import CandidatePage as ErpCandidatePage
 from procurement.ports.erp import ReplenishmentCandidateRecord
 from procurement.ports.mcp import (
     CandidatePage,
+    McpDraftReconciliationRequiredError,
     McpUnavailableError,
     ProcurementMcpPort,
+    PurchaseOrderDraft,
+    PurchaseOrderDraftCommand,
     ReplenishmentCandidate,
 )
 from tests.support.fake_odoo.adapter import FakeOdooAdapter
@@ -204,6 +207,71 @@ class RealTransportMcpClient(ProcurementMcpPort):
         except (TypeError, ValueError) as error:
             raise McpUnavailableError(retry_count=0, private_detail=error) from None
 
+    async def create_purchase_order_draft(
+        self,
+        *,
+        environment: Environment,
+        command: PurchaseOrderDraftCommand,
+    ) -> PurchaseOrderDraft:
+        async with httpx.AsyncClient(
+            headers={"Authorization": f"Bearer {self._bearer_token}"}
+        ) as http_client:
+            async with streamable_http_client(self._url, http_client=http_client) as (
+                read_stream,
+                write_stream,
+                _,
+            ):
+                async with ClientSession(read_stream, write_stream) as session:
+                    await session.initialize()
+                    result = await session.call_tool(
+                        "create_purchase_order_draft",
+                        arguments={
+                            "environment": environment.value,
+                            "origin": command.origin,
+                            "vendor_id": command.vendor_id,
+                            "currency_code": command.currency_code,
+                            "product_id": command.product_id,
+                            "product_name": command.product_name,
+                            "quantity": format(command.quantity, "f"),
+                            "unit_price": format(command.unit_price, "f"),
+                            "need_by_date": command.need_by_date.isoformat(),
+                        },
+                    )
+        if result.isError:
+            payload = result.structuredContent
+            if (
+                isinstance(payload, Mapping)
+                and payload.get("error_code") == "RECONCILIATION_REQUIRED"
+            ):
+                raise McpDraftReconciliationRequiredError(retry_count=0)
+            raise McpUnavailableError(retry_count=0)
+        if not isinstance(result.structuredContent, Mapping):
+            raise McpUnavailableError(retry_count=0)
+        try:
+            return _purchase_order_draft(result.structuredContent)
+        except (TypeError, ValueError) as error:
+            raise McpUnavailableError(retry_count=0, private_detail=error) from None
+
+
+def _purchase_order_draft(payload: Mapping[str, object]) -> PurchaseOrderDraft:
+    if set(payload) != {
+        "po_id",
+        "write_date",
+        "state",
+        "partner_id",
+        "currency_id",
+        "amount_total",
+    }:
+        raise ValueError("purchase-order draft payload is invalid")
+    return PurchaseOrderDraft(
+        po_id=int(cast(int, payload["po_id"])),
+        write_date=str(payload["write_date"]),
+        state=str(payload["state"]),
+        partner_id=int(cast(int, payload["partner_id"])),
+        currency_id=int(cast(int, payload["currency_id"])),
+        amount_total=Decimal(str(payload["amount_total"])),
+    )
+
 
 def _candidate_page(payload: Mapping[str, object]) -> CandidatePage:
     if set(payload) != {"environment", "candidates", "next_cursor"}:
@@ -292,7 +360,9 @@ async def test_api_scan_runs_langgraph_and_real_mcp_transport() -> None:
     assert detail.status_code == 200
     assert detail.json()["status"] == "succeeded"
     assert case.status_code == 200
-    assert case.json()["result"]["product_id"] == "product-101"
+    case_body = case.json()
+    assert case_body["status"] == "pending_approval"
+    assert case_body["result"]["product_id"] == "product-101"
     assert len(llm.requests) == 1
     assert (
         'procurement_agent_mcp_calls_total{status="success",'

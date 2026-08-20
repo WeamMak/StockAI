@@ -8,9 +8,10 @@ import logging
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from enum import StrEnum
 from time import perf_counter
-from typing import Protocol
+from typing import Any, Protocol, cast
 from uuid import uuid4
 
 from procurement.agent.state import (
@@ -35,6 +36,7 @@ from procurement.ports.repositories import (
     CandidateSnapshot,
     CaseRecord,
     CaseSummary,
+    DraftRecord,
     FailureRecord,
     InMemoryApplicationRepository,
     RecommendationRecord,
@@ -56,6 +58,7 @@ class ScanStatus(StrEnum):
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     SKIPPED = "skipped"
+    PENDING_APPROVAL = "pending_approval"
 
 
 class ScanTrigger(StrEnum):
@@ -318,6 +321,7 @@ class ScanService:
             or record.result is None
             or record.result.outcome != "approval_ready"
             or record.candidate_snapshot is None
+            or record.draft is not None
         ):
             raise DomainError(
                 error_code=ErrorCode.VALIDATION_FAILED,
@@ -387,7 +391,12 @@ class ScanService:
                     },
                     config={"configurable": {"thread_id": thread_id}},
                 )
-            terminal = self._apply_result(running, state)
+            draft = self._interrupted_draft(state)
+            terminal = (
+                self._apply_pending_draft(running, state, draft)
+                if draft is not None
+                else self._apply_result(running, state)
+            )
         except TimeoutError:
             terminal = self._fail(
                 running,
@@ -591,7 +600,10 @@ class ScanService:
                     },
                     config={"configurable": {"thread_id": case_id_value}},
                 )
-            if state.get("skip_reason") is not None:
+            draft = self._interrupted_draft(state)
+            if draft is not None:
+                terminal = self._apply_pending_draft(running, state, draft)
+            elif state.get("skip_reason") is not None:
                 terminal = replace(running, status=ScanStatus.SKIPPED.value)
             else:
                 terminal = self._apply_result(running, state)
@@ -648,27 +660,7 @@ class ScanService:
                 record,
                 status=ScanStatus.SUCCEEDED.value,
                 evidence=evidence,
-                result=RecommendationRecord(
-                    product_id=result.product_id,
-                    product_name=result.product_name,
-                    offer_id=result.offer_id,
-                    rationale=result.rationale,
-                    trade_offs=result.trade_offs,
-                    risk_flags=result.risk_flags,
-                    uncertainty=result.uncertainty,
-                    evidence_limitations=result.evidence_limitations,
-                    evidence_digest=result.evidence_digest,
-                    quantity=result.quantity,
-                    unit_price=result.unit_price,
-                    normalized_cost=result.normalized_cost,
-                    budget_status=result.budget_status,
-                    preference_profile_id=result.preference_profile_id,
-                    preference_scope=result.preference_scope,
-                    preference_revision=result.preference_revision,
-                    priority_order=result.priority_order,
-                    premium_outcome=result.premium_outcome,
-                    evidence=result.evidence,
-                ),
+                result=self._recommendation_record(result),
             )
         if isinstance(result, ManualReviewResult):
             return replace(
@@ -713,6 +705,77 @@ class ScanService:
             error_code=ErrorCode.LLM_OUTPUT_INVALID,
             message="The procurement scan returned an invalid result.",
             retryable=False,
+        )
+
+    @staticmethod
+    def _recommendation_record(result: ApprovalReadyResult) -> RecommendationRecord:
+        return RecommendationRecord(
+            product_id=result.product_id,
+            product_name=result.product_name,
+            offer_id=result.offer_id,
+            rationale=result.rationale,
+            trade_offs=result.trade_offs,
+            risk_flags=result.risk_flags,
+            uncertainty=result.uncertainty,
+            evidence_limitations=result.evidence_limitations,
+            evidence_digest=result.evidence_digest,
+            quantity=result.quantity,
+            unit_price=result.unit_price,
+            normalized_cost=result.normalized_cost,
+            budget_status=result.budget_status,
+            preference_profile_id=result.preference_profile_id,
+            preference_scope=result.preference_scope,
+            preference_revision=result.preference_revision,
+            priority_order=result.priority_order,
+            premium_outcome=result.premium_outcome,
+            evidence=result.evidence,
+        )
+
+    def _apply_pending_draft(
+        self,
+        record: CaseRecord,
+        state: ScanState,
+        draft: DraftRecord,
+    ) -> CaseRecord:
+        """Persist the paused case: a bound draft awaiting a manager decision.
+
+        The graph node already created the draft idempotently and is paused
+        at `interrupt()`, so `state["result"]` still holds the validated
+        `ApprovalReadyResult` even though the node never reached its own
+        `return` statement.
+        """
+
+        result = state.get("result")
+        if not isinstance(result, ApprovalReadyResult):  # pragma: no cover - invariant
+            raise ValueError("a pending draft requires an approval-ready result")
+        return replace(
+            record,
+            status=ScanStatus.PENDING_APPROVAL.value,
+            evidence=state.get("evidence", ()),
+            draft=draft,
+            result=self._recommendation_record(result),
+        )
+
+    @staticmethod
+    def _interrupted_draft(state: ScanState) -> DraftRecord | None:
+        """Extract the draft snapshot surfaced by the graph's `interrupt()`.
+
+        LangGraph does not merge a paused node's return value into state, so
+        the draft cannot be read from `state["draft"]` at pause time -- it is
+        read from the interrupt payload itself instead.
+        """
+
+        interrupts = cast(Mapping[str, object], state).get("__interrupt__")
+        if not interrupts:
+            return None
+        payload = cast(Any, interrupts)[0].value
+        return DraftRecord(
+            po_id=int(cast(int, payload["po_id"])),
+            write_date=str(payload["write_date"]),
+            state=str(payload["state"]),
+            partner_id=int(cast(int, payload["partner_id"])),
+            currency_id=int(cast(int, payload["currency_id"])),
+            amount_total=Decimal(str(payload["amount_total"])),
         )
 
     @staticmethod

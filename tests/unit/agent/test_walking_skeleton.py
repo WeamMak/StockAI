@@ -46,6 +46,8 @@ from procurement.ports.mcp import (
     CandidatePage,
     McpTimeoutError,
     ProcurementMcpPort,
+    PurchaseOrderDraft,
+    PurchaseOrderDraftCommand,
     ReplenishmentCandidate,
 )
 
@@ -89,6 +91,10 @@ class FakeMcp(ProcurementMcpPort):
     preference_requests: list[tuple[Environment, str, str, str]] = field(
         default_factory=list
     )
+    draft_requests: list[tuple[Environment, PurchaseOrderDraftCommand]] = field(
+        default_factory=list
+    )
+    draft_error: Exception | None = None
 
     async def list_replenishment_candidates(
         self,
@@ -148,6 +154,24 @@ class FakeMcp(ProcurementMcpPort):
             max_price_premium_percent=Decimal("25.000000"),
             enforcement_mode=PremiumEnforcement.ADVISORY,
             precedence_source=PreferenceScope.COMPANY,
+        )
+
+    async def create_purchase_order_draft(
+        self,
+        *,
+        environment: Environment,
+        command: PurchaseOrderDraftCommand,
+    ) -> PurchaseOrderDraft:
+        self.draft_requests.append((environment, command))
+        if self.draft_error is not None:
+            raise self.draft_error
+        return PurchaseOrderDraft(
+            po_id=1,
+            write_date="2026-08-20 00:00:00",
+            state="draft",
+            partner_id=1,
+            currency_id=1,
+            amount_total=command.quantity * command.unit_price,
         )
 
 
