@@ -42,6 +42,16 @@ from procurement.ports.repositories import (
 MAX_PAGE_SIZE = 100
 _SAFE_KEY_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$", re.ASCII)
 _CONDITIONAL_CREATE = "attribute_not_exists(PK) AND attribute_not_exists(SK)"
+_OPTIONAL_CASE_ATTRIBUTES = frozenset(
+    {
+        "started_at",
+        "completed_at",
+        "result",
+        "evidence",
+        "error",
+        "candidate_snapshot",
+    }
+)
 
 
 class DynamoClient(Protocol):
@@ -190,14 +200,19 @@ class DynamoApplicationRepository(ApplicationRepository):
             raise ValueError("expected revision must be a Revision")
         values = self._case_attributes(record, expires_at=expires_at)
         values.pop("case_id")
-        names = {f"#{name}": name for name in values}
+        remove_names = _OPTIONAL_CASE_ATTRIBUTES - values.keys()
+        names = {f"#{name}": name for name in (*values, *remove_names)}
         expression_values = {f":{name}": value for name, value in values.items()}
         expression_values[":expected_revision"] = {"N": str(expected_revision.value)}
+        update_expression = "SET " + ", ".join(f"#{name} = :{name}" for name in values)
+        if remove_names:
+            update_expression += " REMOVE " + ", ".join(
+                f"#{name}" for name in remove_names
+            )
         request = {
             "TableName": self._table_name,
             "Key": self._case_key(record.case_id),
-            "UpdateExpression": "SET "
-            + ", ".join(f"#{name} = :{name}" for name in values),
+            "UpdateExpression": update_expression,
             "ConditionExpression": (
                 "attribute_exists(PK) AND revision = :expected_revision"
             ),
