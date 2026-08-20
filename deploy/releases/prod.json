@@ -1,55 +1,55 @@
 {
-  "applicationIdentity": "sha256:82c4f71b0a71bdc8f7cf95b9758d9c40ff9db8154bab7d4d04735a954dde2d1e",
+  "applicationIdentity": "sha256:30ae86c7aafed272c18176f6a19208b747dd66523d2c3e3a397e6512a6d2b1f2",
   "buildInputs": {
-    "api": "sha256:feae0f118c6ab399d213e7e81e72c966bb464e76b571e40ec676167a7787cdae",
-    "frontend": "sha256:4064c91bb9031dd53caaf4f7446c84002a2585f1fab2a934117519a13d54a1be",
-    "mcp": "sha256:cca88104dbba26e6876992309f68398d3d2bc7e5f2a1c8c2e742d79f769e2bd0",
+    "api": "sha256:46b7f6a9884b0935d0f095bf63ed104342fe2ca3e1a713f288052010a2783f41",
+    "frontend": "sha256:430a43ef463e733ba2d4e6bc8b4a5382586a5bb2a56857abee2a461cff9d0a58",
+    "mcp": "sha256:674e7942a0bc66921d0475709b4de540c0443645cbe38d2cf0473bd88e953829",
     "odoo": "sha256:d7d3b94a06be1dc7a47d8085d57226c66e0280d7fe3e1ca6f2f67442048b721c"
   },
-  "createdAt": "2026-08-18T11:24:34Z",
+  "createdAt": "2026-08-20T07:39:43Z",
   "devValidation": {
     "attempts": [
       {
-        "argoRevision": "d4b803d6a4b850f4af4af8229af1bc7c8140284a",
-        "evidenceDigest": "sha256:12c9e035db72085b857326b5474816fa5691401dfdadc1f2efd5f4bcc8ef4aeb",
+        "argoRevision": "80cb5e418355296ef6b37b350fe75252a320459f",
+        "evidenceDigest": "sha256:7aecd9cc8e5ad97251dc4bc7ad8c94ba48fc4ce73624f27482e8878283b1b0c2",
         "images": {
-          "api": "sha256:675d5b2bfa28914fbda3f834ef2b0ad98d74f0f7750f4426ed9dc56e07329761",
-          "frontend": "sha256:4fb16fdfccbc5bed0b1910111c59bc51d48acba3d37cf98426c6b12539d64bd5",
-          "mcp": "sha256:5a93b0dcacec365f22a8b3dcc94c0a2281da8f42781418bfc151af19cf39ae24",
+          "api": "sha256:efb2201cc1fab0cfabca03f0aa440948508ac42d8e294c107f0e908c7215ea8c",
+          "frontend": "sha256:c45ae7de79e6eff9612a709543c44405f830b38137dac47444bf945caa6ce328",
+          "mcp": "sha256:710a37a41d830387b58d2050384c6af6a9f48f33d39d721906d7d4cbc5ddd553",
           "odoo": "sha256:61050671c7ae00a86029206314f805204f71e09dcc6a007b6e60ac4b5d341b3c"
         },
-        "releaseId": "sha256:a800bc0f812265630247aef672fac51924d535d3259169a27134b911c42686aa",
+        "releaseId": "sha256:546b268cac3731893654e12049a1db502b843246eb3b11a40a140af1701cd841",
         "result": "passed",
-        "smokeRunId": "dev-smoke-20260818T172319Z",
-        "timestamp": "2026-08-18T17:24:10Z"
+        "smokeRunId": "dev-smoke-20260820T080037Z",
+        "timestamp": "2026-08-20T08:01:28Z"
       }
     ],
     "status": "passed"
   },
   "images": {
-    "api": "sha256:675d5b2bfa28914fbda3f834ef2b0ad98d74f0f7750f4426ed9dc56e07329761",
-    "frontend": "sha256:4fb16fdfccbc5bed0b1910111c59bc51d48acba3d37cf98426c6b12539d64bd5",
-    "mcp": "sha256:5a93b0dcacec365f22a8b3dcc94c0a2281da8f42781418bfc151af19cf39ae24",
+    "api": "sha256:efb2201cc1fab0cfabca03f0aa440948508ac42d8e294c107f0e908c7215ea8c",
+    "frontend": "sha256:c45ae7de79e6eff9612a709543c44405f830b38137dac47444bf945caa6ce328",
+    "mcp": "sha256:710a37a41d830387b58d2050384c6af6a9f48f33d39d721906d7d4cbc5ddd553",
     "odoo": "sha256:61050671c7ae00a86029206314f805204f71e09dcc6a007b6e60ac4b5d341b3c"
   },
   "integrity": {
     "algorithm": "sha256",
-    "digest": "sha256:1f7d7a635cc69e72dbb18e5be3c8e4bc95a6365dd6227c196f070c04c248ce02"
+    "digest": "sha256:2508dc1e63a99f8e80fbf6b6c2e15bfe67fa7f82b30e188856d01759952ccfbe"
   },
   "provenance": {
-    "api": "sha256:5311f70d0ca46370bb6be268d5d392d8f73cace294d98bbed5301dfb100d5942",
-    "frontend": "sha256:9910974b4cf33d107e4c772f3208e594a8c6d8fc21104d831831fc2548bc7bc3",
-    "mcp": "sha256:c28a5676f9ec8e8e230562585f9b1fadeaba0a7c61e4f171504c74931346eb05",
+    "api": "sha256:a1534f6fc45faa4481c3fe2b592d081c05010f3fb63f499430a33465e9d81ece",
+    "frontend": "sha256:c8f5cc2999fd48e17f206b69b313dd173c51359849ad297c664a1dd073b5d09e",
+    "mcp": "sha256:763fa2ab9d6fa14b1a398793b292890b45fd78446dc0ad4e47b9face8ab09271",
     "odoo": "sha256:cadfdff0e276c0a4fb48e8e9758a3573dbe80b0b885072c516cb034e85279fd5"
   },
-  "releaseId": "sha256:a800bc0f812265630247aef672fac51924d535d3259169a27134b911c42686aa",
+  "releaseId": "sha256:546b268cac3731893654e12049a1db502b843246eb3b11a40a140af1701cd841",
   "schemaVersion": 1,
   "scout": {
-    "reportDigest": "sha256:7807fa85aaa33333f4e82acc39c08b92b1b2d4a10194807dcf0957163b2133ad",
+    "reportDigest": "sha256:dd537183f9aa429b960e293a36357290a27743bb5f86afb37a0beb4084a1111c",
     "status": "findings"
   },
   "source": {
-    "commit": "4fac71ad2f17e3fee6d50fd51b188f85554efc72",
-    "tree": "067c2a21c616138551034769f1132280db275223"
+    "commit": "642300816e828086c975e2b7d724ff283ebaad1d",
+    "tree": "0f0c9dfc72d6c5ede55fde0f26c02b34a0f9f457"
   }
 }
