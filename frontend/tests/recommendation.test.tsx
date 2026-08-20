@@ -123,6 +123,7 @@ const BASE_SCAN = {
     read_only: true,
   },
   error: null,
+  draft: null,
 };
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -587,6 +588,32 @@ describe("RecommendationPage", () => {
     expect(
       screen.queryByRole("region", { name: "Manual review summary" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("shows the pending draft and hides refinement once a draft exists", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          ...BASE_SCAN,
+          status: "pending_approval",
+          draft: {
+            po_id: 5,
+            write_date: "2026-08-20 10:00:00",
+            state: "draft",
+            partner_id: 7,
+            currency_id: 1,
+            amount_total: "192.000000",
+          },
+        }),
+      ),
+    );
+
+    render(<RecommendationPage scanId="scan-101" caseId="scan-101:product-101" onBack={vi.fn()} />);
+
+    expect(await screen.findByText("Pending manager approval")).toBeInTheDocument();
+    expect(screen.getByText(/Draft PO #5/)).toBeInTheDocument();
+    expect(screen.queryByLabelText("Refinement note")).not.toBeInTheDocument();
   });
 
   it("stops scheduled polling when the page unmounts", async () => {

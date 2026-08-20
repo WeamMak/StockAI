@@ -18,14 +18,20 @@ from procurement.agent.state import ManualReviewResult, ScanState
 from procurement.api.app import create_app
 from procurement.api.auth.session import UserRole
 from procurement.api.config import ApiSettings
-from procurement.api.routes.scans import case_response
-from procurement.api.services.scans import ScanService, ScanTrigger
+from procurement.api.routes.scans import case_response, scan_aggregate_response
+from procurement.api.services.scans import (
+    ScanAggregateSnapshot,
+    ScanService,
+    ScanStatus,
+    ScanTrigger,
+)
 from procurement.domain.errors import DomainError, ErrorCode
 from procurement.domain.identifiers import CaseId, Environment, Revision
 from procurement.domain.models import UtcTimestamp
 from procurement.ports.mcp import ReplenishmentCandidate
 from procurement.ports.repositories import (
     CaseRecord,
+    CaseSummary,
     DraftRecord,
     InMemoryApplicationRepository,
     RecommendationRecord,
@@ -572,6 +578,102 @@ async def test_refine_case_rejects_a_case_that_already_has_a_draft() -> None:
 
     assert rejected.status_code == 422
     assert rejected.json()["error_code"] == "VALIDATION_FAILED"
+
+
+@pytest.mark.anyio
+async def test_case_response_exposes_a_pending_draft() -> None:
+    """T28 Step 5: the API must expose the draft, not just persist it, so a
+    manager can see it in the application instead of only in Odoo."""
+
+    workflow = SuccessfulWorkflow()
+    repository = InMemoryApplicationRepository(environment=Environment.DEV)
+    application = create_app(
+        scan_workflow=workflow,
+        identity_provider=LocalIdentityProvider(),
+        application_repository=repository,
+    )
+    async with AsyncClient(
+        transport=ASGITransport(app=application), base_url="https://testserver"
+    ) as client:
+        csrf_headers = await sign_in(client)
+        scan_id, case_id = await _approval_ready_case(client, csrf_headers)
+
+        record = await repository.get_case(CaseId(Environment.DEV, case_id))
+        assert record is not None
+        drafted = replace(
+            record,
+            revision=record.revision.next(),
+            status="pending_approval",
+            draft=DraftRecord(
+                po_id=5,
+                write_date="2026-08-20 10:00:00",
+                state="draft",
+                partner_id=7,
+                currency_id=1,
+                amount_total=Decimal("192.00"),
+            ),
+        )
+        await repository.update_case(
+            drafted,
+            expected_revision=record.revision,
+            expires_at=UtcTimestamp(datetime.now(tz=UTC)),
+        )
+
+        case = await client.get(
+            f"/api/v1/scans/{scan_id}/cases/{case_id}", headers=csrf_headers
+        )
+
+    case_body = case.json()
+    assert case_body["status"] == "pending_approval"
+    assert case_body["draft"] == {
+        "po_id": 5,
+        "write_date": "2026-08-20 10:00:00",
+        "state": "draft",
+        "partner_id": 7,
+        "currency_id": 1,
+        "amount_total": "192.00",
+    }
+
+
+def test_scan_aggregate_breaks_out_pending_approval_from_approval_ready() -> None:
+    """A pending draft must not be silently counted as approval_ready in the
+    scan-level breakdown, even though the case's own outcome still reads
+    approval_ready (that is still what was recommended)."""
+
+    pending_row = CaseSummary(
+        case_id="scan-1:product-101",
+        product_id="product-101",
+        product_name="Fictional Safety Gloves",
+        outcome="approval_ready",
+        amount=Decimal("192.00"),
+        need_by_date=None,
+        scan_id="scan-1",
+        budget_status="within_budget",
+        completed_at=None,
+        status="pending_approval",
+    )
+    ready_row = replace(
+        pending_row,
+        case_id="scan-1:product-102",
+        product_id="product-102",
+        status="succeeded",
+    )
+    snapshot = ScanAggregateSnapshot(
+        scan_id="scan-1",
+        status=ScanStatus.SUCCEEDED,
+        trigger=ScanTrigger.MANUAL,
+        created_at=datetime.now(tz=UTC),
+        started_at=None,
+        completed_at=None,
+        results=(pending_row, ready_row),
+        error=None,
+    )
+
+    response = scan_aggregate_response(snapshot)
+
+    assert response.outcome_counts == {"pending_approval": 1, "approval_ready": 1}
+    assert response.results[0].status == "pending_approval"
+    assert response.results[0].outcome == "approval_ready"
 
 
 @pytest.mark.anyio

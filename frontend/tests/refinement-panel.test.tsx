@@ -31,6 +31,7 @@ describe("RefinementPanel", () => {
       result: null,
       error: null,
       refinement_count: 0,
+      draft: null,
     };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(runningCase)));
     const onRefined = vi.fn();

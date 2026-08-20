@@ -665,6 +665,7 @@ class DynamoApplicationRepository(ApplicationRepository):
                         "outcome": {"S": summary.outcome},
                         "scan_id": {"S": summary.scan_id},
                         "budget_status": {"S": summary.budget_status},
+                        "status": {"S": summary.status},
                         **(
                             {"amount": {"S": format(summary.amount, "f")}}
                             if summary.amount is not None
@@ -725,6 +726,11 @@ class DynamoApplicationRepository(ApplicationRepository):
                     scan_id=self._string(summary_item, "scan_id"),
                     budget_status=self._string(summary_item, "budget_status"),
                     completed_at=self._optional_timestamp(summary_item, "completed_at"),
+                    status=(
+                        self._string(summary_item, "status")
+                        if "status" in summary_item
+                        else "succeeded"
+                    ),
                 )
             )
         error_item = cast(Mapping[str, Any] | None, item.get("error", {}).get("M"))

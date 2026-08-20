@@ -3122,10 +3122,51 @@ T28/T29 can consume one case's validated recommendation exactly as before.
   audit event. The T13 DynamoDB checkpointer already covers durability; no
   new checkpoint plumbing was needed. Verified end to end over the real MCP
   transport in `tests/integration/test_api_agent_mcp.py`.
-- [ ] **Step 5: Expose safe UI and observability.** Show the draft link,
-  revision, evidence summary, and pending state; disable the existing
-  refinement control once a draft exists; emit bounded create, idempotency,
-  ambiguity, reconciliation, and wait metrics/logs.
+- [x] **Step 5: Expose the draft and its pending state — visibility only, no
+  decision actions.** Scope fixed in conversation on 2026-08-20: the draft
+  must be visible in the application, not only in Odoo (the manager works
+  entirely from this app; T29's own approve step already requires showing
+  vendor/quantity/amount/budget/PO-revision before a decision, so this is a
+  T29 prerequisite, not optional polish) — and it belongs on the existing
+  recommendation page, not a new dedicated review screen, since that page
+  already renders everything an approval decision needs.
+  - Backend: add `draft` to `ScanSnapshot`/`CaseResponse` (a `DraftResponse`
+    mirroring `DraftRecord`: `po_id`, `write_date`, `state`, `partner_id`,
+    `currency_id`, `amount_total`). Add `status` to `CaseSummary`/
+    `CaseSummaryResponse` so the scan results list and outcome-breakdown
+    donut can distinguish `pending_approval` from `approval_ready` without
+    overloading `result.outcome` (which correctly stays `approval_ready` —
+    that is still what was recommended; `pending_approval` describes what
+    happened to it since).
+  - Frontend: show a "Pending manager approval" indicator with the draft's
+    PO reference/amount on the recommendation page; hide `RefinementPanel`
+    once a draft exists (it already fails gracefully server-side today, but
+    showing a control the backend now always rejects is confusing); add a
+    `pending_approval` badge to the scan results list and outcome donut.
+  - Explicitly out of scope for this step: any Approve/Reject/Decline
+    button, and any endpoint it would call. Those require the approval/
+    decision domain, service, and API routes that do not exist yet — that
+    is T29's own listed scope ("Add approve/reject React controls..."). A
+    button with nothing real to call would be a half-finished UI element;
+    it is deferred to T29, to be started only when explicitly requested.
+  - Metrics/logs for create/idempotency/ambiguity/reconciliation/wait are
+    deferred alongside Step 6, since they are observability, not user-facing
+    correctness, and the underlying events are already logged via the
+    existing `mcp_tool_completed`/`agent_mcp_call_completed` structured logs.
+  - Delivered: `ScanSnapshot`/`CaseResponse` gained `draft`; `CaseSummary`/
+    `CaseSummaryResponse` gained `status`; `scan_aggregate_response()`'s
+    outcome breakdown now labels a pending case `pending_approval` instead
+    of folding it into `approval_ready`. `client.ts` gained `DraftReference`
+    and `CaseSummary.status`; `RecommendationPage` shows a "Pending manager
+    approval" notice with the draft's PO reference/amount and hides
+    `RefinementPanel` once pending; `OverviewPage`/`ScanDetailPage` show a
+    `pending_approval` badge (new amber color/label in `presentation.ts`) in
+    place of `approval_ready` for such a case, in both the results list and
+    the outcome donut. `uv run mypy` passed 191 files; `make test-unit`-
+    equivalent passed 459 Python + 62 React tests (2 new backend tests: API
+    exposure end to end, and the aggregate-breakdown labeling in isolation;
+    2 new frontend tests: the pending notice/hidden-refine on the
+    recommendation page, and the results-list/donut badge on scan detail).
 - [ ] **Step 6: Verify restart-safe behavior.** Run focused tests, real MCP
   transport, real Odoo dev creation, process restart/resume, and release smoke.
 

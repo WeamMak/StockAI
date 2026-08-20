@@ -171,28 +171,34 @@ export function ScanDetailPage({
             <section className="panel" aria-label="Results from this scan">
               <h2>Results from this scan</h2>
               <ul className="scan-results-list">
-                {aggregate.results.map((row) => (
-                  <li key={row.case_id}>
-                    <div>
-                      <strong>{row.product_name}</strong>
-                      <span>Need by {formatDate(row.need_by_date)}</span>
-                    </div>
-                    <span className={`status status--${row.outcome}`}>
-                      {OUTCOME_LABEL[row.outcome] ?? row.outcome}
-                    </span>
-                    <span>
-                      {row.amount ? formatCurrency(row.amount, "USD") : "—"}
-                    </span>
-                    <button
-                      className="view-recommendation-button"
-                      type="button"
-                      onClick={() => onSelectCase(row.case_id)}
-                    >
-                      View recommendation
-                      <span aria-hidden="true">›</span>
-                    </button>
-                  </li>
-                ))}
+                {aggregate.results.map((row) => {
+                  const badge =
+                    row.status === "pending_approval"
+                      ? "pending_approval"
+                      : row.outcome;
+                  return (
+                    <li key={row.case_id}>
+                      <div>
+                        <strong>{row.product_name}</strong>
+                        <span>Need by {formatDate(row.need_by_date)}</span>
+                      </div>
+                      <span className={`status status--${badge}`}>
+                        {OUTCOME_LABEL[badge] ?? badge}
+                      </span>
+                      <span>
+                        {row.amount ? formatCurrency(row.amount, "USD") : "—"}
+                      </span>
+                      <button
+                        className="view-recommendation-button"
+                        type="button"
+                        onClick={() => onSelectCase(row.case_id)}
+                      >
+                        View recommendation
+                        <span aria-hidden="true">›</span>
+                      </button>
+                    </li>
+                  );
+                })}
               </ul>
               {aggregate.results.length === 0 ? (
                 <p>No products needed replenishment in this scan.</p>

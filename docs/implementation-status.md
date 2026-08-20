@@ -60,14 +60,33 @@
   `pending_approval` to the parser's accepted statuses and result-nullness
   check, plus a new frontend parsing test; the refine button still renders on
   a pending-approval case today (it only fails gracefully server-side) —
-  hiding/disabling it remains genuine Step 5 UI work. `npm run typecheck`,
-  `lint`, `test` (60 tests), and `build` all pass. Step 5 (the draft-link/
-  pending-state UI, disabling refinement in the frontend once a draft
-  exists, and create/idempotency/ambiguity/reconciliation/wait
-  metrics-and-logs) and Step 6 (real Odoo dev creation, a process-restart-
-  mid-write drill, and dev-smoke) remain outstanding; `docker`-gated
-  contract/DynamoDB-Local/e2e tests remain unverified in this WSL
-  environment (pre-existing limitation).
+  hiding/disabling it remains genuine Step 5 UI work.
+
+  Step 5 is now also implemented (scope fixed in conversation 2026-08-20: the
+  draft must be visible in the application, not only in Odoo, since the
+  manager works entirely from this app and T29's approve step already needs
+  to show vendor/quantity/amount/PO-revision before a decision; visibility
+  only, no Approve/Reject button — that needs the approval/decision backend
+  T29 owns, and a button with nothing real to call would be half-finished).
+  `ScanSnapshot`/`CaseResponse` gained `draft` (a `DraftResponse` mirroring
+  `DraftRecord`); `CaseSummary`/`CaseSummaryResponse` gained `status`, so
+  `scan_aggregate_response()`'s outcome breakdown can label a pending case
+  `pending_approval` instead of folding it into `approval_ready` (the
+  case's own `result.outcome` correctly still reads `approval_ready` — that
+  remains the recommendation; `pending_approval` describes what happened to
+  it since). `client.ts` gained `DraftReference`/`CaseSummary.status`;
+  `RecommendationPage` shows a "Pending manager approval" notice with the
+  draft's PO reference/amount and now hides `RefinementPanel` once pending;
+  `OverviewPage`/`ScanDetailPage` show a `pending_approval` badge (new
+  color/label in `presentation.ts`) in the results list and outcome donut.
+  `uv run mypy` passed 191 files; `make check`-equivalent passed 459 Python
+  and 62 React tests (2 new backend: API exposure end to end via HTTP, and
+  the aggregate-breakdown labeling tested directly; 2 new frontend: the
+  pending notice/hidden-refine control, and the results-list/donut badge).
+  `npm run typecheck`, `lint`, `test`, and `build` all pass. Step 6 (real
+  Odoo dev creation, a process-restart-mid-write drill, and dev-smoke)
+  remains outstanding; `docker`-gated contract/DynamoDB-Local/e2e tests
+  remain unverified in this WSL environment (pre-existing limitation).
 - T27C scan-cardinality (one independent case per candidate) is merged to
   `main` (PR #60, `84a9d87`). Two further sub-projects merged in the same PR
   were tracked only as `docs/superpowers/plans/` side documents, not as

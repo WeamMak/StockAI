@@ -124,6 +124,19 @@ class ConfirmedResponse(BaseModel):
     read_only: Literal[True] = True
 
 
+class DraftResponse(BaseModel):
+    """Public reference to the one Odoo draft PO bound to a pending case."""
+
+    model_config = _RESPONSE_CONFIG
+
+    po_id: int
+    write_date: str
+    state: str
+    partner_id: int
+    currency_id: int
+    amount_total: str
+
+
 class ScanErrorResponse(BaseModel):
     """Safe terminal failure returned by polling."""
 
@@ -165,6 +178,7 @@ class CaseResponse(BaseModel):
     )
     error: ScanErrorResponse | None
     refinement_count: int
+    draft: DraftResponse | None
 
 
 class CaseSummaryResponse(BaseModel):
@@ -181,6 +195,7 @@ class CaseSummaryResponse(BaseModel):
     scan_id: str
     budget_status: str
     completed_at: datetime | None
+    status: str
 
 
 class ScanAggregateResponse(BaseModel):
@@ -281,6 +296,18 @@ def case_response(snapshot: ScanSnapshot) -> CaseResponse:
             rationale=snapshot.result.rationale,
             evidence_limitations=snapshot.result.evidence_limitations,
         )
+    draft = (
+        DraftResponse(
+            po_id=snapshot.draft.po_id,
+            write_date=snapshot.draft.write_date,
+            state=snapshot.draft.state,
+            partner_id=snapshot.draft.partner_id,
+            currency_id=snapshot.draft.currency_id,
+            amount_total=format(snapshot.draft.amount_total, "f"),
+        )
+        if snapshot.draft is not None
+        else None
+    )
     return CaseResponse(
         scan_id=snapshot.scan_id,
         case_id=snapshot.case_id,
@@ -293,6 +320,7 @@ def case_response(snapshot: ScanSnapshot) -> CaseResponse:
         result=result,
         error=_error_response(snapshot.error),
         refinement_count=snapshot.refinement_count,
+        draft=draft,
     )
 
 
@@ -309,7 +337,17 @@ def case_summary_response(row: CaseSummary) -> CaseSummaryResponse:
         scan_id=row.scan_id,
         budget_status=row.budget_status,
         completed_at=row.completed_at.value if row.completed_at is not None else None,
+        status=row.status,
     )
+
+
+def _outcome_breakdown_label(row: CaseSummary) -> str:
+    """Distinguish a pending draft from its underlying approval_ready outcome
+    for the scan-level breakdown, without changing the case's own outcome."""
+
+    if row.status == "pending_approval":
+        return "pending_approval"
+    return row.outcome
 
 
 def scan_aggregate_response(snapshot: ScanAggregateSnapshot) -> ScanAggregateResponse:
@@ -317,7 +355,8 @@ def scan_aggregate_response(snapshot: ScanAggregateSnapshot) -> ScanAggregateRes
 
     outcome_counts: dict[str, int] = {}
     for row in snapshot.results:
-        outcome_counts[row.outcome] = outcome_counts.get(row.outcome, 0) + 1
+        label = _outcome_breakdown_label(row)
+        outcome_counts[label] = outcome_counts.get(label, 0) + 1
     return ScanAggregateResponse(
         scan_id=snapshot.scan_id,
         status=snapshot.status.value,
