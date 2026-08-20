@@ -32,16 +32,19 @@ from procurement.observability.metrics import AgentMetrics, create_agent_metrics
 from procurement.ports.mcp import ReplenishmentCandidate
 from procurement.ports.repositories import (
     ApplicationRepository,
+    CandidateSnapshot,
     CaseRecord,
     CaseSummary,
     FailureRecord,
     InMemoryApplicationRepository,
     RecommendationRecord,
+    RevisionConflictError,
     ScanRecord,
 )
 
 DEFAULT_WORKFLOW_TIMEOUT_SECONDS = 120.0
 MAX_SCAN_HISTORY = 100
+MAX_REFINEMENTS = 3
 _RETENTION_DAYS = {Environment.DEV: 30, Environment.PROD: 365}
 
 
@@ -92,6 +95,7 @@ class ScanSnapshot:
         | None
     )
     error: ScanFailure | None
+    refinement_count: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -296,6 +300,119 @@ class ScanService:
             )
         return self._snapshot(record)
 
+    async def refine_case(self, *, case_id: str, note: str) -> ScanSnapshot:
+        """Reserve one bounded refinement attempt and schedule its background work."""
+
+        try:
+            id_ = CaseId(self._environment, case_id)
+        except DomainError:
+            id_ = None
+        record = await self._repository.get_case(id_) if id_ is not None else None
+        if record is None:
+            raise DomainError(
+                error_code=ErrorCode.VALIDATION_FAILED,
+                safe_message="The requested case was not found.",
+            )
+        if (
+            record.status != ScanStatus.SUCCEEDED.value
+            or record.result is None
+            or record.result.outcome != "approval_ready"
+            or record.candidate_snapshot is None
+        ):
+            raise DomainError(
+                error_code=ErrorCode.VALIDATION_FAILED,
+                safe_message="Only an approval-ready case can be refined.",
+            )
+        if record.refinement_count >= MAX_REFINEMENTS:
+            raise DomainError(
+                error_code=ErrorCode.REFINEMENT_LIMIT_REACHED,
+                safe_message="This case has reached its refinement limit.",
+            )
+        running_at = UtcTimestamp(datetime.now(tz=UTC))
+        running = replace(
+            record,
+            revision=record.revision.next(),
+            status=ScanStatus.RUNNING.value,
+            started_at=running_at,
+            updated_at=running_at,
+        )
+        try:
+            running = await self._repository.update_case(
+                running,
+                expected_revision=record.revision,
+                expires_at=self._expires_at(record.created_at),
+            )
+        except RevisionConflictError as error:
+            raise DomainError(
+                error_code=ErrorCode.REVISION_CONFLICT,
+                safe_message="This case was already updated by another request.",
+            ) from error
+        await self._append_audit(running)
+        task = asyncio.create_task(self._run_refinement(running, note=note))
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+        return self._snapshot(running)
+
+    async def _run_refinement(self, running: CaseRecord, *, note: str) -> None:
+        assert running.candidate_snapshot is not None
+        assert running.result is not None
+        assert running.result.product_id is not None
+        assert running.result.product_name is not None
+        scan_id, _, product_id = running.case_id.value.partition(":")
+        snapshot = running.candidate_snapshot
+        candidate = ReplenishmentCandidate(
+            product_id=product_id,
+            product_name=running.result.product_name,
+            category_id=snapshot.category_id,
+            reorder_minimum=snapshot.reorder_minimum,
+            reorder_maximum=snapshot.reorder_maximum,
+            projected_quantity=snapshot.projected_quantity,
+            projected_trigger_date=snapshot.projected_trigger_date,
+            skip_reason_code=None,
+        )
+        next_attempt = running.refinement_count + 1
+        thread_id = f"{running.case_id.value}:refine-{next_attempt}"
+        try:
+            async with asyncio.timeout(self._workflow_timeout_seconds):
+                state = await self._workflow.ainvoke(
+                    {
+                        "scan_id": scan_id,
+                        "environment": self._environment,
+                        "candidates": (candidate,),
+                        "officer_note": note,
+                    },
+                    config={"configurable": {"thread_id": thread_id}},
+                )
+            terminal = self._apply_result(running, state)
+        except TimeoutError:
+            terminal = self._fail(
+                running,
+                error_code=ErrorCode.MCP_TIMEOUT,
+                message="The procurement scan exceeded its workflow deadline.",
+                retryable=True,
+            )
+        except Exception:
+            terminal = self._fail(
+                running,
+                error_code=ErrorCode.LLM_UNAVAILABLE,
+                message="The procurement scan could not be completed.",
+                retryable=True,
+            )
+        completed_at = UtcTimestamp(datetime.now(tz=UTC))
+        terminal = replace(
+            terminal,
+            revision=running.revision.next(),
+            refinement_count=next_attempt,
+            completed_at=completed_at,
+            updated_at=completed_at,
+        )
+        terminal = await self._repository.update_case(
+            terminal,
+            expected_revision=running.revision,
+            expires_at=self._expires_at(running.created_at),
+        )
+        await self._append_audit(terminal)
+
     async def _run_scan(self, record: ScanRecord) -> None:
         started_at = perf_counter()
         running_at = UtcTimestamp(datetime.now(tz=UTC))
@@ -427,6 +544,13 @@ class ScanService:
             trigger=trigger,
             created_at=created_at,
             updated_at=created_at,
+            candidate_snapshot=CandidateSnapshot(
+                category_id=candidate.category_id,
+                reorder_minimum=candidate.reorder_minimum,
+                reorder_maximum=candidate.reorder_maximum,
+                projected_quantity=candidate.projected_quantity,
+                projected_trigger_date=candidate.projected_trigger_date,
+            ),
         )
         created = await self._repository.create_case(
             record,
@@ -804,6 +928,7 @@ class ScanService:
             evidence=record.evidence,
             result=result,
             error=error,
+            refinement_count=record.refinement_count,
         )
 
     @staticmethod

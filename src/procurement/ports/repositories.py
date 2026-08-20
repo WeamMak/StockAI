@@ -68,6 +68,17 @@ class FailureRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class CandidateSnapshot:
+    """Enough of the original candidate to re-invoke the LLM during a refinement."""
+
+    category_id: str
+    reorder_minimum: Decimal
+    reorder_maximum: Decimal
+    projected_quantity: Decimal
+    projected_trigger_date: date
+
+
+@dataclass(frozen=True, slots=True)
 class CaseRecord:
     """Durable application view of one procurement scan/case."""
 
@@ -82,6 +93,8 @@ class CaseRecord:
     evidence: tuple[ProcurementEvidence, ...] = ()
     result: RecommendationRecord | None = None
     error: FailureRecord | None = None
+    candidate_snapshot: CandidateSnapshot | None = None
+    refinement_count: int = 0
 
 
 @dataclass(frozen=True, slots=True)

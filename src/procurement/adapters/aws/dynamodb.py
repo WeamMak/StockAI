@@ -22,6 +22,7 @@ from procurement.domain.policy.evidence import procurement_evidence_from_dict
 from procurement.ports.repositories import (
     ApplicationRepository,
     ApprovalRecord,
+    CandidateSnapshot,
     CaseCreateResult,
     CasePage,
     CaseRecord,
@@ -821,6 +822,22 @@ class DynamoApplicationRepository(ApplicationRepository):
                     "retry_count": {"N": str(record.error.retry_count)},
                 }
             }
+        if record.candidate_snapshot is not None:
+            snapshot = record.candidate_snapshot
+            values["candidate_snapshot"] = {
+                "M": {
+                    "category_id": {"S": snapshot.category_id},
+                    "reorder_minimum": {"S": format(snapshot.reorder_minimum, "f")},
+                    "reorder_maximum": {"S": format(snapshot.reorder_maximum, "f")},
+                    "projected_quantity": {
+                        "S": format(snapshot.projected_quantity, "f")
+                    },
+                    "projected_trigger_date": {
+                        "S": snapshot.projected_trigger_date.isoformat()
+                    },
+                }
+            }
+        values["refinement_count"] = {"N": str(record.refinement_count)}
         return values
 
     def _case_from_item(self, item: Mapping[str, Any]) -> CaseRecord:
@@ -828,6 +845,9 @@ class DynamoApplicationRepository(ApplicationRepository):
             raise ValueError("DynamoDB returned an empty case")
         result_item = cast(Mapping[str, Any] | None, item.get("result", {}).get("M"))
         error_item = cast(Mapping[str, Any] | None, item.get("error", {}).get("M"))
+        snapshot_item = cast(
+            Mapping[str, Any] | None, item.get("candidate_snapshot", {}).get("M")
+        )
         return CaseRecord(
             case_id=CaseId(self._environment, self._string(item, "case_id")),
             revision=Revision(self._number(item, "revision")),
@@ -952,6 +972,30 @@ class DynamoApplicationRepository(ApplicationRepository):
                 )
                 if error_item is not None
                 else None
+            ),
+            candidate_snapshot=(
+                CandidateSnapshot(
+                    category_id=self._string(snapshot_item, "category_id"),
+                    reorder_minimum=Decimal(
+                        self._string(snapshot_item, "reorder_minimum")
+                    ),
+                    reorder_maximum=Decimal(
+                        self._string(snapshot_item, "reorder_maximum")
+                    ),
+                    projected_quantity=Decimal(
+                        self._string(snapshot_item, "projected_quantity")
+                    ),
+                    projected_trigger_date=date.fromisoformat(
+                        self._string(snapshot_item, "projected_trigger_date")
+                    ),
+                )
+                if snapshot_item is not None
+                else None
+            ),
+            refinement_count=(
+                self._number(item, "refinement_count")
+                if "refinement_count" in item
+                else 0
             ),
         )
 

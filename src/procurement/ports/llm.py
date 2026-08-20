@@ -58,6 +58,7 @@ class RecommendationRequest:
     candidates: tuple[ReplenishmentCandidate, ...]
     preferences: tuple[AppliedPreferences, ...] = ()
     evidence: tuple[ProcurementEvidence, ...] = ()
+    officer_note: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.environment, Environment):
@@ -90,6 +91,13 @@ class RecommendationRequest:
             item.product_id for item in self.evidence if item.skip_reason_code is None
         } != {candidate.product_id for candidate in self.candidates}:
             raise ValueError("evidence must describe the eligible candidate set")
+        if self.officer_note is not None and (
+            not isinstance(self.officer_note, str)
+            or not self.officer_note.strip()
+            or len(self.officer_note) > 280
+            or _CONTROL_CHARACTER_PATTERN.search(self.officer_note) is not None
+        ):
+            raise ValueError("officer_note must be bounded normal text")
 
 
 @dataclass(frozen=True, slots=True)

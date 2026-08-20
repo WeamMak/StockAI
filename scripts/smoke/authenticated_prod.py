@@ -121,7 +121,7 @@ def _submit_cognito_login(
 ) -> None:
     page.locator('input[name="username"]:visible').fill(settings.username)
     page.locator('input[name="password"]:visible').fill(settings.password)
-    page.locator('button[type="submit"]:visible').click()
+    page.locator('input[name="signInSubmitButton"]:visible').click()
 
 
 def _browser_login(settings: AuthenticatedProdSettings) -> tuple[str, str]:
