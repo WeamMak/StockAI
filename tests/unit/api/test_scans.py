@@ -446,9 +446,7 @@ async def test_refine_case_reruns_the_workflow_with_a_fresh_thread_id() -> None:
 
     assert completed["refinement_count"] == 1
     result = _required_mapping(completed, "result")
-    assert result["rationale"] == (
-        "Refined: Prioritize delivery speed this time."
-    )
+    assert result["rationale"] == ("Refined: Prioritize delivery speed this time.")
     assert workflow.officer_notes == [None, "Prioritize delivery speed this time."]
     assert workflow.configs[0] == {"configurable": {"thread_id": case_id}}
     assert workflow.configs[1] == {"configurable": {"thread_id": f"{case_id}:refine-1"}}
