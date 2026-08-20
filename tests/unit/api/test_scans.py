@@ -254,13 +254,35 @@ async def _poll_case_until_finished(
     raise AssertionError("case did not finish")
 
 
+def _required_mapping(body: dict[str, object], key: str) -> dict[str, object]:
+    value = body[key]
+    assert isinstance(value, dict)
+    return cast(dict[str, object], value)
+
+
+def _required_str(body: dict[str, object], key: str) -> str:
+    value = body[key]
+    assert isinstance(value, str)
+    return value
+
+
+def _first_case_id(finished: dict[str, object]) -> str:
+    results = finished["results"]
+    assert isinstance(results, list)
+    assert results
+    first_result = results[0]
+    assert isinstance(first_result, dict)
+    return _required_str(cast(dict[str, object], first_result), "case_id")
+
+
 async def _approval_ready_case(
     client: AsyncClient, csrf_headers: dict[str, str]
 ) -> tuple[str, str]:
     accepted = await client.post("/api/v1/scans", headers=csrf_headers)
-    scan_id = accepted.json()["scan_id"]
+    accepted_body = cast(dict[str, object], accepted.json())
+    scan_id = _required_str(accepted_body, "scan_id")
     finished = await _poll_until_finished(client, scan_id)
-    case_id = cast(list[dict[str, object]], finished["results"])[0]["case_id"]
+    case_id = _first_case_id(finished)
     return scan_id, case_id
 
 
@@ -341,9 +363,10 @@ async def test_a_completed_case_persists_its_candidate_snapshot() -> None:
     ) as client:
         csrf_headers = await sign_in(client)
         accepted = await client.post("/api/v1/scans", headers=csrf_headers)
-        scan_id = accepted.json()["scan_id"]
+        accepted_body = cast(dict[str, object], accepted.json())
+        scan_id = _required_str(accepted_body, "scan_id")
         finished = await _poll_until_finished(client, scan_id)
-        case_id = cast(list[dict[str, object]], finished["results"])[0]["case_id"]
+        case_id = _first_case_id(finished)
 
     record = await repository.get_case(CaseId(Environment.DEV, case_id))
     candidate = _one_candidate()[0]
@@ -406,9 +429,10 @@ async def test_refine_case_reruns_the_workflow_with_a_fresh_thread_id() -> None:
     ) as client:
         csrf_headers = await sign_in(client)
         accepted = await client.post("/api/v1/scans", headers=csrf_headers)
-        scan_id = accepted.json()["scan_id"]
+        accepted_body = cast(dict[str, object], accepted.json())
+        scan_id = _required_str(accepted_body, "scan_id")
         finished = await _poll_until_finished(client, scan_id)
-        case_id = cast(list[dict[str, object]], finished["results"])[0]["case_id"]
+        case_id = _first_case_id(finished)
 
         refined = await client.post(
             f"/api/v1/scans/{scan_id}/cases/{case_id}/refine",
@@ -421,7 +445,8 @@ async def test_refine_case_reruns_the_workflow_with_a_fresh_thread_id() -> None:
         completed = await _poll_case_until_finished(client, scan_id, case_id)
 
     assert completed["refinement_count"] == 1
-    assert completed["result"]["rationale"] == (
+    result = _required_mapping(completed, "result")
+    assert result["rationale"] == (
         "Refined: Prioritize delivery speed this time."
     )
     assert workflow.officer_notes == [None, "Prioritize delivery speed this time."]
@@ -557,7 +582,8 @@ async def test_a_failed_refinement_still_counts_against_the_cap() -> None:
 
     assert completed["status"] == "failed"
     assert completed["refinement_count"] == 1
-    assert completed["error"]["error_code"] == "LLM_UNAVAILABLE"
+    error = _required_mapping(completed, "error")
+    assert error["error_code"] == "LLM_UNAVAILABLE"
 
 
 @pytest.mark.anyio
