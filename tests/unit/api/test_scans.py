@@ -677,6 +677,58 @@ def test_scan_aggregate_breaks_out_pending_approval_from_approval_ready() -> Non
 
 
 @pytest.mark.anyio
+async def test_get_scan_reflects_a_case_change_after_the_scan_completed() -> None:
+    """`ScanRecord.case_summaries` is written once, when the scan finishes,
+    and never updated again -- not by `refine_case`, and not by a draft
+    created afterward. `get_scan` must re-derive results live so a case that
+    changes state later (refinement, a draft, a future T29 decision) is
+    never stuck showing what was true only at scan-completion time."""
+
+    workflow = SuccessfulWorkflow()
+    repository = InMemoryApplicationRepository(environment=Environment.DEV)
+    application = create_app(
+        scan_workflow=workflow,
+        identity_provider=LocalIdentityProvider(),
+        application_repository=repository,
+    )
+    async with AsyncClient(
+        transport=ASGITransport(app=application), base_url="https://testserver"
+    ) as client:
+        csrf_headers = await sign_in(client)
+        scan_id, case_id = await _approval_ready_case(client, csrf_headers)
+
+        before = await client.get(f"/api/v1/scans/{scan_id}", headers=csrf_headers)
+        assert before.json()["results"][0]["status"] == "succeeded"
+
+        record = await repository.get_case(CaseId(Environment.DEV, case_id))
+        assert record is not None
+        drafted = replace(
+            record,
+            revision=record.revision.next(),
+            status="pending_approval",
+            draft=DraftRecord(
+                po_id=5,
+                write_date="2026-08-20 10:00:00",
+                state="draft",
+                partner_id=7,
+                currency_id=1,
+                amount_total=Decimal("192.00"),
+            ),
+        )
+        await repository.update_case(
+            drafted,
+            expected_revision=record.revision,
+            expires_at=UtcTimestamp(datetime.now(tz=UTC)),
+        )
+
+        after = await client.get(f"/api/v1/scans/{scan_id}", headers=csrf_headers)
+
+    after_body = after.json()
+    assert after_body["results"][0]["status"] == "pending_approval"
+    assert after_body["outcome_counts"] == {"pending_approval": 1}
+
+
+@pytest.mark.anyio
 async def test_concurrent_refinement_attempts_conflict() -> None:
     """A second writer racing the same expected_revision loses, deterministically.
 

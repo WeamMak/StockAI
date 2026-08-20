@@ -3170,6 +3170,29 @@ T28/T29 can consume one case's validated recommendation exactly as before.
 - [ ] **Step 6: Verify restart-safe behavior.** Run focused tests, real MCP
   transport, real Odoo dev creation, process restart/resume, and release smoke.
 
+**Pre-existing bug found and fixed alongside Step 5 (2026-08-20):**
+`ScanRecord.case_summaries` is written once, when a scan finishes, and was
+never refreshed afterward -- predates T28 (`refine_case`'s
+`_run_refinement` already only updated the individual `CaseRecord`, never
+the parent scan), but the new `pending_approval` status made the resulting
+staleness far more visible: the Scan Detail page (`GET
+/api/v1/scans/{scan_id}`) could show `approval_ready` forever for a case
+that had since gained a draft, while the Home page's "Recent
+recommendations" (always derived live from the current `CaseRecord`)
+correctly showed `pending_approval` for the exact same case. Fixed by
+making `ScanService.get_scan` re-derive `results` live via
+`list_cases(scan_id=...)` instead of trusting the stored snapshot
+(`_live_case_summaries`/`_live_case_summary` in `api/services/scans.py`);
+`_live_case_summary` also closes a related gap where the existing
+`_summarize_record` (designed for the cross-scan recent-cases list, where
+dropping a product-less early failure is acceptable) would have silently
+excluded a case from its own scan's results if it failed before any
+evidence was gathered. `list_scans()` (the bulk scan-history list) still
+uses the stored snapshot -- a live per-case lookup for every scan in a list
+would be N+1-expensive, and that list doesn't surface the same staleness
+prominently. Verified with a new regression test asserting `get_scan`
+reflects a case's status change made after the scan's own completion.
+
 **Dependencies:** T27C, `feature/bounded-case-refinement` (merged to `main`
 at `84a9d87`), and the `no-valid-offer-improvements` sub-project (same merge;
 touches only the `no_valid_offer` path and does not otherwise affect this
