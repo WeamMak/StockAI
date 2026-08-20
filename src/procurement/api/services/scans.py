@@ -328,6 +328,8 @@ class ScanService:
                 error_code=ErrorCode.REFINEMENT_LIMIT_REACHED,
                 safe_message="This case has reached its refinement limit.",
             )
+        assert record.result.product_name is not None
+        product_name = record.result.product_name
         running_at = UtcTimestamp(datetime.now(tz=UTC))
         running = replace(
             record,
@@ -335,6 +337,7 @@ class ScanService:
             status=ScanStatus.RUNNING.value,
             started_at=running_at,
             updated_at=running_at,
+            result=None,
         )
         try:
             running = await self._repository.update_case(
@@ -348,21 +351,22 @@ class ScanService:
                 safe_message="This case was already updated by another request.",
             ) from error
         await self._append_audit(running)
-        task = asyncio.create_task(self._run_refinement(running, note=note))
+        task = asyncio.create_task(
+            self._run_refinement(running, note=note, product_name=product_name)
+        )
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
         return self._snapshot(running)
 
-    async def _run_refinement(self, running: CaseRecord, *, note: str) -> None:
+    async def _run_refinement(
+        self, running: CaseRecord, *, note: str, product_name: str
+    ) -> None:
         assert running.candidate_snapshot is not None
-        assert running.result is not None
-        assert running.result.product_id is not None
-        assert running.result.product_name is not None
         scan_id, _, product_id = running.case_id.value.partition(":")
         snapshot = running.candidate_snapshot
         candidate = ReplenishmentCandidate(
             product_id=product_id,
-            product_name=running.result.product_name,
+            product_name=product_name,
             category_id=snapshot.category_id,
             reorder_minimum=snapshot.reorder_minimum,
             reorder_maximum=snapshot.reorder_maximum,

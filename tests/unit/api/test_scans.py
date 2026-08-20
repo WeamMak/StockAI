@@ -361,6 +361,38 @@ async def test_a_completed_case_persists_its_candidate_snapshot() -> None:
 
 
 @pytest.mark.anyio
+async def test_refine_case_immediate_response_has_no_stale_result() -> None:
+    """The 202 response for a freshly reserved refinement must satisfy the
+    queued/running invariant the frontend enforces: no result while running.
+    Refining a case whose prior run already populated `result` must clear it
+    on the immediate response, not just on the eventual terminal one.
+    """
+
+    workflow = SuccessfulWorkflow()
+    application = create_app(
+        scan_workflow=workflow,
+        identity_provider=LocalIdentityProvider(),
+    )
+    async with AsyncClient(
+        transport=ASGITransport(app=application), base_url="https://testserver"
+    ) as client:
+        csrf_headers = await sign_in(client)
+        scan_id, case_id = await _approval_ready_case(client, csrf_headers)
+
+        refined = await client.post(
+            f"/api/v1/scans/{scan_id}/cases/{case_id}/refine",
+            headers=csrf_headers,
+            json={"note": "Prioritize delivery speed this time."},
+        )
+
+    body = refined.json()
+    assert refined.status_code == 202
+    assert body["status"] == "running"
+    assert body["result"] is None
+    assert body["refinement_count"] == 0
+
+
+@pytest.mark.anyio
 async def test_refine_case_reruns_the_workflow_with_a_fresh_thread_id() -> None:
     workflow = RefinableWorkflow()
     repository = InMemoryApplicationRepository(environment=Environment.DEV)

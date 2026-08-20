@@ -332,6 +332,38 @@ async def test_revisioned_update_uses_an_optimistic_condition() -> None:
 
 
 @pytest.mark.anyio
+async def test_update_removes_a_result_that_no_longer_applies() -> None:
+    """A refinement clears result to reserve the running slot; DynamoDB must drop
+    the stale attribute rather than leaving a previous successful result in place
+    underneath the new running status.
+    """
+
+    client = RecordingDynamoClient()
+    repository = DynamoApplicationRepository(
+        client=client,
+        table_name=TABLE_NAME,
+        environment=Environment.DEV,
+    )
+    client.queue(
+        "update_item",
+        {"Attributes": _case_item(revision=2, status="running")},
+    )
+
+    await repository.update_case(
+        _record(revision=2, status="running"),
+        expected_revision=Revision(1),
+        expires_at=EXPIRES_AT,
+    )
+
+    request = client.calls[0][1]
+    assert "#result" in request["ExpressionAttributeNames"]
+    assert request["ExpressionAttributeNames"]["#result"] == "result"
+    assert ":result" not in request["ExpressionAttributeValues"]
+    assert "REMOVE" in request["UpdateExpression"]
+    assert "#result" in request["UpdateExpression"].split("REMOVE", 1)[1]
+
+
+@pytest.mark.anyio
 async def test_stale_revision_is_a_stable_repository_conflict() -> None:
     client = RecordingDynamoClient()
     repository = DynamoApplicationRepository(
