@@ -16,9 +16,23 @@ from botocore.config import Config  # type: ignore[import-untyped]
 from botocore.exceptions import ClientError  # type: ignore[import-untyped]
 
 from procurement.domain.audit import AuditEvent
+from procurement.domain.decisions import ApprovalRecord as ManagerApprovalRecord
+from procurement.domain.decisions import (
+    DecisionId,
+    DecisionRecord,
+    DecisionText,
+    DecisionType,
+    RejectionRecord,
+)
 from procurement.domain.identifiers import CaseId, Environment, Revision, ScanId
 from procurement.domain.models import UtcTimestamp
 from procurement.domain.policy.evidence import procurement_evidence_from_dict
+from procurement.domain.policy.preferences import (
+    AppliedPreferences,
+    OfferPremiumResult,
+    preference_from_dict,
+)
+from procurement.ports.decisions import DecisionConflictError, DecisionCreateResult
 from procurement.ports.repositories import (
     ApplicationRepository,
     ApprovalRecord,
@@ -52,6 +66,7 @@ _OPTIONAL_CASE_ATTRIBUTES = frozenset(
         "error",
         "candidate_snapshot",
         "draft",
+        "workflow_thread_id",
     }
 )
 
@@ -419,6 +434,95 @@ class DynamoApplicationRepository(ApplicationRepository):
             approved_at=UtcTimestamp.from_value(self._string(item, "approved_at")),
         )
 
+    async def create_decision(
+        self,
+        record: DecisionRecord,
+        *,
+        retention_expires_at: UtcTimestamp,
+    ) -> DecisionCreateResult:
+        self._validate_decision(record)
+        self._validate_expiry(retention_expires_at)
+        fingerprint = self._decision_fingerprint(record)
+        guard_source = (
+            f"{record.case_id.value}\x1f{record.po_id}\x1f{record.po_write_date}"
+        )
+        guard_digest = hashlib.sha256(guard_source.encode()).hexdigest()
+        idempotency_digest = hashlib.sha256(record.idempotency_key.encode()).hexdigest()
+        decision_item = self._decision_item(
+            record,
+            retention_expires_at=retention_expires_at,
+            fingerprint=fingerprint,
+        )
+        request = {
+            "TransactItems": [
+                {
+                    "Put": {
+                        "TableName": self._table_name,
+                        "Item": decision_item,
+                        "ConditionExpression": _CONDITIONAL_CREATE,
+                    }
+                },
+                {
+                    "Put": {
+                        "TableName": self._table_name,
+                        "Item": {
+                            "PK": {"S": self._partition_key},
+                            "SK": {"S": f"DECISION_GUARD#{guard_digest}"},
+                            "entity_type": {"S": "decision_guard"},
+                            "decision_id": {"S": record.decision_id.value},
+                            "ttl": self._ttl(retention_expires_at),
+                        },
+                        "ConditionExpression": _CONDITIONAL_CREATE,
+                    }
+                },
+                {
+                    "Put": {
+                        "TableName": self._table_name,
+                        "Item": {
+                            "PK": {"S": self._partition_key},
+                            "SK": {
+                                "S": f"DECISION_IDEMPOTENCY#{idempotency_digest}"
+                            },
+                            "entity_type": {"S": "decision_idempotency"},
+                            "decision_id": {"S": record.decision_id.value},
+                            "fingerprint": {"S": fingerprint},
+                            "ttl": self._ttl(retention_expires_at),
+                        },
+                        "ConditionExpression": _CONDITIONAL_CREATE,
+                    }
+                },
+            ]
+        }
+        try:
+            self._client.transact_write_items(**request)
+        except ClientError as error:
+            if self._error_code(error) != "TransactionCanceledException":
+                raise
+            existing = await self.get_decision(record.decision_id)
+            if existing == record:
+                return DecisionCreateResult(record=existing, created=False)
+            raise DecisionConflictError(
+                "Another manager decision already won."
+            ) from None
+        return DecisionCreateResult(record=record, created=True)
+
+    async def get_decision(self, decision_id: DecisionId) -> DecisionRecord | None:
+        if (
+            not isinstance(decision_id, DecisionId)
+            or decision_id.environment is not self._environment
+        ):
+            raise ValueError("decision belongs to another environment")
+        response = self._client.get_item(
+            TableName=self._table_name,
+            Key={
+                "PK": {"S": self._partition_key},
+                "SK": {"S": f"DECISION#{decision_id.value}"},
+            },
+            ConsistentRead=True,
+        )
+        item = cast(Mapping[str, Any] | None, response.get("Item"))
+        return self._decision_from_item(item) if item is not None else None
+
     async def append_audit(
         self,
         event: AuditEvent,
@@ -457,6 +561,8 @@ class DynamoApplicationRepository(ApplicationRepository):
                     sort_keys=True,
                 )
             }
+        if event.decision_id is not None:
+            item["decision_id"] = {"S": event.decision_id}
         try:
             self._client.put_item(
                 TableName=self._table_name,
@@ -467,6 +573,28 @@ class DynamoApplicationRepository(ApplicationRepository):
             if self._error_code(error) == "ConditionalCheckFailedException":
                 raise ImmutableRecordError("The audit event already exists.") from None
             raise
+
+    async def list_audit(
+        self,
+        case_id: CaseId,
+        *,
+        limit: int,
+    ) -> tuple[AuditEvent, ...]:
+        self._validate_case_id(case_id)
+        if type(limit) is not int or not 1 <= limit <= MAX_PAGE_SIZE:
+            raise ValueError("audit limit must be between 1 and 100")
+        response = self._client.query(
+            TableName=self._table_name,
+            KeyConditionExpression="PK = :environment AND begins_with(SK, :prefix)",
+            ExpressionAttributeValues={
+                ":environment": {"S": self._partition_key},
+                ":prefix": {"S": f"AUDIT#{case_id.value}#"},
+            },
+            ScanIndexForward=True,
+            Limit=limit,
+        )
+        items = cast(list[Mapping[str, Any]], response.get("Items", []))
+        return tuple(self._audit_from_item(item) for item in items)
 
     async def put_login_transaction(self, record: LoginTransactionRecord) -> None:
         self._validate_digest(record.transaction_id_hash, name="login transaction")
@@ -621,6 +749,251 @@ class DynamoApplicationRepository(ApplicationRepository):
         if existing is None:
             raise IdempotencyConflictError("The idempotent scan is unavailable.")
         return ScanCreateResult(record=existing, created=False)
+
+    @staticmethod
+    def _decision_fingerprint(record: DecisionRecord) -> str:
+        payload: dict[str, object] = {
+            "decision_id": record.decision_id.value,
+            "decision_type": record.decision_type.value,
+            "case_id": record.case_id.value,
+            "manager_subject": record.manager_subject,
+            "manager_role": record.manager_role,
+            "case_revision": record.case_revision.value,
+            "po_id": record.po_id,
+            "po_write_date": record.po_write_date,
+            "po_state": record.po_state,
+            "partner_id": record.partner_id,
+            "currency_id": record.currency_id,
+            "amount_total": format(record.amount_total, "f"),
+            "evidence_digest": record.evidence_digest,
+            "idempotency_key": record.idempotency_key,
+            "decided_at": record.decided_at.value.isoformat(),
+        }
+        if isinstance(record, ManagerApprovalRecord):
+            payload.update(
+                {
+                    "offer_id": record.offer_id,
+                    "vendor_id": record.vendor_id,
+                    "quantity": format(record.quantity, "f"),
+                    "unit_price": format(record.unit_price, "f"),
+                    "currency": record.currency,
+                    "normalized_cost": format(record.normalized_cost, "f"),
+                    "budget_status": record.budget_status,
+                    "budget_amount": format(record.budget_amount, "f"),
+                    "confirmed_commitment": format(
+                        record.confirmed_commitment, "f"
+                    ),
+                    "remaining_before": format(record.remaining_before, "f"),
+                    "remaining_after": format(record.remaining_after, "f"),
+                    "overage": format(record.overage, "f"),
+                    "exception_required": record.exception_required,
+                    "budget_exception": record.budget_exception,
+                    "justification": (
+                        record.justification.value
+                        if record.justification is not None
+                        else None
+                    ),
+                    "authorization_expires_at": record.expires_at.value.isoformat(),
+                }
+            )
+        else:
+            payload["reason"] = record.reason.value
+        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(canonical.encode()).hexdigest()
+
+    def _decision_item(
+        self,
+        record: DecisionRecord,
+        *,
+        retention_expires_at: UtcTimestamp,
+        fingerprint: str,
+    ) -> dict[str, Any]:
+        item: dict[str, Any] = {
+            "PK": {"S": self._partition_key},
+            "SK": {"S": f"DECISION#{record.decision_id.value}"},
+            "entity_type": {"S": "decision"},
+            "decision_id": {"S": record.decision_id.value},
+            "decision_type": {"S": record.decision_type.value},
+            "case_id": {"S": record.case_id.value},
+            "manager_subject": {"S": record.manager_subject},
+            "manager_role": {"S": record.manager_role},
+            "case_revision": {"N": str(record.case_revision.value)},
+            "po_id": {"N": str(record.po_id)},
+            "po_write_date": {"S": record.po_write_date},
+            "po_state": {"S": record.po_state},
+            "partner_id": {"N": str(record.partner_id)},
+            "currency_id": {"N": str(record.currency_id)},
+            "amount_total": {"S": format(record.amount_total, "f")},
+            "evidence_digest": {"S": record.evidence_digest},
+            "idempotency_key": {"S": record.idempotency_key},
+            "decided_at": {"S": record.decided_at.value.isoformat()},
+            "fingerprint": {"S": fingerprint},
+            "ttl": self._ttl(retention_expires_at),
+        }
+        if isinstance(record, ManagerApprovalRecord):
+            item.update(
+                {
+                    "offer_id": {"S": record.offer_id},
+                    "vendor_id": {"S": record.vendor_id},
+                    "quantity": {"S": format(record.quantity, "f")},
+                    "unit_price": {"S": format(record.unit_price, "f")},
+                    "currency": {"S": record.currency},
+                    "normalized_cost": {"S": format(record.normalized_cost, "f")},
+                    "budget_status": {"S": record.budget_status},
+                    "budget_amount": {"S": format(record.budget_amount, "f")},
+                    "confirmed_commitment": {
+                        "S": format(record.confirmed_commitment, "f")
+                    },
+                    "remaining_before": {
+                        "S": format(record.remaining_before, "f")
+                    },
+                    "remaining_after": {"S": format(record.remaining_after, "f")},
+                    "overage": {"S": format(record.overage, "f")},
+                    "exception_required": {"BOOL": record.exception_required},
+                    "budget_exception": {"BOOL": record.budget_exception},
+                    "authorization_expires_at": {
+                        "S": record.expires_at.value.isoformat()
+                    },
+                }
+            )
+            if record.justification is not None:
+                item["justification"] = {"S": record.justification.value}
+        else:
+            item["reason"] = {"S": record.reason.value}
+        return item
+
+    def _decision_from_item(self, item: Mapping[str, Any]) -> DecisionRecord:
+        decision_id = DecisionId(
+            self._environment, self._string(item, "decision_id")
+        )
+        case_id = CaseId(self._environment, self._string(item, "case_id"))
+        manager_subject = self._string(item, "manager_subject")
+        manager_role = self._string(item, "manager_role")
+        case_revision = Revision(self._number(item, "case_revision"))
+        po_id = self._number(item, "po_id")
+        po_write_date = self._string(item, "po_write_date")
+        po_state = self._string(item, "po_state")
+        partner_id = self._number(item, "partner_id")
+        currency_id = self._number(item, "currency_id")
+        amount_total = Decimal(self._string(item, "amount_total"))
+        evidence_digest = self._string(item, "evidence_digest")
+        idempotency_key = self._string(item, "idempotency_key")
+        decided_at = UtcTimestamp.from_value(self._string(item, "decided_at"))
+        decision_type = DecisionType(self._string(item, "decision_type"))
+        if decision_type is DecisionType.REJECT:
+            return RejectionRecord(
+                decision_id=decision_id,
+                case_id=case_id,
+                manager_subject=manager_subject,
+                manager_role=manager_role,
+                case_revision=case_revision,
+                po_id=po_id,
+                po_write_date=po_write_date,
+                po_state=po_state,
+                partner_id=partner_id,
+                currency_id=currency_id,
+                amount_total=amount_total,
+                reason=DecisionText(self._string(item, "reason")),
+                evidence_digest=evidence_digest,
+                idempotency_key=idempotency_key,
+                decided_at=decided_at,
+            )
+        justification = (
+            DecisionText(self._string(item, "justification"))
+            if "justification" in item
+            else None
+        )
+        return ManagerApprovalRecord(
+            decision_id=decision_id,
+            case_id=case_id,
+            manager_subject=manager_subject,
+            manager_role=manager_role,
+            case_revision=case_revision,
+            po_id=po_id,
+            po_write_date=po_write_date,
+            po_state=po_state,
+            partner_id=partner_id,
+            currency_id=currency_id,
+            amount_total=amount_total,
+            offer_id=self._string(item, "offer_id"),
+            vendor_id=self._string(item, "vendor_id"),
+            quantity=Decimal(self._string(item, "quantity")),
+            unit_price=Decimal(self._string(item, "unit_price")),
+            currency=self._string(item, "currency"),
+            normalized_cost=Decimal(self._string(item, "normalized_cost")),
+            budget_status=self._string(item, "budget_status"),
+            budget_amount=Decimal(self._string(item, "budget_amount")),
+            confirmed_commitment=Decimal(
+                self._string(item, "confirmed_commitment")
+            ),
+            remaining_before=Decimal(self._string(item, "remaining_before")),
+            remaining_after=Decimal(self._string(item, "remaining_after")),
+            overage=Decimal(self._string(item, "overage")),
+            exception_required=bool(item["exception_required"]["BOOL"]),
+            budget_exception=bool(item["budget_exception"]["BOOL"]),
+            justification=justification,
+            evidence_digest=evidence_digest,
+            idempotency_key=idempotency_key,
+            decided_at=decided_at,
+            expires_at=UtcTimestamp.from_value(
+                self._string(item, "authorization_expires_at")
+            ),
+        )
+
+    def _audit_from_item(self, item: Mapping[str, Any]) -> AuditEvent:
+        preferences: AppliedPreferences | None = None
+        if "preferences" in item:
+            raw = json.loads(self._string(item, "preferences"))
+            profile_keys = {
+                "profile_id",
+                "company_id",
+                "category_id",
+                "product_id",
+                "scope",
+                "scope_id",
+                "revision",
+                "ordered_criteria",
+                "max_price_premium_percent",
+                "enforcement_mode",
+                "precedence_source",
+            }
+            profile = preference_from_dict(
+                {key: raw[key] for key in profile_keys}
+            )
+            preferences = AppliedPreferences(
+                profile=profile,
+                cheapest_eligible_cost=Decimal(raw["cheapest_eligible_cost"]),
+                offer_results=tuple(
+                    OfferPremiumResult(
+                        offer_id=value["offer_id"],
+                        premium_percent=Decimal(value["premium_percent"]),
+                        exceeds_cap=value["exceeds_cap"],
+                        outcome=value["outcome"],
+                    )
+                    for value in raw["offer_results"]
+                ),
+            )
+        return AuditEvent(
+            event_id=self._string(item, "event_id"),
+            case_id=CaseId(self._environment, self._string(item, "case_id")),
+            event_type=self._string(item, "event_type"),
+            actor_id=self._string(item, "actor_id"),
+            occurred_at=UtcTimestamp.from_value(self._string(item, "occurred_at")),
+            correlation_id=self._string(item, "correlation_id"),
+            source_revision=Revision(self._number(item, "source_revision")),
+            outcome=self._string(item, "outcome"),
+            evidence_digest=(
+                self._string(item, "evidence_digest")
+                if "evidence_digest" in item
+                else None
+            ),
+            preferences=preferences,
+            decision_id=(
+                self._string(item, "decision_id")
+                if "decision_id" in item
+                else None
+            ),
+        )
 
     def _scan_item(
         self,
@@ -861,6 +1234,9 @@ class DynamoApplicationRepository(ApplicationRepository):
                 }
             }
         values["refinement_count"] = {"N": str(record.refinement_count)}
+        if record.workflow_thread_id is not None:
+            self._validate_key(record.workflow_thread_id, name="workflow thread ID")
+            values["workflow_thread_id"] = {"S": record.workflow_thread_id}
         if record.draft is not None:
             draft = record.draft
             values["draft"] = {
@@ -1033,6 +1409,11 @@ class DynamoApplicationRepository(ApplicationRepository):
                 if "refinement_count" in item
                 else 0
             ),
+            workflow_thread_id=(
+                self._string(item, "workflow_thread_id")
+                if "workflow_thread_id" in item
+                else None
+            ),
             draft=(
                 DraftRecord(
                     po_id=self._number(draft_item, "po_id"),
@@ -1081,6 +1462,10 @@ class DynamoApplicationRepository(ApplicationRepository):
         if not isinstance(record, ScanRecord):
             raise ValueError("record must be a ScanRecord")
         self._validate_scan_id(record.scan_id)
+
+    def _validate_decision(self, record: DecisionRecord) -> None:
+        if record.case_id.environment is not self._environment:
+            raise ValueError("decision belongs to another environment")
 
     def _validate_scan_id(self, scan_id: ScanId) -> None:
         if (

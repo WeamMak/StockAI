@@ -11,9 +11,11 @@ from typing import Any
 import pytest
 from botocore.exceptions import ClientError  # type: ignore[import-untyped]
 from tests.unit.domain.policy.test_evidence import _evidence
+from tests.unit.ports.test_decisions import _approval
 
 from procurement.adapters.aws.dynamodb import DynamoApplicationRepository
 from procurement.domain.audit import AuditEvent
+from procurement.domain.decisions import DecisionId
 from procurement.domain.identifiers import CaseId, Environment, Revision
 from procurement.domain.models import UtcTimestamp
 from procurement.domain.policy.preferences import (
@@ -470,6 +472,59 @@ async def test_audit_append_is_immutable_and_retained_by_ttl() -> None:
     )
     with pytest.raises(ImmutableRecordError):
         await repository.append_audit(event, expires_at=EXPIRES_AT)
+
+
+@pytest.mark.anyio
+async def test_decision_create_is_atomic_and_strongly_readable() -> None:
+    client = RecordingDynamoClient()
+    repository = DynamoApplicationRepository(
+        client=client, table_name=TABLE_NAME, environment=Environment.DEV
+    )
+    approval = _approval()
+
+    created = await repository.create_decision(
+        approval, retention_expires_at=EXPIRES_AT
+    )
+
+    assert created.created is True
+    request = client.calls[0][1]
+    puts = [item["Put"]["Item"] for item in request["TransactItems"]]
+    assert len(puts) == 3
+    assert puts[0]["SK"] == {"S": f"DECISION#{approval.decision_id.value}"}
+    assert puts[1]["SK"]["S"].startswith("DECISION_GUARD#")
+    assert puts[2]["SK"]["S"].startswith("DECISION_IDEMPOTENCY#")
+    assert all(
+        item["Put"]["ConditionExpression"]
+        == "attribute_not_exists(PK) AND attribute_not_exists(SK)"
+        for item in request["TransactItems"]
+    )
+
+    client.calls.clear()
+    client.queue("get_item", {"Item": puts[0]})
+    loaded = await repository.get_decision(
+        DecisionId(Environment.DEV, approval.decision_id.value)
+    )
+    assert loaded == approval
+    assert client.calls[0][1]["ConsistentRead"] is True
+
+
+@pytest.mark.anyio
+async def test_case_round_trip_keeps_refinement_draft_workflow_thread() -> None:
+    client = RecordingDynamoClient()
+    repository = DynamoApplicationRepository(
+        client=client, table_name=TABLE_NAME, environment=Environment.DEV
+    )
+    item = {
+        **_case_item(revision=3, status="pending_approval"),
+        "workflow_thread_id": {"S": f"{CASE_ID.value}:refine-2"},
+        "refinement_count": {"N": "2"},
+    }
+    client.queue("get_item", {"Item": item})
+
+    loaded = await repository.get_case(CASE_ID)
+
+    assert loaded is not None
+    assert loaded.workflow_thread_id == f"{CASE_ID.value}:refine-2"
 
 
 @pytest.mark.anyio

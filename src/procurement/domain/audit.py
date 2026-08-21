@@ -46,6 +46,7 @@ class AuditEvent:
     outcome: str
     evidence_digest: str | None = None
     preferences: AppliedPreferences | None = None
+    decision_id: str | None = None
 
     def __post_init__(self) -> None:
         for field, value in (
@@ -100,6 +101,8 @@ class AuditEvent:
                     ),
                 ),
             )
+        if self.decision_id is not None:
+            _validated_audit_text(self.decision_id, field="decision_id")
 
     @property
     def environment(self) -> Environment:

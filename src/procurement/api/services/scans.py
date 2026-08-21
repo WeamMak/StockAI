@@ -448,7 +448,9 @@ class ScanService:
                 )
             draft = self._interrupted_draft(state)
             terminal = (
-                self._apply_pending_draft(running, state, draft)
+                self._apply_pending_draft(
+                    running, state, draft, workflow_thread_id=thread_id
+                )
                 if draft is not None
                 else self._apply_result(running, state)
             )
@@ -657,7 +659,9 @@ class ScanService:
                 )
             draft = self._interrupted_draft(state)
             if draft is not None:
-                terminal = self._apply_pending_draft(running, state, draft)
+                terminal = self._apply_pending_draft(
+                    running, state, draft, workflow_thread_id=case_id_value
+                )
             elif state.get("skip_reason") is not None:
                 terminal = replace(running, status=ScanStatus.SKIPPED.value)
             else:
@@ -791,6 +795,8 @@ class ScanService:
         record: CaseRecord,
         state: ScanState,
         draft: DraftRecord,
+        *,
+        workflow_thread_id: str,
     ) -> CaseRecord:
         """Persist the paused case: a bound draft awaiting a manager decision.
 
@@ -808,6 +814,7 @@ class ScanService:
             status=ScanStatus.PENDING_APPROVAL.value,
             evidence=state.get("evidence", ()),
             draft=draft,
+            workflow_thread_id=workflow_thread_id,
             result=self._recommendation_record(result),
         )
 

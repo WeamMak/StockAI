@@ -60,3 +60,9 @@ def test_audit_event_requires_typed_case_revision_and_utc_time() -> None:
         _event(source_revision=1)
     with pytest.raises(DomainValidationError):
         _event(occurred_at=datetime(2026, 8, 9, 12, tzinfo=UTC))
+
+
+def test_audit_event_accepts_only_a_bounded_decision_reference() -> None:
+    assert _event(decision_id="decision-" + "a" * 64).decision_id is not None
+    with pytest.raises(DomainValidationError):
+        _event(decision_id="unsafe decision")
