@@ -6,16 +6,18 @@ from collections.abc import Mapping
 from decimal import Decimal
 from typing import Any
 
-from procurement.ports.erp import PurchaseOrderDraft
+from procurement.ports.erp import PurchaseOrderActionResult, PurchaseOrderDraft
 
 DRAFT_SNAPSHOT_FIELDS = (
     "id",
+    "name",
     "write_date",
     "state",
     "partner_id",
     "currency_id",
     "amount_total",
 )
+_PURCHASE_ORDER_STATES = frozenset({"draft", "sent", "purchase", "cancel"})
 
 
 class OdooDraftMappingError(Exception):
@@ -64,6 +66,60 @@ def purchase_order_draft_from_row(row: Mapping[str, Any]) -> PurchaseOrderDraft:
         raise OdooDraftMappingError(error) from None
     return PurchaseOrderDraft(
         po_id=po_id,
+        write_date=write_date,
+        state=state,
+        partner_id=partner_id,
+        currency_id=currency_id,
+        amount_total=amount_total,
+    )
+
+
+def purchase_order_action_result_from_row(
+    row: Mapping[str, Any],
+) -> PurchaseOrderActionResult:
+    """Map an Odoo read or StockAI add-on action response strictly."""
+
+    try:
+        po_id = row["id"]
+        if type(po_id) is not int or po_id <= 0:
+            raise ValueError("invalid purchase order id")
+        raw_reference = row.get("name")
+        if raw_reference is False or raw_reference is None:
+            po_reference = None
+        elif (
+            not isinstance(raw_reference, str)
+            or not raw_reference
+            or len(raw_reference) > 128
+        ):
+            raise ValueError("invalid purchase order reference")
+        else:
+            po_reference = raw_reference
+        write_date = row["write_date"]
+        if not isinstance(write_date, str) or not write_date:
+            raise ValueError("invalid write_date")
+        state = row["state"]
+        if state not in _PURCHASE_ORDER_STATES:
+            raise ValueError("invalid purchase order state")
+        raw_partner = row["partner_id"]
+        partner_id = (
+            raw_partner
+            if type(raw_partner) is int
+            else many2one(raw_partner)[0]
+        )
+        raw_currency = row["currency_id"]
+        currency_id = (
+            raw_currency
+            if type(raw_currency) is int
+            else many2one(raw_currency)[0]
+        )
+        if partner_id <= 0 or currency_id <= 0:
+            raise ValueError("invalid related record")
+        amount_total = _amount(row["amount_total"])
+    except (KeyError, TypeError, ValueError) as error:
+        raise OdooDraftMappingError(error) from None
+    return PurchaseOrderActionResult(
+        po_id=po_id,
+        po_reference=po_reference,
         write_date=write_date,
         state=state,
         partner_id=partner_id,
