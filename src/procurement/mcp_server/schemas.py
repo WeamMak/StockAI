@@ -278,9 +278,7 @@ class ApplyDecisionInput(BaseModel):
     model_config = _STRICT_MODEL_CONFIG
 
     environment: EnvironmentValue
-    decision_id: str = Field(
-        min_length=1, max_length=128, pattern=_IDENTIFIER_PATTERN
-    )
+    decision_id: str = Field(min_length=1, max_length=128, pattern=_IDENTIFIER_PATTERN)
     idempotency_key: str = Field(
         min_length=1, max_length=128, pattern=_IDENTIFIER_PATTERN
     )

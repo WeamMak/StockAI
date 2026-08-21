@@ -97,20 +97,14 @@ async def test_one_decision_wins_and_compatible_replay_is_idempotent() -> None:
     repository = InMemoryApplicationRepository(environment=Environment.DEV)
     approval = _approval()
 
-    first = await repository.create_decision(
-        approval, retention_expires_at=RETENTION
-    )
-    replay = await repository.create_decision(
-        approval, retention_expires_at=RETENTION
-    )
+    first = await repository.create_decision(approval, retention_expires_at=RETENTION)
+    replay = await repository.create_decision(approval, retention_expires_at=RETENTION)
 
     assert first == DecisionCreateResult(record=approval, created=True)
     assert replay == DecisionCreateResult(record=approval, created=False)
     assert await repository.get_decision(approval.decision_id) == approval
     with pytest.raises(DecisionConflictError):
-        await repository.create_decision(
-            _rejection(), retention_expires_at=RETENTION
-        )
+        await repository.create_decision(_rejection(), retention_expires_at=RETENTION)
 
 
 @pytest.mark.anyio

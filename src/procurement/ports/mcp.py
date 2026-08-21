@@ -198,10 +198,14 @@ class DecisionOutcome:
             DecisionType.APPROVE: ("confirmed", "purchase"),
             DecisionType.REJECT: ("cancelled", "cancel"),
         }[self.decision_type]
-        if self.outcome != "reconciliation_required" and (
-            self.outcome,
-            self.odoo_state,
-        ) != expected:
+        if (
+            self.outcome != "reconciliation_required"
+            and (
+                self.outcome,
+                self.odoo_state,
+            )
+            != expected
+        ):
             raise ValueError("decision outcome and Odoo state do not match")
         if type(self.po_id) is not int or self.po_id <= 0:
             raise ValueError("po_id must be positive")

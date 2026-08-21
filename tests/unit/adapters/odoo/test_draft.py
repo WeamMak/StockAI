@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import date
 from decimal import Decimal
@@ -304,9 +305,7 @@ async def test_action_calls_only_allowlisted_atomic_method_once(
             },
         )
 
-    adapter = OdooErpAdapter(
-        client=_client(httpx.MockTransport(respond)), company_id=7
-    )
+    adapter = OdooErpAdapter(client=_client(httpx.MockTransport(respond)), company_id=7)
 
     result = await adapter.apply_purchase_order_action_once(
         po_id=41, expected=_draft(), action=action
@@ -344,9 +343,7 @@ async def test_action_maps_odoo_422_to_permanent_stale_error() -> None:
         calls += 1
         return httpx.Response(422, json={"error": "private stale detail"})
 
-    adapter = OdooErpAdapter(
-        client=_client(httpx.MockTransport(respond)), company_id=7
-    )
+    adapter = OdooErpAdapter(client=_client(httpx.MockTransport(respond)), company_id=7)
 
     with pytest.raises(ApprovalStaleError) as raised:
         await adapter.apply_purchase_order_action_once(
@@ -369,15 +366,14 @@ async def test_action_maps_odoo_422_to_permanent_stale_error() -> None:
     ],
 )
 async def test_action_uncertain_response_is_ambiguous_and_never_retried(
-    respond: object,
+    respond: Callable[[httpx.Request], httpx.Response],
 ) -> None:
     calls = 0
 
     def counted(request: httpx.Request) -> httpx.Response:
         nonlocal calls
         calls += 1
-        assert callable(respond)
-        return respond(request)  # type: ignore[operator]
+        return respond(request)
 
     client = OdooJson2Client(
         base_url="https://odoo.example.invalid",
@@ -418,9 +414,7 @@ async def test_read_purchase_order_maps_supported_lifecycle_states() -> None:
             ],
         )
 
-    adapter = OdooErpAdapter(
-        client=_client(httpx.MockTransport(respond)), company_id=7
-    )
+    adapter = OdooErpAdapter(client=_client(httpx.MockTransport(respond)), company_id=7)
 
     results = [await adapter.read_purchase_order(po_id=41) for _ in range(4)]
 

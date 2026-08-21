@@ -572,9 +572,7 @@ async def test_approve_resume_routes_to_confirm_once() -> None:
         decisions=decisions,
         checkpointer=saver,
     )
-    config: RunnableConfig = {
-        "configurable": {"thread_id": "scan-001:product-101"}
-    }
+    config: RunnableConfig = {"configurable": {"thread_id": "scan-001:product-101"}}
 
     paused = await graph.ainvoke(
         {
@@ -615,9 +613,7 @@ async def test_reject_resume_routes_to_cancel_once() -> None:
         decisions=decisions,
         checkpointer=saver,
     )
-    config: RunnableConfig = {
-        "configurable": {"thread_id": "scan-001:product-101"}
-    }
+    config: RunnableConfig = {"configurable": {"thread_id": "scan-001:product-101"}}
 
     paused = await graph.ainvoke(
         {

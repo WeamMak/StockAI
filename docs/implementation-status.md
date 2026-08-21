@@ -261,6 +261,23 @@ Bit pod reached `1/1 Running` with zero restarts, and the `stockai-dev`
 Application reported `Synced` and `Healthy`. This completes T22. T23 and T24
 have not started.
 
+## T29 local implementation — 2026-08-21
+
+The manager decision lifecycle is implemented locally on
+`feature/t29-manager-decision-lifecycle`: immutable revision-bound approvals
+and rejections, exact LangGraph thread resume, independently validated MCP
+confirm/cancel actions, terminal case and audit projections, manager-only React
+controls, and bounded decision/action observability. Focused verification has
+passed strict Ruff and mypy, all 504 Python unit tests, all 65 React tests, all
+59 Kubernetes contract tests, and both real Streamable HTTP
+API→LangGraph→MCP integration tests. The
+localhost integration command required sandbox network permission. Docker is
+not available in this workspace, so strict Kubeconform plus the clean Odoo and
+DynamoDB Local contract suites remain pending. `actionlint` is also absent, so
+`make check` stops after its otherwise-green format, Ruff, mypy, ESLint, and
+architecture steps. No dev release, Argo reconciliation, live smoke, or
+production promotion has been performed.
+
 ## Evidence policy
 
 Only commands actually run successfully are recorded as passing. Generated

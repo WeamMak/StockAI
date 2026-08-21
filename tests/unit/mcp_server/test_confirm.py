@@ -12,7 +12,7 @@ from procurement.domain.decisions import DecisionId, DecisionRecord
 from procurement.domain.errors import ErrorCode
 from procurement.domain.identifiers import Environment
 from procurement.mcp_server.observability import create_mcp_metrics
-from procurement.mcp_server.schemas import ApplyDecisionInput
+from procurement.mcp_server.schemas import ApplyDecisionInput, PurchaseOrderActionOutput
 from procurement.mcp_server.tools.confirm import confirm_purchase_order
 from procurement.mcp_server.tools.create_draft import SafeMcpToolError
 from procurement.observability.logging import configure_json_logging
@@ -81,7 +81,7 @@ def _request(**overrides: object) -> ApplyDecisionInput:
 
 async def _confirm(
     *, reader: Reader, erp: Erp, request: ApplyDecisionInput | None = None
-):
+) -> PurchaseOrderActionOutput:
     return await confirm_purchase_order(
         request=request or _request(),
         decisions=reader,

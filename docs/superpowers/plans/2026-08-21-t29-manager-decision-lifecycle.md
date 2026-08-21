@@ -572,9 +572,12 @@ class DecisionOutcome:
     reconciled: bool
 ```
 
-Change `create_draft` so `decision_id = interrupt(payload)` is returned into
-state after resume. Add `load_decision`, `confirm`, and `cancel` nodes and route
-using the loaded typed record, never browser payload fields. Build the graph as:
+For a decision-enabled graph, place `interrupt(payload)` in `load_decision`,
+immediately after `create_draft`, so LangGraph resumes at the decision boundary
+without re-running draft creation. Retain the T28 `create_draft` interrupt only
+for legacy graphs constructed without a decision reader. Add `confirm` and
+`cancel` nodes and route using the loaded typed record, never browser payload
+fields. Build the graph as:
 
 ```text
 reason -> create_draft -> load_decision -> confirm -> END

@@ -230,9 +230,7 @@ class ErpPort(Protocol):
         example a timeout after Odoo may already have committed); the caller
         must search by origin before deciding whether to retry."""
 
-    async def read_purchase_order(
-        self, *, po_id: int
-    ) -> PurchaseOrderActionResult:
+    async def read_purchase_order(self, *, po_id: int) -> PurchaseOrderActionResult:
         """Read the current purchase-order lifecycle snapshot."""
 
     async def apply_purchase_order_action_once(

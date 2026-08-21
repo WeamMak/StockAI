@@ -102,15 +102,11 @@ def purchase_order_action_result_from_row(
             raise ValueError("invalid purchase order state")
         raw_partner = row["partner_id"]
         partner_id = (
-            raw_partner
-            if type(raw_partner) is int
-            else many2one(raw_partner)[0]
+            raw_partner if type(raw_partner) is int else many2one(raw_partner)[0]
         )
         raw_currency = row["currency_id"]
         currency_id = (
-            raw_currency
-            if type(raw_currency) is int
-            else many2one(raw_currency)[0]
+            raw_currency if type(raw_currency) is int else many2one(raw_currency)[0]
         )
         if partner_id <= 0 or currency_id <= 0:
             raise ValueError("invalid related record")

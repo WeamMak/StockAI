@@ -1108,9 +1108,7 @@ class OdooErpAdapter(ErpPort):
         except Exception as error:
             raise DraftWriteAmbiguousError(error) from None
 
-    async def read_purchase_order(
-        self, *, po_id: int
-    ) -> PurchaseOrderActionResult:
+    async def read_purchase_order(self, *, po_id: int) -> PurchaseOrderActionResult:
         """Read and strictly map one purchase-order lifecycle snapshot."""
 
         try:

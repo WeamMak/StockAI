@@ -261,9 +261,7 @@ class LocalFictionalErp(ErpPort):
             await asyncio.sleep(3_600)
         return _fictional_draft(command)
 
-    async def read_purchase_order(
-        self, *, po_id: int
-    ) -> PurchaseOrderActionResult:
+    async def read_purchase_order(self, *, po_id: int) -> PurchaseOrderActionResult:
         return PurchaseOrderActionResult(
             po_id=po_id,
             po_reference=f"P{po_id:05d}",
@@ -299,7 +297,9 @@ def _fictional_draft(command: PurchaseOrderDraftCommand) -> PurchaseOrderDraft:
         state="draft",
         partner_id=1,
         currency_id=1,
-        amount_total=command.quantity * command.unit_price,
+        amount_total=(command.quantity * command.unit_price).quantize(
+            Decimal("0.000001")
+        ),
     )
 
 
@@ -448,9 +448,7 @@ class LocalHttpFictionalErp(ErpPort):
 
         return _fictional_draft(command)
 
-    async def read_purchase_order(
-        self, *, po_id: int
-    ) -> PurchaseOrderActionResult:
+    async def read_purchase_order(self, *, po_id: int) -> PurchaseOrderActionResult:
         del po_id
         raise ErpUnavailableError(
             "The HTTP fake does not expose purchase-order actions."
@@ -583,8 +581,7 @@ def create_local_mcp_app(
         application_table=resolved.dynamodb_application_table,
         dynamodb_endpoint_url=resolved.dynamodb_endpoint_url,
         use_dynamodb=(
-            resolved.erp_mode == "odoo"
-            or resolved.dynamodb_endpoint_url is not None
+            resolved.erp_mode == "odoo" or resolved.dynamodb_endpoint_url is not None
         ),
     )
     if resolved.erp_mode == "odoo":

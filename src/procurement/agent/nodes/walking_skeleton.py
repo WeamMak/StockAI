@@ -671,9 +671,7 @@ class WalkingSkeletonNodes:
         if self.decisions is None:
             return None
         try:
-            decision_id = DecisionId(
-                state["environment"], state["manager_decision_id"]
-            )
+            decision_id = DecisionId(state["environment"], state["manager_decision_id"])
             return await self.decisions.get_decision(decision_id)
         except (DomainValidationError, KeyError, TypeError, ValueError):
             return None
