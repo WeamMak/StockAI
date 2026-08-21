@@ -34,12 +34,27 @@ def fail(
     logger: logging.Logger,
     started_at: float,
 ) -> NoReturn:
+    duration = perf_counter() - started_at
     metrics.observe_call(
         tool=tool_name,
         status="error",
-        duration_seconds=perf_counter() - started_at,
+        duration_seconds=duration,
         error_code=code,
     )
+    if tool_name in {"confirm_purchase_order", "cancel_draft_purchase_order"}:
+        metrics.observe_purchase_order_action(
+            action="confirm" if tool_name == "confirm_purchase_order" else "cancel",
+            result=(
+                "stale"
+                if code is ErrorCode.APPROVAL_STALE
+                else (
+                    "reconciliation_required"
+                    if code is ErrorCode.RECONCILIATION_REQUIRED
+                    else "error"
+                )
+            ),
+            duration_seconds=duration,
+        )
     log_event(
         logger,
         "mcp_tool_completed",
@@ -192,6 +207,12 @@ async def apply_decision_action(
         tool=tool_name,
         status="success",
         duration_seconds=perf_counter() - started_at,
+    )
+    metrics.observe_purchase_order_action(
+        action="confirm" if action is PurchaseOrderAction.CONFIRM else "cancel",
+        result="success",
+        duration_seconds=perf_counter() - started_at,
+        reconciled=was_reconciled,
     )
     log_event(
         logger,

@@ -69,6 +69,26 @@
       "targets": [{"expr": "histogram_quantile(0.95, sum by (le, trigger) (rate(procurement_scan_duration_seconds_bucket[15m])))", "legendFormat": "{{trigger}} p95", "refId": "A"}],
       "title": "Scan duration p95",
       "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "stockai-prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+      "id": 7,
+      "options": {"legend": {"displayMode": "hidden"}},
+      "targets": [{"expr": "sum(increase(procurement_manager_decisions_total{result=\"accepted\"}[1h])) - sum(increase(procurement_purchase_order_actions_total{result=\"success\"}[1h]))", "refId": "A"}],
+      "title": "Pending decisions",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "stockai-prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+      "id": 8,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom"}},
+      "targets": [{"expr": "histogram_quantile(0.95, sum by (le, decision) (rate(procurement_decision_completion_seconds_bucket[5m])))", "legendFormat": "{{decision}} p95", "refId": "A"}],
+      "title": "Decision completion latency",
+      "type": "timeseries"
     }
   ],
   "refresh": "30s",
