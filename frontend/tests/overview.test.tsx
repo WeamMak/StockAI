@@ -122,6 +122,14 @@ const RECENT_CASES = [
   },
 ];
 
+const CONFIRMED_RECENT_CASE = {
+  ...RECENT_CASES[0],
+  case_id: "scan-succeeded:product-confirmed",
+  product_id: "product-confirmed",
+  product_name: "Confirmed Fictional Component",
+  status: "confirmed",
+};
+
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -247,6 +255,27 @@ describe("OverviewPage", () => {
       "scan-succeeded",
       "scan-succeeded:product-101",
     );
+  });
+
+  it("shows terminal lifecycle status instead of the original recommendation outcome", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) =>
+        Promise.resolve(
+          url.startsWith("/api/v1/cases")
+            ? jsonResponse({ cases: [CONFIRMED_RECENT_CASE] })
+            : jsonResponse({ scans: [] }),
+        ),
+      ),
+    );
+
+    render(<OverviewPage onSelectScan={vi.fn()} onSelectCase={vi.fn()} />);
+
+    const panel = await screen.findByRole("region", {
+      name: "Recent recommendations",
+    });
+    expect(within(panel).getByText("Confirmed")).toBeInTheDocument();
+    expect(within(panel).queryByText("Approval ready")).not.toBeInTheDocument();
   });
 
   it("shows an empty state when there are no recent recommendations", async () => {
