@@ -51,7 +51,9 @@ describe("ManagerDecisionPanel", () => {
     const user = userEvent.setup();
     render(<ManagerDecisionPanel session={MANAGER} caseDetail={PENDING_CASE} />);
 
-    const approve = screen.getByRole("button", { name: "Approve and confirm" });
+    expect(screen.queryByLabelText("Justification")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Approve" }));
+    const approve = screen.getByRole("button", { name: "Confirm approval" });
     expect(approve).toBeDisabled();
     await user.click(
       screen.getByRole("checkbox", { name: /approve budget exception/i }),
@@ -61,6 +63,23 @@ describe("ManagerDecisionPanel", () => {
       "Avoid a projected stockout.",
     );
     expect(approve).toBeEnabled();
+  });
+
+  it("removes duplicated bindings and discloses rejection only on demand", async () => {
+    const user = userEvent.setup();
+    render(<ManagerDecisionPanel session={MANAGER} caseDetail={PENDING_CASE} />);
+
+    expect(screen.queryByText("Evidence digest", { selector: "dt" })).toBeNull();
+    expect(screen.queryByLabelText("Rejection reason")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Reject" }));
+    expect(screen.getByLabelText("Rejection reason")).toHaveFocus();
+    expect(
+      screen.getByRole("button", { name: "Confirm rejection" }),
+    ).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "Cancel rejection" }));
+    expect(screen.queryByLabelText("Rejection reason")).toBeNull();
   });
 
   it("does not render decision controls for an officer", () => {

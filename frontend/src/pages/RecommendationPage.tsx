@@ -348,6 +348,7 @@ export function RecommendationPage({
               </p>
               <p>
                 Draft PO #{scan.draft.po_id} ·{" "}
+                Revision {scan.draft.write_date} ·{" "}
                 {formatCurrency(scan.draft.amount_total, "USD")}
               </p>
             </section>
@@ -366,11 +367,6 @@ export function RecommendationPage({
               </p>
             </section>
           ) : null}
-          <ManagerDecisionPanel
-            session={session}
-            caseDetail={scan}
-            onAccepted={() => setRefinementNonce((value) => value + 1)}
-          />
           <RecommendationSummary scan={scan} evidence={findRecommendedEvidence(scan)} />
           {findRecommendedEvidence(scan) ? (
             <ProcurementEvidence
@@ -403,6 +399,11 @@ export function RecommendationPage({
           {scan.status !== "succeeded" ? (
             <AuditTimeline caseId={caseId} refreshKey={refinementNonce} />
           ) : null}
+          <ManagerDecisionPanel
+            session={session}
+            caseDetail={scan}
+            onAccepted={() => setRefinementNonce((value) => value + 1)}
+          />
         </>
       ) : (
         <ErrorState

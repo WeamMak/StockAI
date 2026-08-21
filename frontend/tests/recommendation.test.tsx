@@ -614,10 +614,49 @@ describe("RecommendationPage", () => {
 
     expect(await screen.findByText("Pending manager approval")).toBeInTheDocument();
     expect(screen.getByText(/Draft PO #5/)).toBeInTheDocument();
+    expect(screen.getByText(/Revision 2026-08-20 10:00:00/)).toBeInTheDocument();
     expect(screen.queryByLabelText("Refinement note")).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Create draft and send to manager" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("places manager actions after the audit as the final page section", async () => {
+    const pending = {
+      ...BASE_SCAN,
+      status: "pending_approval",
+      draft: {
+        po_id: 41,
+        write_date: "2026-08-21 12:00:00",
+        state: "draft",
+        partner_id: 7,
+        currency_id: 1,
+        amount_total: "437.500000",
+      },
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(pending))
+      .mockResolvedValueOnce(
+        jsonResponse({ case_id: pending.case_id, events: [] }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <RecommendationPage
+        scanId="scan-101"
+        caseId="scan-101:product-101"
+        session={{ user_id: "manager-1", email: "manager@test", role: "manager" }}
+        onBack={vi.fn()}
+      />,
+    );
+
+    const audit = await screen.findByRole("heading", { name: "Decision audit" });
+    const actions = screen.getByRole("heading", { name: "Manager actions" });
+    expect(
+      audit.compareDocumentPosition(actions) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(actions.closest("section")).toBe(document.querySelector(".page-stack > :last-child"));
   });
 
   it("stops scheduled polling when the page unmounts", async () => {

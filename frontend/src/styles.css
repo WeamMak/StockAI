@@ -134,53 +134,61 @@ h2 {
   background: #ffffff;
 }
 
-.decision-binding {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
-  gap: 0.8rem;
+.manager-actions-card {
+  padding: clamp(1.2rem, 2.5vw, 1.65rem);
+  border-color: #bdc9e7;
+  background: linear-gradient(135deg, #ffffff 0%, #f5f7ff 100%);
 }
 
-.decision-binding div {
-  min-width: 0;
-  padding: 0.8rem;
-  border: 1px solid var(--border);
-  border-radius: 0.6rem;
+.manager-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2rem;
 }
 
-.decision-binding dt {
+.manager-actions__copy h2 {
+  margin-bottom: 0.35rem;
+}
+
+.manager-actions__copy p:last-child {
+  max-width: 50rem;
+  margin-bottom: 0;
   color: var(--muted);
-  font-size: 0.78rem;
-  font-weight: 700;
-  text-transform: uppercase;
 }
 
-.decision-binding dd {
-  margin: 0.3rem 0 0;
-  overflow-wrap: anywhere;
+.manager-actions__buttons,
+.manager-actions__form-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
 }
 
-.decision-forms {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
-  gap: 1rem;
-  margin-top: 1.25rem;
+.manager-actions__form {
+  max-width: 44rem;
+  margin-top: 1.2rem;
+  padding-top: 1.2rem;
+  border-top: 1px solid var(--border);
 }
 
-.decision-forms section {
-  padding: 1rem;
-  border: 1px solid var(--border);
-  border-radius: 0.75rem;
+.manager-actions__form h3 {
+  margin-bottom: 0.8rem;
 }
 
-.decision-forms label,
-.decision-forms textarea {
+.manager-actions__form label,
+.manager-actions__form textarea {
   display: block;
   width: 100%;
 }
 
-.decision-forms textarea {
+.manager-actions__form textarea {
   min-height: 6rem;
   margin: 0.45rem 0 0.8rem;
+  padding: 0.7rem;
+  border: 1px solid #aebbd1;
+  border-radius: 0.55rem;
+  font: inherit;
+  resize: vertical;
 }
 
 .decision-checkbox {
@@ -192,6 +200,44 @@ h2 {
 
 .decision-checkbox input {
   width: auto;
+}
+
+.danger-button,
+.text-button {
+  cursor: pointer;
+  border-radius: 0.55rem;
+  font-weight: 750;
+}
+
+.danger-button {
+  min-width: 8rem;
+  padding: 0.76rem 1.1rem;
+  border: 1px solid #dc2626;
+  color: #b91c1c;
+  background: #ffffff;
+}
+
+.danger-button:hover:not(:disabled) {
+  color: #ffffff;
+  background: #b91c1c;
+}
+
+.text-button {
+  padding: 0.76rem 0.4rem;
+  border: 0;
+  color: #475569;
+  background: transparent;
+}
+
+.text-button:hover:not(:disabled) {
+  color: #1e3a8a;
+  text-decoration: underline;
+}
+
+.danger-button:disabled,
+.text-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .audit-timeline ol {
@@ -1670,6 +1716,18 @@ h2 {
   .page-heading,
   .result-heading {
     flex-direction: column;
+  }
+
+  .manager-actions,
+  .manager-actions__buttons,
+  .manager-actions__form-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .danger-button,
+  .text-button {
+    width: 100%;
   }
 
   .draft-submission-panel {
