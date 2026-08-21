@@ -155,9 +155,7 @@ def test_required_dashboard_panels_and_queries_are_present() -> None:
         for panel in dashboards["agent-health.json"]["panels"]
         if panel["title"] == "Pending decisions"
     )
-    pending_query = " ".join(
-        target["expr"] for target in pending_decisions["targets"]
-    )
+    pending_query = " ".join(target["expr"] for target in pending_decisions["targets"])
     assert "procurement_manager_decisions_total" in pending_query
     assert "approval_ready" not in pending_query
     assert "procurement_scan_results_total" not in pending_query

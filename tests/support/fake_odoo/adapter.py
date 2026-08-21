@@ -33,6 +33,8 @@ class FakeOdooAdapter:
         self._failures = list(failures)
         self.queries: list[ReplenishmentCandidatesQuery] = []
         self._purchase_order: PurchaseOrderActionResult | None = None
+        self._draft_origin: str | None = None
+        self.create_draft_calls = 0
 
     async def list_replenishment_candidates(
         self,
@@ -60,12 +62,25 @@ class FakeOdooAdapter:
     async def find_purchase_order_draft(
         self, *, origin: str
     ) -> PurchaseOrderDraft | None:
-        del origin
-        return None
+        if (
+            self._purchase_order is None
+            or self._draft_origin != origin
+            or self._purchase_order.state != "draft"
+        ):
+            return None
+        return PurchaseOrderDraft(
+            po_id=self._purchase_order.po_id,
+            write_date=self._purchase_order.write_date,
+            state=self._purchase_order.state,
+            partner_id=self._purchase_order.partner_id,
+            currency_id=self._purchase_order.currency_id,
+            amount_total=self._purchase_order.amount_total,
+        )
 
     async def create_purchase_order_draft(
         self, command: PurchaseOrderDraftCommand
     ) -> PurchaseOrderDraft:
+        self.create_draft_calls += 1
         draft = PurchaseOrderDraft(
             po_id=1,
             write_date="2026-08-20 00:00:00",
@@ -85,6 +100,7 @@ class FakeOdooAdapter:
             currency_id=draft.currency_id,
             amount_total=draft.amount_total,
         )
+        self._draft_origin = command.origin
         return draft
 
     async def read_purchase_order(self, *, po_id: int) -> PurchaseOrderActionResult:

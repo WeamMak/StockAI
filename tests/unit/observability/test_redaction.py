@@ -118,9 +118,7 @@ def test_draft_submission_metrics_bound_results_and_successful_latency() -> None
     metrics.observe_draft_submission(result="accepted", duration_seconds=0.2)
     metrics.observe_draft_submission(result="replay", duration_seconds=0.1)
     metrics.observe_draft_submission(result="conflict", duration_seconds=0.3)
-    metrics.observe_draft_submission(
-        result="untrusted-value", duration_seconds=0.4
-    )
+    metrics.observe_draft_submission(result="untrusted-value", duration_seconds=0.4)
 
     assert _sample_value(
         registry,

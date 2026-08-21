@@ -565,9 +565,7 @@ async def test_operator_can_scan_read_refine_and_read_audit(role: UserRole) -> N
         detail = await client.get(
             f"/api/v1/scans/{scan_id}/cases/{case_id}", headers=csrf_headers
         )
-        audit = await client.get(
-            f"/api/v1/cases/{case_id}/audit", headers=csrf_headers
-        )
+        audit = await client.get(f"/api/v1/cases/{case_id}/audit", headers=csrf_headers)
 
     assert detail.status_code == 200
     assert audit.status_code == 200

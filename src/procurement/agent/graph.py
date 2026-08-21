@@ -155,9 +155,7 @@ class WalkingSkeletonWorkflow:
         if values.get("draft") is not None:
             return values
         if tuple(snapshot.next) != ("await_draft_submission",):
-            raise DraftCheckpointError(
-                "workflow is not awaiting draft submission"
-            )
+            raise DraftCheckpointError("workflow is not awaiting draft submission")
         result = await self._graph.ainvoke(
             Command(resume="create_draft"),
             config=config,

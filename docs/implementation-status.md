@@ -264,19 +264,44 @@ have not started.
 ## T29 local implementation — 2026-08-21
 
 The manager decision lifecycle is implemented locally on
-`feature/t29-manager-decision-lifecycle`: immutable revision-bound approvals
-and rejections, exact LangGraph thread resume, independently validated MCP
-confirm/cancel actions, terminal case and audit projections, manager-only React
-controls, and bounded decision/action observability. Focused verification has
-passed strict Ruff and mypy, all 504 Python unit tests, all 65 React tests, all
-59 Kubernetes contract tests, and both real Streamable HTTP
-API→LangGraph→MCP integration tests. The
-localhost integration command required sandbox network permission. Docker is
-not available in this workspace, so strict Kubeconform plus the clean Odoo and
-DynamoDB Local contract suites remain pending. `actionlint` is also absent, so
-`make check` stops after its otherwise-green format, Ruff, mypy, ESLint, and
-architecture steps. No dev release, Argo reconciliation, live smoke, or
-production promotion has been performed.
+`feature/t29-manager-decision-lifecycle`. A successful scan now stops with a
+recommendation and no Odoo draft, so the signed-in officer or manager may use
+the existing bounded refinement loop. Either role can then select the explicit
+"Create draft and send to manager" action. The revision-bound, idempotent
+submission resumes the exact durable LangGraph thread, creates one fictional
+Odoo draft, and closes refinement only after the case reaches
+`pending_approval`. Managers inherit the officer's scan, recommendation,
+refinement, and draft-submission capabilities; only managers can approve or
+reject. Approval and rejection remain immutable and revision-bound, resume the
+same graph thread, independently validate the real MCP confirm/cancel action,
+and project terminal case and audit state.
+
+The React decision section is the final section on the recommendation page and
+does not repeat vendor, quantity, amount, evidence, or budget cards already
+shown above it. It initially presents modern Approve and Reject actions;
+selecting one progressively reveals only the required over-budget exception or
+rejection-reason form, with a cancel path. Draft-submission and decision
+outcome/latency metrics have bounded labels, and the Grafana dashboard includes
+submission outcomes and creation latency without counting recommendation-ready
+cases as pending manager decisions.
+
+Actual verification on the corrected branch: `make check` passed lock and
+format checks, Ruff, strict mypy over 210 source files, ESLint, five
+architecture tests, `actionlint`, 519 Python unit tests, and 70 React tests
+(77% Python and 78.34% React statement coverage). `make test-integration`
+passed all 16 real-transport tests in 205.72 seconds, including refinement,
+explicit submission, idempotent replay, both manager decisions, DynamoDB Local
+restart recovery, and exact-checkpoint resume. `make test-e2e` passed all six
+Compose scenarios in 159.78 seconds; the harness now retries only Docker
+Desktop's exact transient `/forwards/expose` startup failure and still fails
+immediately for application, health, or assertion errors. `make odoo-contract`
+passed all 24 image, add-on, JSON-2, bootstrap, real-Odoo, and MCP tests in
+185.29 seconds. `make compose-validate` rendered all three Compose
+configurations. `make kubernetes-validate` passed all 60 tests; each
+88-resource dev/prod overlay produced 81 valid, 0 invalid, 0-error resources
+with seven expected CRD skips. `git diff --check` is clean. No dev release,
+Argo reconciliation, live smoke, production promotion, or external deployment
+has been performed.
 
 ## Evidence policy
 

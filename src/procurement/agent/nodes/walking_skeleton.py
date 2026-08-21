@@ -391,9 +391,7 @@ class WalkingSkeletonNodes:
         assert recommendation.preference_revision is not None
         assert recommendation.premium_outcome is not None
         evidence = next(
-            item
-            for item in state["evidence"]
-            if item.product_id == selected.product_id
+            item for item in state["evidence"] if item.product_id == selected.product_id
         )
         offer = next(
             (

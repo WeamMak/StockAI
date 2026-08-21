@@ -177,15 +177,11 @@ class AgentMetrics:
                 duration_seconds
             )
 
-    def observe_draft_submission(
-        self, *, result: str, duration_seconds: float
-    ) -> None:
+    def observe_draft_submission(self, *, result: str, duration_seconds: float) -> None:
         """Record a bounded recommendation-to-draft handoff result."""
 
         safe_result = (
-            result
-            if result in {"accepted", "replay", "conflict", "error"}
-            else "error"
+            result if result in {"accepted", "replay", "conflict", "error"} else "error"
         )
         self.draft_submissions.labels(result=safe_result).inc()
         if safe_result in {"accepted", "replay"}:

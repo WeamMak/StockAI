@@ -621,9 +621,7 @@ async def test_approve_resume_routes_to_confirm_once() -> None:
     )
     assert paused["__interrupt__"]
 
-    draft_paused = await graph.ainvoke(
-        Command(resume="create_draft"), config=config
-    )
+    draft_paused = await graph.ainvoke(Command(resume="create_draft"), config=config)
     assert draft_paused["draft"].po_id == 41
     assert draft_paused["__interrupt__"]
 
@@ -668,9 +666,7 @@ async def test_reject_resume_routes_to_cancel_once() -> None:
     )
     assert paused["__interrupt__"]
 
-    draft_paused = await graph.ainvoke(
-        Command(resume="create_draft"), config=config
-    )
+    draft_paused = await graph.ainvoke(Command(resume="create_draft"), config=config)
     assert draft_paused["draft"].po_id == 41
     assert draft_paused["__interrupt__"]
 

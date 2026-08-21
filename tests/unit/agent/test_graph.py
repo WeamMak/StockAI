@@ -51,9 +51,7 @@ async def test_aensure_draft_resumes_only_once_and_returns_existing_draft() -> N
         },
         config={"configurable": {"thread_id": thread_id}},
     )
-    ready = await workflow._graph.aget_state(
-        {"configurable": {"thread_id": thread_id}}
-    )
+    ready = await workflow._graph.aget_state({"configurable": {"thread_id": thread_id}})
     ready_result = ready.values.get("result")
     assert isinstance(ready_result, ApprovalReadyResult), ready
     assert ready_result.evidence is None
@@ -78,9 +76,7 @@ async def test_aensure_draft_resumes_only_once_and_returns_existing_draft() -> N
 async def test_aensure_draft_rejects_an_unknown_checkpoint_without_writing() -> None:
     workflow, mcp = _workflow()
 
-    with pytest.raises(
-        DraftCheckpointError, match="not awaiting draft submission"
-    ):
+    with pytest.raises(DraftCheckpointError, match="not awaiting draft submission"):
         await workflow.aensure_draft("unknown-thread")
 
     assert mcp.draft_requests == []
