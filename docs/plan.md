@@ -3029,7 +3029,7 @@ without being silently dropped or blocked by another candidate's failure,
 the scan-detail and per-case recommendation pages render that data, and
 T28/T29 can consume one case's validated recommendation exactly as before.
 
-#### T28 — Create one idempotent draft and pause for manager decision
+#### T28 — Create one idempotent draft after explicit handoff and pause for manager decision
 
 **Files**
 
@@ -3201,11 +3201,25 @@ task).
 **Requirements:** CR-02, CR-03, CR-05, CR-06, CR-12, CR-13, CR-15; spec
 sections 7 (including §7.2/§7.3 refinement additions), 9, 11, and 19.
 
-**Complete when:** A valid recommendation creates at most one evidence-bound
-draft and waits durably for a manager with ambiguous writes reconciled before
-retry, and refinement is no longer possible once that draft exists.
+**Correction approved 2026-08-21:** A valid initial or refined recommendation
+first pauses at a durable recommendation-ready checkpoint. An officer or
+manager may refine it while no draft exists, or explicitly select **Create
+draft and send to manager**. Only that submission resumes the exact latest
+checkpoint and authorizes draft creation; automatic post-reasoning draft
+creation is superseded.
+
+**Complete when:** T28 creates at most one evidence-bound draft only after an
+explicit officer-or-manager submission of the latest recommendation
+checkpoint, waits durably for a manager, reconciles ambiguous writes before
+retry, and rejects refinement once that draft exists.
 
 #### T29 — Complete the approve/confirm and reject/cancel lifecycle
+
+**Release prerequisite correction approved 2026-08-21:** Restore T28's
+pre-draft pause and explicit officer-or-manager handoff before accepting this
+task. Persist `workflow_thread_id` at recommendation readiness and retain it
+through draft creation and the manager-decision pause. Managers must inherit
+every officer action; approve and reject remain manager-only.
 
 **Files**
 

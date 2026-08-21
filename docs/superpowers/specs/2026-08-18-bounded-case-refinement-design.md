@@ -50,8 +50,10 @@ re-run of the existing per-case pipeline, up to 3 times per case.
   existing `CaseRecord`/`Revision`/audit-trail pattern used everywhere else
   in this codebase. The prior result stays reconstructable via the existing
   `AUDIT#` trail.
-- No overlap with T28/T29's future draft/approve/confirm/reject lifecycle,
-  which does not exist yet.
+- The original statement that this work had no overlap with the future T28/T29
+  lifecycle is superseded by the approved 2026-08-21 correction. Each
+  successful initial or refined run pauses before draft creation, and its fresh
+  thread becomes the latest selectable recommendation-ready checkpoint.
 - No new locking primitive for concurrent refinement attempts on the same
   case — the existing optimistic-concurrency `update_case(expected_revision=
   ...)` mechanism already rejects a second concurrent attempt as a revision
@@ -181,6 +183,12 @@ Steps:
    `update_case`, append audit — mirroring the existing terminal-state
    handling exactly.
 
+After the 2026-08-21 correction, a successful result also persists its fresh
+`workflow_thread_id` while remaining `succeeded` with no draft. A later
+officer-or-manager draft submission resumes that exact checkpoint. Starting a
+new refinement clears the older selectable thread while work is in progress;
+the completed attempt replaces it atomically.
+
 ### Backend: threading the note through to the LLM
 
 `ScanState` (`agent/state.py:121-130`) gains `officer_note: str`. Only
@@ -228,8 +236,9 @@ parser needs no new type). `CaseResponse` and `ScanSnapshot` gain
 
 ### Frontend
 
-`RecommendationPage.tsx`: for `approval_ready` results only, a new panel
-below the reasoning section — a bounded text input (280 char limit
+`RecommendationPage.tsx`: for `approval_ready` results only, a new bottom
+action area containing the refinement panel and, after it, **Create draft and
+send to manager**. The panel includes a bounded text input (280 char limit
 enforced client-side too), a submit button, and "N of 3 refinements used."
 Submitting calls the new `refineCase(scanId, caseId, note)` client function,
 which `POST`s and then relies on the page's **existing** poll loop
