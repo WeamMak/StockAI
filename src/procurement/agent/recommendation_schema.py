@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from collections.abc import Mapping
 from decimal import Decimal
 from importlib.resources import files
@@ -41,6 +42,7 @@ _REQUIRED_FIELDS = {
     "priority_order",
     "premium_outcome",
 }
+_SCHEMA_TOKEN = re.compile(r"[a-z][a-z0-9_]*")
 _IDENTIFIER = {
     "type": ["string", "null"],
     "minLength": 1,
@@ -152,6 +154,18 @@ def _normal_text_list(value: object, *, field: str) -> tuple[str, ...]:
     return tuple(value)
 
 
+def _looks_like_schema_field_dump(value: str) -> bool:
+    normalized = value.strip().lower()
+    if normalized in _REQUIRED_FIELDS:
+        return True
+    schema_tokens = [
+        token
+        for token in _SCHEMA_TOKEN.findall(normalized)
+        if token in _REQUIRED_FIELDS
+    ]
+    return len(schema_tokens) >= 2
+
+
 def validate_recommendation_payload(
     payload: Mapping[str, object],
     request: RecommendationRequest,
@@ -179,6 +193,11 @@ def validate_recommendation_payload(
         limitations = _normal_text_list(
             payload["evidence_limitations"], field="evidence_limitations"
         )
+        if any(
+            _looks_like_schema_field_dump(value)
+            for value in (rationale, uncertainty, *trade_offs, *limitations)
+        ):
+            raise ValueError("recommendation explanation contains schema metadata")
 
         if decision is RecommendationDecision.MANUAL_REVIEW:
             selected_fields = (
