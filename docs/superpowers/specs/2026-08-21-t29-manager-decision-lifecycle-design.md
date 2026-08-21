@@ -156,15 +156,15 @@ time plus a deterministic tie-breaker. Audit responses contain decision facts
 needed by an authorized user, but operational logs retain identifiers and safe
 codes only.
 
-`CaseRecord` also persists the exact `workflow_thread_id` whose checkpoint is
-paused at the T28 human interrupt. For an unrefined recommendation this is the
-case ID. For a draft produced by bounded refinement it is
-`{case_id}:refine-{refinement_count}`. This value is written atomically with
-the draft and `pending_approval` status, survives DynamoDB/process restart,
-and is treated as an internal bounded identifier rather than reconstructed by
-T29. A pending case without this field is an explicit reconciliation/data-
-repair condition; T29 must never guess a thread and risk resuming the wrong
-checkpoint.
+`CaseRecord` persists the exact `workflow_thread_id` as soon as a T28 initial
+or refined run reaches the recommendation-ready human interrupt. For an
+unrefined recommendation this is the case ID; for bounded refinement it is
+`{case_id}:refine-{refinement_count}`. Officer-or-manager draft submission
+resumes that exact checkpoint. The identifier is retained atomically through
+draft creation, `pending_approval`, and the T29 decision pause, survives
+DynamoDB/process restart, and is never reconstructed. A recommendation-ready
+or pending case without it is an explicit reconciliation/data-repair
+condition.
 
 The MCP runtime receives a decision-reader port backed by DynamoDB in deployed
 mode. Confirmation uses a strongly consistent read. Local and test modes use

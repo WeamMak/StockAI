@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - Work only on `feature/t29-manager-decision-lifecycle`, created from the latest protected `main`; never push feature work directly to `main`.
-- Preserve the approved T28 idempotent draft and checkpoint. Persist and resume its exact draft-owning `workflow_thread_id`; this is the case ID for the initial run and `{case_id}:refine-{n}` when refinement produced the draft. Do not create a second graph or decision agent.
+- Preserve the corrected T28 idempotent draft and checkpoints. Persist the exact `workflow_thread_id` when an initial or refined recommendation becomes ready; explicit officer-or-manager draft submission resumes it, and T29 later resumes the same retained thread for the manager decision. Do not create a second graph or decision agent.
 - Approval authorization expires exactly 30 minutes after `decided_at`; retention TTL is not a correctness check and must not erase the immutable audit early.
 - Rejection reasons and budget-exception justifications are trimmed, nonblank, control-character-free, and at most 280 Unicode code points.
 - Every state-changing HTTP endpoint requires an authenticated manager, CSRF, `Idempotency-Key`, and an expected case/PO revision.
@@ -572,16 +572,18 @@ class DecisionOutcome:
     reconciled: bool
 ```
 
-For a decision-enabled graph, place `interrupt(payload)` in `load_decision`,
-immediately after `create_draft`, so LangGraph resumes at the decision boundary
-without re-running draft creation. Retain the T28 `create_draft` interrupt only
-for legacy graphs constructed without a decision reader. Add `confirm` and
+For a decision-enabled graph, place a recommendation-ready interrupt before
+`create_draft`, then place the existing decision `interrupt(payload)` in
+`load_decision` after draft creation. The explicit draft action resumes only
+the first checkpoint; manager approval/rejection resumes only the second.
+Retain the T28 `create_draft` interrupt only for legacy graphs constructed
+without a decision reader. Add `confirm` and
 `cancel` nodes and route using the loaded typed record, never browser payload
 fields. Build the graph as:
 
 ```text
-reason -> create_draft -> load_decision -> confirm -> END
-                                      \-> cancel  -> END
+reason -> await_draft_submission -> create_draft -> load_decision -> confirm -> END
+                                                               \-> cancel  -> END
 ```
 
 `WalkingSkeletonWorkflow.aresume_decision(workflow_thread_id, decision_id)` invokes:

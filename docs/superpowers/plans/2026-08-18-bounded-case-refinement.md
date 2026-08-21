@@ -6,6 +6,12 @@
 
 **Architecture:** A new `ScanService.refine_case` method validates and reserves one refinement attempt (bumping the existing `CaseRecord` to `running` under optimistic concurrency), then schedules a background task (`_run_refinement`) that reconstructs the original `ReplenishmentCandidate` from a newly persisted `CandidateSnapshot`, re-invokes the existing per-case LangGraph workflow under a fresh `thread_id` with `officer_note` threaded into `ScanState` and `RecommendationRequest`, and persists the terminal result exactly like the original run. The frontend adds a small panel to `RecommendationPage.tsx` that posts the note and lets the page's existing poll loop pick up the transition back to `running` and the eventual new result.
 
+**2026-08-21 lifecycle correction:** Every successful initial or refined run
+must pause before draft creation and persist its exact thread as the latest
+recommendation-ready checkpoint. Officers and managers may refine while no
+draft exists. The separate explicit draft submission resumes the latest
+checkpoint; it is not part of the refinement request itself.
+
 **Tech Stack:** Python 3.12 / FastAPI / LangGraph / Pydantic (backend), TypeScript / React / Vitest (frontend), DynamoDB single-table storage.
 
 ## Global Constraints
@@ -17,6 +23,9 @@
 - No accumulating chat history: each refinement is a fresh graph invocation under a new `thread_id`, seeded only with the current note.
 - A refinement replaces the case's result in place (new revision, same `case_id`); no separate "declined" record — the prior result remains reconstructable via the existing `AUDIT#` trail.
 - Concurrent refinement attempts are rejected via the existing `RevisionConflictError` → `REVISION_CONFLICT` mapping; no new locking primitive.
+- Starting a refinement clears any older selectable `workflow_thread_id`; a
+  successful attempt atomically persists its fresh `{case_id}:refine-{n}`
+  thread while leaving `draft=None`.
 
 ---
 

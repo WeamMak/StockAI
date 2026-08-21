@@ -9,6 +9,7 @@ services:
       PROCUREMENT_MCP_CLIENT_TIMEOUT_SECONDS: "1"
       PROCUREMENT_PERSISTENCE_MODE: ${PROCUREMENT_PERSISTENCE_MODE:-memory}
       PROCUREMENT_AUTHENTICATION_MODE: disabled
+      PROCUREMENT_TEST_USER_ROLE: ${PROCUREMENT_TEST_USER_ROLE:-officer}
     entrypoint: ["python", "-m", "uvicorn"]
     command:
       - tests.support.authenticated_api:app

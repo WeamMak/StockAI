@@ -390,8 +390,37 @@ class WalkingSkeletonNodes:
         assert recommendation.preference_scope is not None
         assert recommendation.preference_revision is not None
         assert recommendation.premium_outcome is not None
+        evidence = next(
+            item for item in state["evidence"] if item.product_id == selected.product_id
+        )
+        offer = next(
+            (
+                item
+                for item in evidence.offers
+                if item.offer_id == recommendation.offer_id
+            ),
+            None,
+        )
+        if offer is None:
+            self.metrics.record_llm_fallback(reason="invalid")
+            return {
+                "result": self._fallback(
+                    risk_flag="LLM_OUTPUT_INVALID",
+                    limitation="The selected offer could not be matched to evidence.",
+                )
+            }
         return {
             "recommendation": recommendation,
+            "draft_command": PurchaseOrderDraftCommand(
+                origin=f"{state['scan_id']}:{selected.product_id}",
+                vendor_id=offer.vendor_id,
+                currency_code=offer.currency,
+                product_id=selected.product_id,
+                product_name=selected.product_name,
+                quantity=recommendation.quantity,
+                unit_price=recommendation.unit_price,
+                need_by_date=evidence.shortage.need_by_date,
+            ),
             "result": ApprovalReadyResult(
                 product_id=selected.product_id,
                 product_name=selected.product_name,
@@ -411,11 +440,7 @@ class WalkingSkeletonNodes:
                 preference_revision=recommendation.preference_revision,
                 priority_order=recommendation.priority_order,
                 premium_outcome=recommendation.premium_outcome,
-                evidence=next(
-                    item
-                    for item in state["evidence"]
-                    if item.product_id == selected.product_id
-                ),
+                evidence=evidence,
             ),
         }
 
@@ -432,34 +457,24 @@ class WalkingSkeletonNodes:
         result = state.get("result")
         if not isinstance(result, ApprovalReadyResult):
             return {}
-        evidence = result.evidence
-        if evidence is None:
-            return {
-                "result": UnresolvedResult(
-                    error_code=ErrorCode.LLM_OUTPUT_INVALID,
-                    message="The recommendation is missing its bound evidence.",
-                    retryable=False,
+        command = state.get("draft_command")
+        if command is None:
+            evidence = result.evidence
+            offer = (
+                next(
+                    (
+                        item
+                        for item in evidence.offers
+                        if item.offer_id == result.offer_id
+                    ),
+                    None,
                 )
-            }
-        offer = next(
-            (item for item in evidence.offers if item.offer_id == result.offer_id),
-            None,
-        )
-        if offer is None:
-            return {
-                "result": UnresolvedResult(
-                    error_code=ErrorCode.LLM_OUTPUT_INVALID,
-                    message="The recommended offer could not be matched to evidence.",
-                    retryable=False,
-                )
-            }
-        case_id = f"{state['scan_id']}:{result.product_id}"
-        started_at = perf_counter()
-        try:
-            draft = await self.mcp.create_purchase_order_draft(
-                environment=state["environment"],
-                command=PurchaseOrderDraftCommand(
-                    origin=case_id,
+                if evidence is not None
+                else None
+            )
+            if evidence is not None and offer is not None:
+                command = PurchaseOrderDraftCommand(
+                    origin=f"{state['scan_id']}:{result.product_id}",
                     vendor_id=offer.vendor_id,
                     currency_code=offer.currency,
                     product_id=result.product_id,
@@ -467,7 +482,29 @@ class WalkingSkeletonNodes:
                     quantity=result.quantity,
                     unit_price=result.unit_price,
                     need_by_date=evidence.shortage.need_by_date,
-                ),
+                )
+        if command is None:
+            return {
+                "result": UnresolvedResult(
+                    error_code=ErrorCode.LLM_OUTPUT_INVALID,
+                    message="The recommendation is missing its draft command.",
+                    retryable=False,
+                )
+            }
+        case_id = f"{state['scan_id']}:{result.product_id}"
+        if command.origin != case_id or command.product_id != result.product_id:
+            return {
+                "result": UnresolvedResult(
+                    error_code=ErrorCode.LLM_OUTPUT_INVALID,
+                    message="The recommendation draft command is stale.",
+                    retryable=False,
+                )
+            }
+        started_at = perf_counter()
+        try:
+            draft = await self.mcp.create_purchase_order_draft(
+                environment=state["environment"],
+                command=command,
             )
         except McpDraftReconciliationRequiredError as error:
             self._record_mcp_completion(
@@ -544,6 +581,28 @@ class WalkingSkeletonNodes:
                 }
             )
         return {"draft": draft}
+
+    async def await_draft_submission(self, state: ScanState) -> dict[str, object]:
+        """Pause a valid recommendation before any purchase-order write."""
+
+        result = state.get("result")
+        if not isinstance(result, ApprovalReadyResult):
+            return {}
+        action = interrupt(
+            {
+                "phase": "recommendation_ready",
+                "case_id": f"{state['scan_id']}:{result.product_id}",
+            }
+        )
+        if action != "create_draft":
+            return {
+                "result": UnresolvedResult(
+                    error_code=ErrorCode.VALIDATION_FAILED,
+                    message="The draft submission command was invalid.",
+                    retryable=False,
+                )
+            }
+        return {}
 
     async def load_decision(self, state: ScanState) -> dict[str, object]:
         """Load the immutable decision selected only by the resumed ID."""

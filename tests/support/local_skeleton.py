@@ -80,8 +80,12 @@ def run_local_skeleton(
     dynamodb_endpoint_url: str | None = None,
     dynamodb_application_table: str = "stockai-dev-application",
     dynamodb_checkpoint_table: str = "stockai-dev-checkpoints",
+    user_role: str = "officer",
 ) -> Iterator[RunningLocalSkeleton]:
     """Start the real local MCP and API composition roots on unused ports."""
+
+    if user_role not in {"officer", "manager"}:
+        raise ValueError("test user role must be officer or manager")
 
     api_port = _unused_port()
     mcp_port = _unused_port()
@@ -103,6 +107,7 @@ def run_local_skeleton(
         "PROCUREMENT_MCP_READ_TIMEOUT_SECONDS": "0.01",
         "PROCUREMENT_MCP_MAX_RETRIES": "2",
         "PROCUREMENT_MCP_RETRY_DELAY_SECONDS": "0",
+        "PROCUREMENT_TEST_USER_ROLE": user_role,
         "AWS_ACCESS_KEY_ID": "DUMMYIDEXAMPLE",
         "AWS_SECRET_ACCESS_KEY": "DUMMYEXAMPLEKEY",
     }

@@ -366,6 +366,43 @@ async def test_checkpoint_retains_result_but_not_transient_odoo_data() -> None:
     assert "candidates" not in snapshot.values
     assert "evidence" not in snapshot.values
     assert "recommendation" not in snapshot.values
+    assert snapshot.values["draft_command"].origin == (
+        "scan-immutable-case-001:product-101"
+    )
+
+
+@pytest.mark.anyio
+async def test_checkpointed_graph_pauses_at_pre_draft_handoff() -> None:
+    saver = InMemorySaver()
+    mcp = FakeMcp(
+        page=CandidatePage(
+            environment=Environment.DEV,
+            candidates=(_candidate(),),
+            next_cursor=None,
+        )
+    )
+    graph = build_walking_skeleton_graph(
+        mcp=mcp,
+        llm=FakeStructuredLlm(response=t27_recommendation()),
+        checkpointer=saver,
+    )
+
+    paused = await graph.ainvoke(
+        {
+            "scan_id": "scan-001",
+            "environment": Environment.DEV,
+            "candidates": (_candidate(),),
+        },
+        config={"configurable": {"thread_id": "scan-001:product-101"}},
+    )
+
+    assert isinstance(paused["result"], ApprovalReadyResult)
+    assert "draft" not in paused
+    assert paused["__interrupt__"][0].value == {
+        "phase": "recommendation_ready",
+        "case_id": "scan-001:product-101",
+    }
+    assert mcp.draft_requests == []
 
 
 def _nodes(
@@ -584,6 +621,10 @@ async def test_approve_resume_routes_to_confirm_once() -> None:
     )
     assert paused["__interrupt__"]
 
+    draft_paused = await graph.ainvoke(Command(resume="create_draft"), config=config)
+    assert draft_paused["draft"].po_id == 41
+    assert draft_paused["__interrupt__"]
+
     resumed = await graph.ainvoke(
         Command(resume=approval.decision_id.value), config=config
     )
@@ -624,6 +665,10 @@ async def test_reject_resume_routes_to_cancel_once() -> None:
         config=config,
     )
     assert paused["__interrupt__"]
+
+    draft_paused = await graph.ainvoke(Command(resume="create_draft"), config=config)
+    assert draft_paused["draft"].po_id == 41
+    assert draft_paused["__interrupt__"]
 
     resumed = await graph.ainvoke(
         Command(resume=rejection.decision_id.value), config=config

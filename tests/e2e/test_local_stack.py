@@ -11,8 +11,10 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from time import monotonic, sleep
+from typing import Any, cast
 from uuid import uuid4
 
+import boto3  # type: ignore[import-untyped]
 import httpx
 import pytest
 
@@ -23,6 +25,7 @@ COMPOSE_FILES = (PROJECT_ROOT / "compose.yaml", PROJECT_ROOT / "compose.test.yam
 FICTIONAL_MCP_TOKEN = "fictional-compose-mcp-token-at-least-32-characters"
 FICTIONAL_CRON_TOKEN = "fictional-compose-cron-token-at-least-32-characters"
 TERMINAL_SCAN_STATUSES = frozenset({"succeeded", "failed"})
+DOCKER_PORT_EXPOSURE_ATTEMPTS = 3
 
 
 def _unused_port() -> int:
@@ -31,15 +34,27 @@ def _unused_port() -> int:
         return int(listener.getsockname()[1])
 
 
-def _environment(*, scenario: str, frontend_port: int) -> dict[str, str]:
-    return {
+def _environment(
+    *,
+    scenario: str,
+    frontend_port: int,
+    user_role: str = "officer",
+    dynamodb_port: int | None = None,
+) -> dict[str, str]:
+    environment = {
         **os.environ,
         "PROCUREMENT_ENVIRONMENT": "dev",
         "PROCUREMENT_FRONTEND_PORT": str(frontend_port),
         "PROCUREMENT_CRON_TOKEN": FICTIONAL_CRON_TOKEN,
         "PROCUREMENT_MCP_TOKEN": FICTIONAL_MCP_TOKEN,
         "PROCUREMENT_FAKE_ODOO_SCENARIO": scenario,
+        "PROCUREMENT_TEST_USER_ROLE": user_role,
     }
+    if dynamodb_port is not None:
+        environment["PROCUREMENT_PERSISTENCE_MODE"] = "dynamodb"
+        environment["PROCUREMENT_DYNAMODB_LOCAL_PORT"] = str(dynamodb_port)
+        environment["PROCUREMENT_DYNAMODB_ENDPOINT_URL"] = "http://dynamodb-local:8000"
+    return environment
 
 
 def _compose_prefix(project_name: str) -> list[str]:
@@ -65,6 +80,13 @@ def _run(
         text=True,
         timeout=timeout,
     )
+
+
+def _is_transient_docker_port_exposure_failure(
+    completed: subprocess.CompletedProcess[str],
+) -> bool:
+    output = f"{completed.stdout}\n{completed.stderr}"
+    return "ports are not available" in output and "/forwards/expose" in output
 
 
 def _rendered_compose(*, dynamodb: bool = False) -> dict[str, object]:
@@ -144,40 +166,134 @@ class RunningComposeStack:
 
 
 @contextmanager
-def _running_stack(scenario: str) -> Iterator[RunningComposeStack]:
+def _running_stack(
+    scenario: str, *, user_role: str = "officer", durable: bool = False
+) -> Iterator[RunningComposeStack]:
     frontend_port = _unused_port()
-    project_name = f"stockai-t09-{scenario.replace('_', '-')}-{uuid4().hex[:8]}"
-    environment = _environment(scenario=scenario, frontend_port=frontend_port)
+    dynamodb_port = _unused_port() if durable else None
+    while dynamodb_port == frontend_port:
+        dynamodb_port = _unused_port()
+    project_name = (
+        f"stockai-t09-{scenario.replace('_', '-')}-{user_role}-{uuid4().hex[:8]}"
+    )
+    environment = _environment(
+        scenario=scenario,
+        frontend_port=frontend_port,
+        user_role=user_role,
+        dynamodb_port=dynamodb_port,
+    )
     prefix = _compose_prefix(project_name)
+    profile = ["--profile", "dynamodb"] if durable else []
     logs = ""
+    failure: BaseException | None = None
     try:
-        started = _run(
-            [*prefix, "up", "--build", "--detach", "--wait", "--wait-timeout", "180"],
-            environment=environment,
-            check=False,
-        )
-        if started.returncode != 0:
-            failed_logs = _run(
-                [*prefix, "logs", "--no-color"],
+        if dynamodb_port is not None:
+            database_started = _run(
+                [
+                    *prefix,
+                    *profile,
+                    "up",
+                    "--detach",
+                    "--wait",
+                    "--wait-timeout",
+                    "60",
+                    "dynamodb-local",
+                ],
                 environment=environment,
                 check=False,
             )
-            raise AssertionError(
-                "Compose stack failed to become healthy:\n"
-                f"{started.stdout}\n{started.stderr}\n{failed_logs.stdout}"
+            if database_started.returncode != 0:
+                raise AssertionError(
+                    "DynamoDB Local failed to become healthy:\n"
+                    f"{database_started.stdout}\n{database_started.stderr}"
+                )
+            dynamodb = boto3.client(
+                "dynamodb",
+                region_name="us-east-1",
+                endpoint_url=f"http://127.0.0.1:{dynamodb_port}",
+                aws_access_key_id="DUMMYIDEXAMPLE",
+                aws_secret_access_key="DUMMYEXAMPLEKEY",
             )
+            for table_name in (
+                "stockai-dev-application",
+                "stockai-dev-checkpoints",
+            ):
+                dynamodb.create_table(
+                    TableName=table_name,
+                    KeySchema=[
+                        {"AttributeName": "PK", "KeyType": "HASH"},
+                        {"AttributeName": "SK", "KeyType": "RANGE"},
+                    ],
+                    AttributeDefinitions=[
+                        {"AttributeName": "PK", "AttributeType": "S"},
+                        {"AttributeName": "SK", "AttributeType": "S"},
+                    ],
+                    BillingMode="PAY_PER_REQUEST",
+                )
+        for attempt in range(DOCKER_PORT_EXPOSURE_ATTEMPTS):
+            started = _run(
+                [
+                    *prefix,
+                    *profile,
+                    "up",
+                    "--build",
+                    "--detach",
+                    "--wait",
+                    "--wait-timeout",
+                    "180",
+                ],
+                environment=environment,
+                check=False,
+            )
+            if started.returncode == 0:
+                break
+            failed_logs = _run(
+                [*prefix, *profile, "logs", "--no-color"],
+                environment=environment,
+                check=False,
+            )
+            can_retry = (
+                dynamodb_port is None
+                and attempt + 1 < DOCKER_PORT_EXPOSURE_ATTEMPTS
+                and _is_transient_docker_port_exposure_failure(started)
+            )
+            if not can_retry:
+                raise AssertionError(
+                    "Compose stack failed to become healthy:\n"
+                    f"{started.stdout}\n{started.stderr}\n{failed_logs.stdout}"
+                )
+            _run(
+                [*prefix, *profile, "down", "--volumes", "--remove-orphans"],
+                environment=environment,
+                check=False,
+            )
+            sleep(1)
+            frontend_port = _unused_port()
+            project_name = (
+                f"stockai-t09-{scenario.replace('_', '-')}-{user_role}-"
+                f"{uuid4().hex[:8]}"
+            )
+            environment = _environment(
+                scenario=scenario,
+                frontend_port=frontend_port,
+                user_role=user_role,
+            )
+            prefix = _compose_prefix(project_name)
         yield RunningComposeStack(
             public_url=f"http://127.0.0.1:{frontend_port}",
         )
+    except BaseException as error:
+        failure = error
+        raise
     finally:
         captured = _run(
-            [*prefix, "logs", "--no-color"],
+            [*prefix, *profile, "logs", "--no-color"],
             environment=environment,
             check=False,
         )
         logs = f"{captured.stdout}\n{captured.stderr}"
         stopped = _run(
-            [*prefix, "down", "--volumes", "--remove-orphans"],
+            [*prefix, *profile, "down", "--volumes", "--remove-orphans"],
             environment=environment,
             check=False,
         )
@@ -187,6 +303,8 @@ def _running_stack(scenario: str) -> Iterator[RunningComposeStack]:
             )
         assert FICTIONAL_MCP_TOKEN not in logs
         assert FICTIONAL_CRON_TOKEN not in logs
+        if failure is not None:
+            failure.add_note(f"Compose logs (tail):\n{logs[-12_000:]}")
 
 
 def _poll_scan(
@@ -204,6 +322,61 @@ def _poll_scan(
     raise AssertionError("The Compose scan did not reach a terminal state.")
 
 
+def _poll_case(
+    client: httpx.Client,
+    location: str,
+    *,
+    headers: dict[str, str],
+    expected: str,
+) -> dict[str, Any]:
+    deadline = monotonic() + 15
+    payload: dict[str, Any] = {}
+    while monotonic() < deadline:
+        response = client.get(location, headers=headers)
+        response.raise_for_status()
+        payload = cast(dict[str, Any], response.json())
+        if payload["status"] == expected:
+            return payload
+        sleep(0.05)
+    raise AssertionError(f"The Compose case did not reach {expected}: {payload}")
+
+
+def _approval_payload(case: dict[str, Any]) -> dict[str, object]:
+    result = case["result"]
+    evidence = next(
+        item for item in case["evidence"] if item["product_id"] == result["product_id"]
+    )
+    offer = next(
+        item for item in evidence["offers"] if item["offer_id"] == result["offer_id"]
+    )
+    return {
+        "environment": "dev",
+        "case_revision": case["revision"],
+        "po_id": case["draft"]["po_id"],
+        "po_revision": case["draft"]["write_date"],
+        "vendor_id": offer["vendor_id"],
+        "quantity": result["quantity"],
+        "amount": result["normalized_cost"],
+        "currency": offer["currency"],
+        "budget_status": result["budget_status"],
+        "overage": evidence["budget"]["overage"],
+        "evidence_digest": result["evidence_digest"],
+        "budget_exception": False,
+        "justification": None,
+    }
+
+
+def _rejection_payload(case: dict[str, Any]) -> dict[str, object]:
+    return {
+        "environment": "dev",
+        "case_revision": case["revision"],
+        "po_id": case["draft"]["po_id"],
+        "po_revision": case["draft"]["write_date"],
+        "evidence_digest": case["result"]["evidence_digest"],
+        "reason": "The delivery plan changed.",
+    }
+
+
 @pytest.mark.parametrize(
     ("scenario", "expected_status", "expected_error_code"),
     [
@@ -218,9 +391,14 @@ def test_local_stack_scenarios_cross_frontend_api_mcp_and_fake_odoo(
     expected_status: str,
     expected_error_code: str | None,
 ) -> None:
-    case_payload: dict[str, object] | None = None
-    with _running_stack(scenario) as stack:
-        with httpx.Client(base_url=stack.public_url, timeout=5) as client:
+    case_payload: dict[str, Any] | None = None
+    user_role = "manager" if expected_error_code is None else "officer"
+    with _running_stack(
+        scenario,
+        user_role=user_role,
+        durable=expected_error_code is None,
+    ) as stack:
+        with httpx.Client(base_url=stack.public_url, timeout=15) as client:
             frontend = client.get("/")
             auth_headers = sign_in_sync(client)
             accepted = client.post("/api/v1/scans", headers=auth_headers)
@@ -240,6 +418,38 @@ def test_local_stack_scenarios_cross_frontend_api_mcp_and_fake_odoo(
                 )
                 case_detail.raise_for_status()
                 case_payload = case_detail.json()
+                assert case_payload["status"] == "succeeded"
+                assert case_payload["draft"] is None
+                submitted = client.post(
+                    f"{accepted.headers['location']}/cases/{case_id}/draft",
+                    headers={
+                        **auth_headers,
+                        "Idempotency-Key": "draft-submit-e2e-001",
+                    },
+                    json={"case_revision": case_payload["revision"]},
+                )
+                submitted.raise_for_status()
+                pending = _poll_case(
+                    client,
+                    f"{accepted.headers['location']}/cases/{case_id}",
+                    headers=auth_headers,
+                    expected="pending_approval",
+                )
+                approved = client.post(
+                    f"/api/v1/cases/{case_id}/approve",
+                    headers={
+                        **auth_headers,
+                        "Idempotency-Key": "approve-e2e-001",
+                    },
+                    json=_approval_payload(pending),
+                )
+                approved.raise_for_status()
+                case_payload = _poll_case(
+                    client,
+                    f"{accepted.headers['location']}/cases/{case_id}",
+                    headers=auth_headers,
+                    expected="confirmed",
+                )
 
     assert frontend.status_code == 200
     assert "StockAI" in frontend.text
@@ -257,6 +467,61 @@ def test_local_stack_scenarios_cross_frontend_api_mcp_and_fake_odoo(
         assert result["outcome"] == "approval_ready"
         assert result["product_id"] == "product-101"
         assert case_payload["error"] is None
+        assert case_payload["decision"]["status"] == "confirmed"
     else:
         assert payload["results"] == []
         assert payload["error"]["error_code"] == expected_error_code
+
+
+def test_officer_cannot_approve_or_reject_a_pending_draft() -> None:
+    with _running_stack("success", user_role="officer") as stack:
+        with httpx.Client(base_url=stack.public_url, timeout=5) as client:
+            auth_headers = sign_in_sync(client)
+            accepted = client.post("/api/v1/scans", headers=auth_headers)
+            detail = _poll_scan(
+                client,
+                accepted.headers["location"],
+                headers=auth_headers,
+            )
+            case_id = detail.json()["results"][0]["case_id"]
+            case_location = f"{accepted.headers['location']}/cases/{case_id}"
+            ready = _poll_case(
+                client,
+                case_location,
+                headers=auth_headers,
+                expected="succeeded",
+            )
+            submitted = client.post(
+                f"{case_location}/draft",
+                headers={
+                    **auth_headers,
+                    "Idempotency-Key": "draft-submit-officer-e2e-001",
+                },
+                json={"case_revision": ready["revision"]},
+            )
+            submitted.raise_for_status()
+            pending = _poll_case(
+                client,
+                case_location,
+                headers=auth_headers,
+                expected="pending_approval",
+            )
+            approve = client.post(
+                f"/api/v1/cases/{case_id}/approve",
+                headers={
+                    **auth_headers,
+                    "Idempotency-Key": "officer-approve-e2e-001",
+                },
+                json=_approval_payload(pending),
+            )
+            reject = client.post(
+                f"/api/v1/cases/{case_id}/reject",
+                headers={
+                    **auth_headers,
+                    "Idempotency-Key": "officer-reject-e2e-001",
+                },
+                json=_rejection_payload(pending),
+            )
+
+    assert approve.status_code == 403
+    assert reject.status_code == 403

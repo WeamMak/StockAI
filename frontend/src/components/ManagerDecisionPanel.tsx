@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   ApiError,
@@ -8,9 +8,8 @@ import {
   type CaseDetail,
   type Session,
 } from "../api/client";
-import { formatCurrency, formatQuantity } from "../presentation";
-
 const MAX_MANAGER_TEXT = 280;
+type DecisionForm = "idle" | "reject" | "budget_exception";
 
 interface ManagerDecisionPanelProps {
   session: Session;
@@ -26,9 +25,17 @@ export function ManagerDecisionPanel({
   const [exceptionApproved, setExceptionApproved] = useState(false);
   const [justification, setJustification] = useState("");
   const [reason, setReason] = useState("");
+  const [form, setForm] = useState<DecisionForm>("idle");
   const [submitting, setSubmitting] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const rejectionReasonRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (form === "reject") {
+      rejectionReasonRef.current?.focus();
+    }
+  }, [form]);
 
   if (
     session.role !== "manager" ||
@@ -52,6 +59,31 @@ export function ManagerDecisionPanel({
   const approvalEnabled =
     !submitting &&
     (!exceptionRequired || (exceptionApproved && justification.trim().length > 0));
+
+  function openApproval() {
+    setError(null);
+    if (exceptionRequired) {
+      setForm("budget_exception");
+      return;
+    }
+    void submitApproval();
+  }
+
+  function cancelApproval() {
+    setExceptionApproved(false);
+    setJustification("");
+    setForm("idle");
+  }
+
+  function openRejection() {
+    setError(null);
+    setForm("reject");
+  }
+
+  function cancelRejection() {
+    setReason("");
+    setForm("idle");
+  }
 
   async function submitApproval() {
     if (!approvalEnabled) return;
@@ -95,77 +127,113 @@ export function ManagerDecisionPanel({
   }
 
   return (
-    <section aria-labelledby="manager-decision-title" className="panel decision-panel">
-      <h2 id="manager-decision-title">Manager decision</h2>
-      <p>
-        This decision applies only to fictional Odoo draft PO #{caseDetail.draft.po_id}
-        {" "}at revision {caseDetail.draft.write_date}. It does not contact a supplier.
-      </p>
-      <dl className="decision-binding">
-        <div><dt>Vendor</dt><dd>{offer.vendor_name} ({offer.vendor_id})</dd></div>
-        <div><dt>Quantity</dt><dd>{formatQuantity(result.quantity)}</dd></div>
-        <div><dt>Amount</dt><dd>{formatCurrency(result.normalized_cost, offer.currency)}</dd></div>
-        <div><dt>Evidence digest</dt><dd className="identifier">{result.evidence_digest}</dd></div>
-        <div><dt>Remaining budget</dt><dd>{evidence.budget ? formatCurrency(evidence.budget.remaining_after, evidence.budget.currency) : "Unavailable"}</dd></div>
-        <div><dt>Overage</dt><dd>{evidence.budget ? formatCurrency(evidence.budget.overage, evidence.budget.currency) : "Unavailable"}</dd></div>
-      </dl>
+    <section aria-labelledby="manager-decision-title" className="panel manager-actions-card">
+      <div className="manager-actions">
+        <div className="manager-actions__copy">
+          <p className="eyebrow">Human approval required</p>
+          <h2 id="manager-decision-title">Manager actions</h2>
+          <p>
+            Approve or reject fictional Odoo draft PO #{caseDetail.draft.po_id} at
+            revision {caseDetail.draft.write_date}. No supplier is contacted.
+          </p>
+        </div>
+        {form === "idle" ? (
+          <div className="manager-actions__buttons">
+            <button
+              className="primary-button"
+              type="button"
+              disabled={submitting}
+              onClick={openApproval}
+            >
+              Approve
+            </button>
+            <button
+              className="danger-button"
+              type="button"
+              disabled={submitting}
+              onClick={openRejection}
+            >
+              Reject
+            </button>
+          </div>
+        ) : null}
+      </div>
 
-      <div className="decision-forms">
-        <section aria-labelledby="approval-title">
-          <h3 id="approval-title">Approve</h3>
-          {exceptionRequired ? (
-            <>
-              <label className="decision-checkbox">
-                <input
-                  type="checkbox"
-                  checked={exceptionApproved}
-                  disabled={submitting}
-                  onChange={(event) => setExceptionApproved(event.target.checked)}
-                />
-                Approve budget exception
-              </label>
-              <label>
-                Justification
-                <textarea
-                  maxLength={MAX_MANAGER_TEXT}
-                  value={justification}
-                  disabled={submitting}
-                  onChange={(event) => setJustification(event.target.value)}
-                />
-              </label>
-            </>
-          ) : null}
-          <button
-            className="primary-button"
-            type="button"
-            disabled={!approvalEnabled}
-            onClick={() => void submitApproval()}
-          >
-            Approve and confirm
-          </button>
-        </section>
+      {form === "budget_exception" ? (
+        <div className="manager-actions__form">
+          <h3>Approve budget exception</h3>
+          <label className="decision-checkbox">
+            <input
+              type="checkbox"
+              checked={exceptionApproved}
+              disabled={submitting}
+              onChange={(event) => setExceptionApproved(event.target.checked)}
+            />
+            Approve budget exception
+          </label>
+          <label>
+            Justification
+            <textarea
+              maxLength={MAX_MANAGER_TEXT}
+              value={justification}
+              disabled={submitting}
+              onChange={(event) => setJustification(event.target.value)}
+            />
+          </label>
+          <div className="manager-actions__form-actions">
+            <button
+              className="primary-button"
+              type="button"
+              disabled={!approvalEnabled}
+              onClick={() => void submitApproval()}
+            >
+              Confirm approval
+            </button>
+            <button
+              className="text-button"
+              type="button"
+              disabled={submitting}
+              onClick={cancelApproval}
+            >
+              Cancel approval
+            </button>
+          </div>
+        </div>
+      ) : null}
 
-        <section aria-labelledby="rejection-title">
-          <h3 id="rejection-title">Reject</h3>
+      {form === "reject" ? (
+        <div className="manager-actions__form">
+          <h3>Reject draft</h3>
           <label>
             Rejection reason
             <textarea
+              ref={rejectionReasonRef}
               maxLength={MAX_MANAGER_TEXT}
               value={reason}
               disabled={submitting}
               onChange={(event) => setReason(event.target.value)}
             />
           </label>
-          <button
-            className="secondary-button"
-            type="button"
-            disabled={submitting || reason.trim().length === 0}
-            onClick={() => void submitRejection()}
-          >
-            Reject and cancel draft
-          </button>
-        </section>
-      </div>
+          <div className="manager-actions__form-actions">
+            <button
+              className="danger-button"
+              type="button"
+              disabled={submitting || reason.trim().length === 0}
+              onClick={() => void submitRejection()}
+            >
+              Confirm rejection
+            </button>
+            <button
+              className="text-button"
+              type="button"
+              disabled={submitting}
+              onClick={cancelRejection}
+            >
+              Cancel rejection
+            </button>
+          </div>
+        </div>
+      ) : null}
       <p aria-live="polite" role="status">{notice}</p>
       {error ? <p className="notice notice--error" role="alert">{error}</p> : null}
     </section>

@@ -194,6 +194,12 @@ class LocalFictionalErp(ErpPort):
     """One bounded fictional ERP read used only by the local skeleton."""
 
     mode: str
+    _purchase_orders: dict[int, PurchaseOrderActionResult] = field(
+        default_factory=dict, init=False, repr=False, compare=False
+    )
+    _draft_origins: dict[str, int] = field(
+        default_factory=dict, init=False, repr=False, compare=False
+    )
 
     async def list_replenishment_candidates(
         self,
@@ -247,30 +253,44 @@ class LocalFictionalErp(ErpPort):
     async def find_purchase_order_draft(
         self, *, origin: str
     ) -> PurchaseOrderDraft | None:
-        del origin
-        return None
+        po_id = self._draft_origins.get(origin)
+        order = self._purchase_orders.get(po_id) if po_id is not None else None
+        if order is None or order.state != "draft":
+            return None
+        return PurchaseOrderDraft(
+            po_id=order.po_id,
+            write_date=order.write_date,
+            state=order.state,
+            partner_id=order.partner_id,
+            currency_id=order.currency_id,
+            amount_total=order.amount_total,
+        )
 
     async def create_purchase_order_draft(
         self, command: PurchaseOrderDraftCommand
     ) -> PurchaseOrderDraft:
-        """Return one fixed fictional draft; local mode has no real Odoo to
-        write to and no idempotency store, so this never persists anything
-        or returns an existing draft for a repeated call."""
+        """Create one in-process fictional draft for local lifecycle tests."""
 
         if self.mode == "timeout":
             await asyncio.sleep(3_600)
-        return _fictional_draft(command)
+        draft = _fictional_draft(command)
+        self._purchase_orders[draft.po_id] = PurchaseOrderActionResult(
+            po_id=draft.po_id,
+            po_reference=f"P{draft.po_id:05d}",
+            write_date=draft.write_date,
+            state=draft.state,
+            partner_id=draft.partner_id,
+            currency_id=draft.currency_id,
+            amount_total=draft.amount_total,
+        )
+        self._draft_origins[command.origin] = draft.po_id
+        return draft
 
     async def read_purchase_order(self, *, po_id: int) -> PurchaseOrderActionResult:
-        return PurchaseOrderActionResult(
-            po_id=po_id,
-            po_reference=f"P{po_id:05d}",
-            write_date="2026-01-01 00:00:00",
-            state="draft",
-            partner_id=1,
-            currency_id=1,
-            amount_total=Decimal("1.000000"),
-        )
+        try:
+            return self._purchase_orders[po_id]
+        except KeyError:
+            raise ErpUnavailableError("unknown fictional purchase order") from None
 
     async def apply_purchase_order_action_once(
         self,
@@ -279,7 +299,16 @@ class LocalFictionalErp(ErpPort):
         expected: PurchaseOrderDraft,
         action: PurchaseOrderAction,
     ) -> PurchaseOrderActionResult:
-        return PurchaseOrderActionResult(
+        current = await self.read_purchase_order(po_id=po_id)
+        if (
+            current.write_date != expected.write_date
+            or current.state != expected.state
+            or current.partner_id != expected.partner_id
+            or current.currency_id != expected.currency_id
+            or current.amount_total != expected.amount_total
+        ):
+            raise ErpUnavailableError("stale fictional purchase order")
+        result = PurchaseOrderActionResult(
             po_id=po_id,
             po_reference=f"P{po_id:05d}",
             write_date="2026-01-01 00:00:01",
@@ -288,6 +317,8 @@ class LocalFictionalErp(ErpPort):
             currency_id=expected.currency_id,
             amount_total=expected.amount_total,
         )
+        self._purchase_orders[po_id] = result
+        return result
 
 
 def _fictional_draft(command: PurchaseOrderDraftCommand) -> PurchaseOrderDraft:
@@ -362,6 +393,12 @@ class LocalHttpFictionalErp(ErpPort):
 
     base_url: str
     timeout_seconds: float
+    _purchase_orders: dict[int, PurchaseOrderActionResult] = field(
+        default_factory=dict, init=False, repr=False, compare=False
+    )
+    _draft_origins: dict[str, int] = field(
+        default_factory=dict, init=False, repr=False, compare=False
+    )
 
     async def list_replenishment_candidates(
         self,
@@ -437,22 +474,42 @@ class LocalHttpFictionalErp(ErpPort):
     async def find_purchase_order_draft(
         self, *, origin: str
     ) -> PurchaseOrderDraft | None:
-        del origin
-        return None
+        po_id = self._draft_origins.get(origin)
+        order = self._purchase_orders.get(po_id) if po_id is not None else None
+        if order is None or order.state != "draft":
+            return None
+        return PurchaseOrderDraft(
+            po_id=order.po_id,
+            write_date=order.write_date,
+            state=order.state,
+            partner_id=order.partner_id,
+            currency_id=order.currency_id,
+            amount_total=order.amount_total,
+        )
 
     async def create_purchase_order_draft(
         self, command: PurchaseOrderDraftCommand
     ) -> PurchaseOrderDraft:
-        """Return one fixed fictional draft; the fake Compose Odoo service
-        does not yet expose a draft-creation endpoint to call."""
+        """Create one in-process fictional draft beside the read-only fake."""
 
-        return _fictional_draft(command)
+        draft = _fictional_draft(command)
+        self._purchase_orders[draft.po_id] = PurchaseOrderActionResult(
+            po_id=draft.po_id,
+            po_reference=f"P{draft.po_id:05d}",
+            write_date=draft.write_date,
+            state=draft.state,
+            partner_id=draft.partner_id,
+            currency_id=draft.currency_id,
+            amount_total=draft.amount_total,
+        )
+        self._draft_origins[command.origin] = draft.po_id
+        return draft
 
     async def read_purchase_order(self, *, po_id: int) -> PurchaseOrderActionResult:
-        del po_id
-        raise ErpUnavailableError(
-            "The HTTP fake does not expose purchase-order actions."
-        )
+        try:
+            return self._purchase_orders[po_id]
+        except KeyError:
+            raise ErpUnavailableError("unknown fictional purchase order") from None
 
     async def apply_purchase_order_action_once(
         self,
@@ -461,10 +518,26 @@ class LocalHttpFictionalErp(ErpPort):
         expected: PurchaseOrderDraft,
         action: PurchaseOrderAction,
     ) -> PurchaseOrderActionResult:
-        del po_id, expected, action
-        raise ErpUnavailableError(
-            "The HTTP fake does not expose purchase-order actions."
+        current = await self.read_purchase_order(po_id=po_id)
+        if (
+            current.write_date != expected.write_date
+            or current.state != expected.state
+            or current.partner_id != expected.partner_id
+            or current.currency_id != expected.currency_id
+            or current.amount_total != expected.amount_total
+        ):
+            raise ErpUnavailableError("stale fictional purchase order")
+        result = PurchaseOrderActionResult(
+            po_id=po_id,
+            po_reference=f"P{po_id:05d}",
+            write_date="2026-01-01 00:00:01",
+            state="purchase" if action is PurchaseOrderAction.CONFIRM else "cancel",
+            partner_id=expected.partner_id,
+            currency_id=expected.currency_id,
+            amount_total=expected.amount_total,
         )
+        self._purchase_orders[po_id] = result
+        return result
 
 
 def _fictional_preference(query: ProcurementPreferenceQuery) -> ProcurementPreference:

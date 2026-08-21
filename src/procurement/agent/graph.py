@@ -9,6 +9,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.types import Command
 
 from procurement.agent.nodes.walking_skeleton import WalkingSkeletonNodes
 from procurement.agent.state import ApprovalReadyResult, ScanState, UnresolvedResult
@@ -70,14 +71,21 @@ def build_walking_skeleton_graph(
     builder.add_node("gather_evidence", nodes.gather_evidence)
     builder.add_node("resolve_preferences", nodes.resolve_preferences)
     builder.add_node("reason", nodes.reason_about_candidate)
-    builder.add_node("create_draft", nodes.create_draft)
     builder.add_edge(START, "gather_evidence")
     builder.add_edge("gather_evidence", "resolve_preferences")
     builder.add_edge("resolve_preferences", "reason")
-    builder.add_conditional_edges("reason", _route_after_reason, ["create_draft", END])
-    if decisions is None:
-        builder.add_edge("create_draft", END)
+    if checkpointer is None:
+        builder.add_edge("reason", END)
     else:
+        builder.add_node("await_draft_submission", nodes.await_draft_submission)
+        builder.add_node("create_draft", nodes.create_draft)
+        builder.add_conditional_edges(
+            "reason", _route_after_reason, ["await_draft_submission", END]
+        )
+        builder.add_edge("await_draft_submission", "create_draft")
+    if checkpointer is not None and decisions is None:
+        builder.add_edge("create_draft", END)
+    elif checkpointer is not None:
         builder.add_node("load_decision", nodes.load_decision)
         builder.add_node("confirm", nodes.confirm)
         builder.add_node("cancel", nodes.cancel)
@@ -91,10 +99,10 @@ def build_walking_skeleton_graph(
 
 
 async def _route_after_reason(state: ScanState) -> str:
-    """Only a validated approval-ready recommendation may create a draft."""
+    """Only a validated recommendation may reach the pre-draft checkpoint."""
 
     if isinstance(state.get("result"), ApprovalReadyResult):
-        return "create_draft"
+        return "await_draft_submission"
     return END
 
 
@@ -132,13 +140,37 @@ class WalkingSkeletonWorkflow:
     async def aresume_decision(
         self, workflow_thread_id: str, decision_id: str
     ) -> ScanState:
-        from langgraph.types import Command
-
         result = await self._graph.ainvoke(
             Command(resume=decision_id),
-            config={"configurable": {"thread_id": workflow_thread_id}},
+            config=self._thread_config(workflow_thread_id),
         )
         return cast(ScanState, result)
+
+    async def aensure_draft(self, workflow_thread_id: str) -> ScanState:
+        """Create or return the draft owned by one validated checkpoint."""
+
+        config = self._thread_config(workflow_thread_id)
+        snapshot = await self._graph.aget_state(config)
+        values = cast(ScanState, snapshot.values)
+        if values.get("draft") is not None:
+            return values
+        if tuple(snapshot.next) != ("await_draft_submission",):
+            raise DraftCheckpointError("workflow is not awaiting draft submission")
+        result = await self._graph.ainvoke(
+            Command(resume="create_draft"),
+            config=config,
+        )
+        return cast(ScanState, result)
+
+    @staticmethod
+    def _thread_config(workflow_thread_id: str) -> RunnableConfig:
+        if not workflow_thread_id:
+            raise DraftCheckpointError("workflow thread ID is missing")
+        return {"configurable": {"thread_id": workflow_thread_id}}
+
+
+class DraftCheckpointError(RuntimeError):
+    """The requested workflow is not at a safe draft checkpoint."""
 
 
 def build_walking_skeleton_workflow(

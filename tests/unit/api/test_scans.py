@@ -11,10 +11,11 @@ from typing import cast
 import anyio
 import pytest
 from httpx2 import ASGITransport, AsyncClient
+from langgraph.types import Interrupt
 from tests.support.local_identity import LocalIdentityProvider, sign_in
 from tests.support.recommendations import t27_approval_result, t27_request
 
-from procurement.agent.state import ManualReviewResult, ScanState
+from procurement.agent.state import ApprovalReadyResult, ManualReviewResult, ScanState
 from procurement.api.app import create_app
 from procurement.api.auth.session import UserRole
 from procurement.api.config import ApiSettings
@@ -134,6 +135,56 @@ class RefinableWorkflow(SuccessfulWorkflow):
                 rationale=f"Refined: {state.get('officer_note')}",
             ),
         }
+
+
+class RecommendationPauseWorkflow(RefinableWorkflow):
+    """Simulate the production graph's durable pre-draft interrupt."""
+
+    async def ainvoke(
+        self,
+        state: ScanState,
+        *,
+        config: Mapping[str, object],
+    ) -> ScanState:
+        completed = await super().ainvoke(state, config=config)
+        result = completed["result"]
+        assert isinstance(result, ApprovalReadyResult)
+        return cast(
+            ScanState,
+            {
+                **completed,
+                "__interrupt__": (
+                    Interrupt(
+                        value={
+                            "phase": "recommendation_ready",
+                            "case_id": f"{state['scan_id']}:{result.product_id}",
+                        }
+                    ),
+                ),
+            },
+        )
+
+
+class BlockingRecommendationPauseWorkflow(RecommendationPauseWorkflow):
+    """Hold the refinement after reservation so its intermediate state is visible."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._invocations = 0
+        self.refinement_started = anyio.Event()
+        self.release_refinement = anyio.Event()
+
+    async def ainvoke(
+        self,
+        state: ScanState,
+        *,
+        config: Mapping[str, object],
+    ) -> ScanState:
+        self._invocations += 1
+        if self._invocations > 1:
+            self.refinement_started.set()
+            await self.release_refinement.wait()
+        return await super().ainvoke(state, config=config)
 
 
 class FailingRefinementWorkflow(SuccessfulWorkflow):
@@ -392,6 +443,65 @@ async def test_a_completed_case_persists_its_candidate_snapshot() -> None:
 
 
 @pytest.mark.anyio
+async def test_recommendation_pause_persists_latest_thread_without_a_draft() -> None:
+    repository = InMemoryApplicationRepository(environment=Environment.DEV)
+    application = create_app(
+        scan_workflow=RecommendationPauseWorkflow(),
+        identity_provider=LocalIdentityProvider(),
+        application_repository=repository,
+    )
+    async with AsyncClient(
+        transport=ASGITransport(app=application), base_url="https://testserver"
+    ) as client:
+        csrf_headers = await sign_in(client)
+        scan_id, case_id = await _approval_ready_case(client, csrf_headers)
+        detail = await client.get(
+            f"/api/v1/scans/{scan_id}/cases/{case_id}", headers=csrf_headers
+        )
+
+    record = await repository.get_case(CaseId(Environment.DEV, case_id))
+    assert detail.json()["status"] == "succeeded"
+    assert detail.json()["draft"] is None
+    assert record is not None
+    assert record.workflow_thread_id == case_id
+
+
+@pytest.mark.anyio
+async def test_refinement_replaces_the_latest_recommendation_thread() -> None:
+    workflow = BlockingRecommendationPauseWorkflow()
+    repository = InMemoryApplicationRepository(environment=Environment.DEV)
+    application = create_app(
+        scan_workflow=workflow,
+        identity_provider=LocalIdentityProvider(),
+        application_repository=repository,
+    )
+    async with AsyncClient(
+        transport=ASGITransport(app=application), base_url="https://testserver"
+    ) as client:
+        csrf_headers = await sign_in(client)
+        scan_id, case_id = await _approval_ready_case(client, csrf_headers)
+
+        refined = await client.post(
+            f"/api/v1/scans/{scan_id}/cases/{case_id}/refine",
+            headers=csrf_headers,
+            json={"note": "Prioritize delivery speed this time."},
+        )
+        await workflow.refinement_started.wait()
+        reserved = await repository.get_case(CaseId(Environment.DEV, case_id))
+        workflow.release_refinement.set()
+        completed = await _poll_case_until_finished(client, scan_id, case_id)
+
+    final = await repository.get_case(CaseId(Environment.DEV, case_id))
+    assert refined.status_code == 202
+    assert reserved is not None
+    assert reserved.workflow_thread_id is None
+    assert completed["status"] == "succeeded"
+    assert final is not None
+    assert final.draft is None
+    assert final.workflow_thread_id == f"{case_id}:refine-1"
+
+
+@pytest.mark.anyio
 async def test_refine_case_immediate_response_has_no_stale_result() -> None:
     """The 202 response for a freshly reserved refinement must satisfy the
     queued/running invariant the frontend enforces: no result while running.
@@ -423,13 +533,14 @@ async def test_refine_case_immediate_response_has_no_stale_result() -> None:
     assert body["refinement_count"] == 0
 
 
+@pytest.mark.parametrize("role", [UserRole.OFFICER, UserRole.MANAGER])
 @pytest.mark.anyio
-async def test_refine_case_reruns_the_workflow_with_a_fresh_thread_id() -> None:
+async def test_operator_can_scan_read_refine_and_read_audit(role: UserRole) -> None:
     workflow = RefinableWorkflow()
     repository = InMemoryApplicationRepository(environment=Environment.DEV)
     application = create_app(
         scan_workflow=workflow,
-        identity_provider=LocalIdentityProvider(),
+        identity_provider=LocalIdentityProvider(role=role),
         application_repository=repository,
     )
     async with AsyncClient(
@@ -451,7 +562,13 @@ async def test_refine_case_reruns_the_workflow_with_a_fresh_thread_id() -> None:
         assert refined.json()["status"] == "running"
 
         completed = await _poll_case_until_finished(client, scan_id, case_id)
+        detail = await client.get(
+            f"/api/v1/scans/{scan_id}/cases/{case_id}", headers=csrf_headers
+        )
+        audit = await client.get(f"/api/v1/cases/{case_id}/audit", headers=csrf_headers)
 
+    assert detail.status_code == 200
+    assert audit.status_code == 200
     assert completed["refinement_count"] == 1
     result = _required_mapping(completed, "result")
     assert result["rationale"] == ("Refined: Prioritize delivery speed this time.")

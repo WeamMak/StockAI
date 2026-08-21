@@ -544,7 +544,7 @@ async def test_decision_create_is_atomic_and_strongly_readable() -> None:
 
 
 @pytest.mark.anyio
-async def test_case_round_trip_keeps_refinement_draft_workflow_thread() -> None:
+async def test_case_round_trip_keeps_draft_submission_fields() -> None:
     client = RecordingDynamoClient()
     repository = DynamoApplicationRepository(
         client=client, table_name=TABLE_NAME, environment=Environment.DEV
@@ -552,6 +552,7 @@ async def test_case_round_trip_keeps_refinement_draft_workflow_thread() -> None:
     item = {
         **_case_item(revision=3, status="pending_approval"),
         "workflow_thread_id": {"S": f"{CASE_ID.value}:refine-2"},
+        "draft_request_idempotency_key": {"S": "draft-submit-001"},
         "refinement_count": {"N": "2"},
     }
     client.queue("get_item", {"Item": item})
@@ -560,6 +561,21 @@ async def test_case_round_trip_keeps_refinement_draft_workflow_thread() -> None:
 
     assert loaded is not None
     assert loaded.workflow_thread_id == f"{CASE_ID.value}:refine-2"
+    assert loaded.draft_request_idempotency_key == "draft-submit-001"
+
+
+@pytest.mark.anyio
+async def test_historical_case_has_no_draft_submission_key() -> None:
+    client = RecordingDynamoClient()
+    repository = DynamoApplicationRepository(
+        client=client, table_name=TABLE_NAME, environment=Environment.DEV
+    )
+    client.queue("get_item", {"Item": _case_item(status="succeeded")})
+
+    loaded = await repository.get_case(CASE_ID)
+
+    assert loaded is not None
+    assert loaded.draft_request_idempotency_key is None
 
 
 @pytest.mark.anyio

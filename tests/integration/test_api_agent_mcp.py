@@ -7,7 +7,7 @@ from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from datetime import date
 from decimal import Decimal
-from typing import cast
+from typing import Any, cast
 
 import anyio
 import httpx
@@ -79,9 +79,10 @@ def _erp_adapter() -> FakeOdooAdapter:
 @asynccontextmanager
 async def _running_mcp_server(
     repository: InMemoryApplicationRepository | None = None,
-) -> AsyncIterator[tuple[str, str]]:
+) -> AsyncIterator[tuple[str, str, FakeOdooAdapter]]:
+    fake_odoo = _erp_adapter()
     mcp = create_mcp_server(
-        erp=_erp_adapter(),
+        erp=fake_odoo,
         decisions=repository,
         environment=Environment.DEV,
         bearer_token=BEARER_TOKEN,
@@ -110,7 +111,7 @@ async def _running_mcp_server(
                 await anyio.sleep(0.01)
         try:
             base_url = f"http://127.0.0.1:{port}"
-            yield f"{base_url}/mcp", f"{base_url}/metrics"
+            yield f"{base_url}/mcp", f"{base_url}/metrics", fake_odoo
         finally:
             server.should_exit = True
 
@@ -397,13 +398,36 @@ def _candidate_page(payload: Mapping[str, object]) -> CandidatePage:
     )
 
 
+async def _poll_case(
+    client: AsyncClient,
+    *,
+    scan_id: str,
+    case_id: str,
+    expected: str,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    for _ in range(200):
+        response = await client.get(f"/api/v1/scans/{scan_id}/cases/{case_id}")
+        response.raise_for_status()
+        payload = cast(dict[str, Any], response.json())
+        if payload["status"] == expected:
+            return payload
+        await anyio.sleep(0.01)
+    raise AssertionError(f"case did not reach {expected}: {payload}")
+
+
 @pytest.mark.anyio
 async def test_api_scan_runs_langgraph_and_real_mcp_transport() -> None:
+    repository = InMemoryApplicationRepository(environment=Environment.DEV)
     http_metrics = create_http_metrics()
     agent_metrics = create_agent_metrics(http_metrics.registry)
     llm = EvidenceAwareFakeStructuredLlm()
 
-    async with _running_mcp_server() as (mcp_url, mcp_metrics_url):
+    async with _running_mcp_server(repository) as (
+        mcp_url,
+        mcp_metrics_url,
+        fake_odoo,
+    ):
         workflow = build_walking_skeleton_workflow(
             mcp=RealTransportMcpClient(
                 url=mcp_url,
@@ -412,11 +436,13 @@ async def test_api_scan_runs_langgraph_and_real_mcp_transport() -> None:
             llm=llm,
             checkpointer=InMemorySaver(),
             metrics=agent_metrics,
+            decisions=repository,
         )
         application = create_app(
             http_metrics=http_metrics,
             agent_metrics=agent_metrics,
             scan_workflow=cast(ScanWorkflow, workflow),
+            application_repository=repository,
             identity_provider=LocalIdentityProvider(),
         )
         transport = ASGITransport(app=application)
@@ -433,7 +459,46 @@ async def test_api_scan_runs_langgraph_and_real_mcp_transport() -> None:
                     break
                 await anyio.sleep(0.01)
             case_id = detail.json()["results"][0]["case_id"]
-            case = await client.get(f"/api/v1/scans/{scan_id}/cases/{case_id}")
+            initial = await _poll_case(
+                client,
+                scan_id=scan_id,
+                case_id=case_id,
+                expected="succeeded",
+            )
+            assert initial["draft"] is None
+            refined = await client.post(
+                f"/api/v1/scans/{scan_id}/cases/{case_id}/refine",
+                headers=csrf_headers,
+                json={"note": "Prioritize delivery for this run."},
+            )
+            ready = await _poll_case(
+                client,
+                scan_id=scan_id,
+                case_id=case_id,
+                expected="succeeded",
+            )
+            submitted = await client.post(
+                f"/api/v1/scans/{scan_id}/cases/{case_id}/draft",
+                headers={
+                    **csrf_headers,
+                    "Idempotency-Key": "draft-submit-integration-001",
+                },
+                json={"case_revision": ready["revision"]},
+            )
+            case_body = await _poll_case(
+                client,
+                scan_id=scan_id,
+                case_id=case_id,
+                expected="pending_approval",
+            )
+            replay = await client.post(
+                f"/api/v1/scans/{scan_id}/cases/{case_id}/draft",
+                headers={
+                    **csrf_headers,
+                    "Idempotency-Key": "draft-submit-integration-001",
+                },
+                json={"case_revision": ready["revision"]},
+            )
             api_metrics = await client.get("/metrics")
         async with httpx.AsyncClient() as client:
             mcp_metrics = await client.get(mcp_metrics_url)
@@ -441,11 +506,14 @@ async def test_api_scan_runs_langgraph_and_real_mcp_transport() -> None:
     assert accepted.status_code == 202
     assert detail.status_code == 200
     assert detail.json()["status"] == "succeeded"
-    assert case.status_code == 200
-    case_body = case.json()
+    assert refined.status_code == 202
+    assert submitted.status_code == 202
+    assert replay.status_code == 202
+    assert replay.json()["created"] is False
     assert case_body["status"] == "pending_approval"
     assert case_body["result"]["product_id"] == "product-101"
-    assert len(llm.requests) == 1
+    assert fake_odoo.create_draft_calls == 1
+    assert len(llm.requests) == 2
     assert (
         'procurement_agent_mcp_calls_total{status="success",'
         'tool="list_replenishment_candidates"} 1.0'
@@ -464,15 +532,24 @@ async def test_api_scan_runs_langgraph_and_real_mcp_transport() -> None:
     ) in mcp_metrics.text
 
 
+@pytest.mark.parametrize(
+    ("decision_type", "terminal_status", "expected_events"),
+    [
+        ("approve", "confirmed", ["manager_approved", "confirming", "confirmed"]),
+        ("reject", "cancelled", ["draft_created", "manager_rejected", "cancelled"]),
+    ],
+)
 @pytest.mark.anyio
-async def test_manager_approval_resumes_exact_graph_thread_and_confirms_over_mcp() -> (
-    None
-):
+async def test_manager_decision_resumes_exact_graph_thread_over_mcp(
+    decision_type: str,
+    terminal_status: str,
+    expected_events: list[str],
+) -> None:
     repository = InMemoryApplicationRepository(environment=Environment.DEV)
     http_metrics = create_http_metrics()
     agent_metrics = create_agent_metrics(http_metrics.registry)
 
-    async with _running_mcp_server(repository) as (mcp_url, _):
+    async with _running_mcp_server(repository) as (mcp_url, _, fake_odoo):
         workflow = build_walking_skeleton_workflow(
             mcp=RealTransportMcpClient(url=mcp_url, bearer_token=BEARER_TOKEN),
             llm=EvidenceAwareFakeStructuredLlm(),
@@ -500,14 +577,26 @@ async def test_manager_approval_resumes_exact_graph_thread_and_confirms_over_mcp
                     break
                 await anyio.sleep(0.01)
             case_id = aggregate.json()["results"][0]["case_id"]
-            for _ in range(100):
-                case_response = await client.get(
-                    f"/api/v1/scans/{scan_id}/cases/{case_id}"
-                )
-                case = case_response.json()
-                if case["status"] == "pending_approval":
-                    break
-                await anyio.sleep(0.01)
+            ready = await _poll_case(
+                client,
+                scan_id=scan_id,
+                case_id=case_id,
+                expected="succeeded",
+            )
+            submitted = await client.post(
+                f"/api/v1/scans/{scan_id}/cases/{case_id}/draft",
+                headers={
+                    **csrf,
+                    "Idempotency-Key": f"draft-{decision_type}-integration-001",
+                },
+                json={"case_revision": ready["revision"]},
+            )
+            case = await _poll_case(
+                client,
+                scan_id=scan_id,
+                case_id=case_id,
+                expected="pending_approval",
+            )
             result = case["result"]
             evidence = next(
                 item
@@ -519,10 +608,8 @@ async def test_manager_approval_resumes_exact_graph_thread_and_confirms_over_mcp
                 for item in evidence["offers"]
                 if item["offer_id"] == result["offer_id"]
             )
-            decision = await client.post(
-                f"/api/v1/cases/{case_id}/approve",
-                headers={**csrf, "Idempotency-Key": "approve-integration-001"},
-                json={
+            if decision_type == "approve":
+                decision_payload = {
                     "environment": "dev",
                     "case_revision": case["revision"],
                     "po_id": case["draft"]["po_id"],
@@ -536,24 +623,38 @@ async def test_manager_approval_resumes_exact_graph_thread_and_confirms_over_mcp
                     "evidence_digest": result["evidence_digest"],
                     "budget_exception": False,
                     "justification": None,
+                }
+            else:
+                decision_payload = {
+                    "environment": "dev",
+                    "case_revision": case["revision"],
+                    "po_id": case["draft"]["po_id"],
+                    "po_revision": case["draft"]["write_date"],
+                    "evidence_digest": result["evidence_digest"],
+                    "reason": "The delivery plan changed.",
+                }
+            decision = await client.post(
+                f"/api/v1/cases/{case_id}/{decision_type}",
+                headers={
+                    **csrf,
+                    "Idempotency-Key": f"{decision_type}-integration-001",
                 },
+                json=decision_payload,
             )
-            for _ in range(100):
-                terminal_response = await client.get(
-                    f"/api/v1/scans/{scan_id}/cases/{case_id}"
-                )
-                terminal = terminal_response.json()
-                if terminal["status"] == "confirmed":
-                    break
-                await anyio.sleep(0.01)
+            terminal = await _poll_case(
+                client,
+                scan_id=scan_id,
+                case_id=case_id,
+                expected=terminal_status,
+            )
             audit = await client.get(f"/api/v1/cases/{case_id}/audit")
 
+    assert submitted.status_code == 202, submitted.text
     assert decision.status_code == 202, decision.text
     assert terminal["result"]["outcome"] == "approval_ready"
-    assert terminal["decision"]["status"] == "confirmed"
+    assert terminal["decision"]["status"] == terminal_status
     assert terminal["decision"]["po_reference"] == "P00001"
-    assert [event["event_type"] for event in audit.json()["events"]][-3:] == [
-        "manager_approved",
-        "confirming",
-        "confirmed",
-    ]
+    assert fake_odoo.create_draft_calls == 1
+    assert [event["event_type"] for event in audit.json()["events"]][-3:] == (
+        expected_events
+    )

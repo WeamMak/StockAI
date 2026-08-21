@@ -41,6 +41,8 @@ class AgentMetrics:
     preference_outcomes: Counter
     manager_decisions: Counter
     decision_completion: Histogram
+    draft_submissions: Counter
+    draft_submission_duration: Histogram
 
     @staticmethod
     def _safe_tool(tool: str) -> str:
@@ -175,6 +177,16 @@ class AgentMetrics:
                 duration_seconds
             )
 
+    def observe_draft_submission(self, *, result: str, duration_seconds: float) -> None:
+        """Record a bounded recommendation-to-draft handoff result."""
+
+        safe_result = (
+            result if result in {"accepted", "replay", "conflict", "error"} else "error"
+        )
+        self.draft_submissions.labels(result=safe_result).inc()
+        if safe_result in {"accepted", "replay"}:
+            self.draft_submission_duration.observe(duration_seconds)
+
 
 def create_agent_metrics(
     registry: CollectorRegistry | None = None,
@@ -282,6 +294,17 @@ def create_agent_metrics(
             "procurement_decision_completion_seconds",
             "Manager decision acceptance duration in seconds.",
             ("decision",),
+            registry=resolved_registry,
+        ),
+        draft_submissions=Counter(
+            "procurement_draft_submissions",
+            "Recommendation-to-draft submissions by bounded result.",
+            ("result",),
+            registry=resolved_registry,
+        ),
+        draft_submission_duration=Histogram(
+            "procurement_draft_submission_seconds",
+            "Accepted recommendation-to-draft submission duration in seconds.",
             registry=resolved_registry,
         ),
     )

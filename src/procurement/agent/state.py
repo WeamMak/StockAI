@@ -15,6 +15,7 @@ from procurement.ports.llm import StructuredRecommendation
 from procurement.ports.mcp import (
     DecisionOutcome,
     PurchaseOrderDraft,
+    PurchaseOrderDraftCommand,
     ReplenishmentCandidate,
 )
 
@@ -131,6 +132,7 @@ class ScanState(TypedDict, total=False):
     evidence: Annotated[tuple[ProcurementEvidence, ...], UntrackedValue]
     recommendation: Annotated[StructuredRecommendation, UntrackedValue]
     result: ScanResult
+    draft_command: PurchaseOrderDraftCommand
     skip_reason: str
     officer_note: str
     draft: PurchaseOrderDraft

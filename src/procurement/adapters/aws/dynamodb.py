@@ -68,6 +68,7 @@ _OPTIONAL_CASE_ATTRIBUTES = frozenset(
         "candidate_snapshot",
         "draft",
         "workflow_thread_id",
+        "draft_request_idempotency_key",
         "decision",
     }
 )
@@ -1225,6 +1226,14 @@ class DynamoApplicationRepository(ApplicationRepository):
         if record.workflow_thread_id is not None:
             self._validate_key(record.workflow_thread_id, name="workflow thread ID")
             values["workflow_thread_id"] = {"S": record.workflow_thread_id}
+        if record.draft_request_idempotency_key is not None:
+            self._validate_key(
+                record.draft_request_idempotency_key,
+                name="draft request idempotency key",
+            )
+            values["draft_request_idempotency_key"] = {
+                "S": record.draft_request_idempotency_key
+            }
         if record.draft is not None:
             draft = record.draft
             values["draft"] = {
@@ -1417,6 +1426,11 @@ class DynamoApplicationRepository(ApplicationRepository):
             workflow_thread_id=(
                 self._string(item, "workflow_thread_id")
                 if "workflow_thread_id" in item
+                else None
+            ),
+            draft_request_idempotency_key=(
+                self._string(item, "draft_request_idempotency_key")
+                if "draft_request_idempotency_key" in item
                 else None
             ),
             draft=(
