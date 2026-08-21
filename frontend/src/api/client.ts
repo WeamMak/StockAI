@@ -10,6 +10,7 @@ export type ScanStatus =
   | "succeeded"
   | "failed"
   | "skipped"
+  | "creating_draft"
   | "pending_approval"
   | "approved"
   | "rejected"
@@ -185,7 +186,7 @@ export interface DraftReference {
 export interface CaseDetail {
   scan_id: string;
   case_id: string;
-  revision?: number;
+  revision: number;
   status: ScanStatus;
   trigger: ScanTrigger;
   created_at: string;
@@ -214,6 +215,12 @@ export interface AcceptedDecision {
   decision_id: string;
   decision_type: "approve" | "reject";
   status: string;
+  created: boolean;
+}
+
+export interface AcceptedDraftSubmission {
+  case_id: string;
+  status: "creating_draft" | "pending_approval";
   created: boolean;
 }
 
@@ -637,6 +644,7 @@ const CASE_STATUSES = [
   "succeeded",
   "failed",
   "skipped",
+  "creating_draft",
   "pending_approval",
   "approved",
   "rejected",
@@ -705,6 +713,8 @@ function parseCaseDetail(value: unknown): CaseDetail {
     !isRecord(value) ||
     typeof value.scan_id !== "string" ||
     typeof value.case_id !== "string" ||
+    !Number.isInteger(value.revision) ||
+    (value.revision as number) < 1 ||
     typeof value.status !== "string" ||
     !CASE_STATUSES.includes(value.status) ||
     typeof value.trigger !== "string" ||
@@ -725,7 +735,7 @@ function parseCaseDetail(value: unknown): CaseDetail {
   }
   const evidence = value.evidence.map(parseEvidence);
   if (
-    (value.status === "succeeded" && result === null) ||
+    (["succeeded", "creating_draft"].includes(value.status) && result === null) ||
     (value.status === "pending_approval" && result === null) ||
     (value.status === "failed" && error === null) ||
     (["queued", "running"].includes(value.status) &&
@@ -742,9 +752,7 @@ function parseCaseDetail(value: unknown): CaseDetail {
   return {
     scan_id: value.scan_id,
     case_id: value.case_id,
-    ...(Number.isInteger(value.revision)
-      ? { revision: value.revision as number }
-      : {}),
+    revision: value.revision as number,
     status: value.status as ScanStatus,
     trigger: value.trigger as ScanTrigger,
     created_at: value.created_at,
@@ -990,6 +998,48 @@ export async function refineCase(
     return invalidResponse();
   }
   return parseCaseDetail(response.body);
+}
+
+function parseAcceptedDraftSubmission(value: unknown): AcceptedDraftSubmission {
+  if (
+    !isRecord(value) ||
+    Object.keys(value).length !== 3 ||
+    typeof value.case_id !== "string" ||
+    !["creating_draft", "pending_approval"].includes(String(value.status)) ||
+    typeof value.created !== "boolean"
+  ) {
+    return invalidResponse();
+  }
+  return {
+    case_id: value.case_id,
+    status: value.status as AcceptedDraftSubmission["status"],
+    created: value.created,
+  };
+}
+
+export async function submitCaseForDraft(
+  caseDetail: CaseDetail,
+  idempotencyKey: string,
+  options: RequestOptions = {},
+): Promise<AcceptedDraftSubmission> {
+  const csrfToken = cookieValue(CSRF_COOKIE_NAME);
+  const response = await request(
+    `${SCANS_PATH}/${encodeURIComponent(caseDetail.scan_id)}/cases/${encodeURIComponent(caseDetail.case_id)}/draft`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Idempotency-Key": idempotencyKey,
+        ...(csrfToken === null ? {} : { "X-CSRF-Token": csrfToken }),
+      },
+      body: JSON.stringify({ case_revision: caseDetail.revision }),
+      signal: options.signal,
+    },
+  );
+  if (response.status !== 202) {
+    return invalidResponse();
+  }
+  return parseAcceptedDraftSubmission(response.body);
 }
 
 function decisionBinding(caseDetail: CaseDetail) {

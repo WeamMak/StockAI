@@ -533,13 +533,14 @@ async def test_refine_case_immediate_response_has_no_stale_result() -> None:
     assert body["refinement_count"] == 0
 
 
+@pytest.mark.parametrize("role", [UserRole.OFFICER, UserRole.MANAGER])
 @pytest.mark.anyio
-async def test_refine_case_reruns_the_workflow_with_a_fresh_thread_id() -> None:
+async def test_operator_can_scan_read_refine_and_read_audit(role: UserRole) -> None:
     workflow = RefinableWorkflow()
     repository = InMemoryApplicationRepository(environment=Environment.DEV)
     application = create_app(
         scan_workflow=workflow,
-        identity_provider=LocalIdentityProvider(),
+        identity_provider=LocalIdentityProvider(role=role),
         application_repository=repository,
     )
     async with AsyncClient(
@@ -561,7 +562,15 @@ async def test_refine_case_reruns_the_workflow_with_a_fresh_thread_id() -> None:
         assert refined.json()["status"] == "running"
 
         completed = await _poll_case_until_finished(client, scan_id, case_id)
+        detail = await client.get(
+            f"/api/v1/scans/{scan_id}/cases/{case_id}", headers=csrf_headers
+        )
+        audit = await client.get(
+            f"/api/v1/cases/{case_id}/audit", headers=csrf_headers
+        )
 
+    assert detail.status_code == 200
+    assert audit.status_code == 200
     assert completed["refinement_count"] == 1
     result = _required_mapping(completed, "result")
     assert result["rationale"] == ("Refined: Prioritize delivery speed this time.")

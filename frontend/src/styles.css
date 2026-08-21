@@ -957,6 +957,45 @@ h2 {
   font-size: 0.83rem;
 }
 
+.pre-draft-actions {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.draft-submission-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.25rem;
+  padding: 1.15rem;
+  border: 1px solid #cbd5f0;
+  border-radius: 0.9rem;
+  background: linear-gradient(135deg, #f7f9ff, #eef3ff);
+}
+
+.draft-submission-panel h3,
+.draft-submission-panel p {
+  margin: 0;
+}
+
+.draft-submission-panel h3 {
+  margin-bottom: 0.3rem;
+  color: #1e3a8a;
+  font-size: 0.95rem;
+}
+
+.draft-submission-panel p {
+  max-width: 46rem;
+  color: #51617c;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.draft-submission-button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
 .uncertainty-block {
   margin-top: 0.75rem;
   padding-top: 0.75rem;
@@ -1630,6 +1669,11 @@ h2 {
 @media (max-width: 42rem) {
   .page-heading,
   .result-heading {
+    flex-direction: column;
+  }
+
+  .draft-submission-panel {
+    align-items: stretch;
     flex-direction: column;
   }
 
