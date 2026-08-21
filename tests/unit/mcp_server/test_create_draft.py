@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from io import StringIO
 
 import pytest
+from prometheus_client import generate_latest
 from tests.support.fake_odoo.adapter import FakeOdooAdapter
 
 from procurement.domain.errors import ErrorCode
@@ -101,6 +102,11 @@ async def test_create_draft_returns_the_idempotent_snapshot() -> None:
 
     assert response.po_id == 1
     assert response.amount_total == 125
+    assert (
+        'procurement_mcp_tool_calls_total{status="success",'
+        'tool="create_purchase_order_draft"} 1.0'
+        in generate_latest(metrics.registry).decode()
+    )
     assert '"event":"mcp_tool_completed"' in stream.getvalue()
 
 
