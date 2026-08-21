@@ -20,8 +20,11 @@ METRIC_QUERIES = (
     'sum(procurement_llm_calls_total{status="success"})',
     'sum(procurement_agent_mcp_calls_total{status="success"})',
     'sum(procurement_agent_mcp_calls_total{tool="get_procurement_preferences",status="success"})',
+    'sum(procurement_agent_mcp_calls_total{tool="create_purchase_order_draft",status="success"})',
     'sum(procurement_mcp_tool_calls_total{status="success"})',
+    'sum(procurement_mcp_tool_calls_total{tool="create_purchase_order_draft",status="success"})',
     'sum(procurement_odoo_calls_total{status="success"})',
+    'sum(procurement_odoo_calls_total{operation="create_purchase_order",status="success"})',
 )
 EXPECTED_METRIC_JOBS = {"stockai-agent-api", "stockai-procurement-mcp"}
 TARGET_HEALTH_QUERY = (
@@ -337,12 +340,13 @@ def run_exact_walking_skeleton(environment: str) -> None:
         completed = _poll_scan(client, location, environment=environment)
         assert completed["status"] == "succeeded", completed.get("error")
         approval_summary = _approval_ready_case_summary(completed)
+        assert approval_summary["status"] == "pending_approval"
         case_id = str(approval_summary["case_id"])
         case_response = client.get(f"{location}/cases/{case_id}")
         case_response.raise_for_status()
         case_detail = case_response.json()
         assert isinstance(case_detail, dict)
-        assert case_detail["status"] == "succeeded", case_detail.get("error")
+        assert case_detail["status"] == "pending_approval", case_detail.get("error")
         assert case_detail["case_id"] == case_id
         listed = client.get("/api/v1/scans")
         listed.raise_for_status()
@@ -352,6 +356,14 @@ def run_exact_walking_skeleton(environment: str) -> None:
         )
 
     assert case_detail["result"]["outcome"] == "approval_ready"
+    draft = case_detail["draft"]
+    assert isinstance(draft, dict)
+    assert isinstance(draft.get("po_id"), int) and draft["po_id"] > 0
+    assert isinstance(draft.get("write_date"), str) and draft["write_date"]
+    assert draft.get("state") == "draft"
+    assert isinstance(draft.get("partner_id"), int) and draft["partner_id"] > 0
+    assert isinstance(draft.get("currency_id"), int) and draft["currency_id"] > 0
+    assert isinstance(draft.get("amount_total"), str) and draft["amount_total"]
     applied_preferences = [
         evidence.get("preferences")
         for evidence in case_detail["evidence"]
@@ -390,8 +402,15 @@ def run_exact_walking_skeleton(environment: str) -> None:
         ConsistentRead=True,
     ).get("Item")
     assert case_item is not None
-    assert case_item["status"]["S"] == "succeeded"
+    assert case_item["status"]["S"] == "pending_approval"
     assert case_item["case_id"]["S"] == case_id
+    stored_draft = case_item["draft"]["M"]
+    assert int(stored_draft["po_id"]["N"]) == draft["po_id"]
+    assert stored_draft["write_date"]["S"] == draft["write_date"]
+    assert stored_draft["state"]["S"] == draft["state"]
+    assert int(stored_draft["partner_id"]["N"]) == draft["partner_id"]
+    assert int(stored_draft["currency_id"]["N"]) == draft["currency_id"]
+    assert stored_draft["amount_total"]["S"] == draft["amount_total"]
     audit_items = dynamodb.query(
         TableName=f"weam-stockai-{environment}-application",
         KeyConditionExpression="PK = :pk AND begins_with(SK, :prefix)",
@@ -404,7 +423,7 @@ def run_exact_walking_skeleton(environment: str) -> None:
     assert {entry["outcome"]["S"] for entry in audit_items} == {
         "queued",
         "running",
-        "succeeded",
+        "pending_approval",
     }
     assert any("preferences" in entry for entry in audit_items)
     checkpoints = dynamodb.query(
@@ -462,6 +481,7 @@ def run_exact_walking_skeleton(environment: str) -> None:
             "frontendPolling": True,
             "fastApiLangGraphBedrock": True,
             "mcpOdooRead": True,
+            "mcpOdooDraftCreate": True,
             "dynamoDbPersistence": True,
             "prometheusMetrics": True,
             "sanitizedLokiLogs": True,
