@@ -4,16 +4,19 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field, replace
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from io import StringIO
 
 import pytest
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.types import Command
 from prometheus_client import generate_latest
 from tests.support.fakes.llm import FakeStructuredLlm
 from tests.support.recommendations import t27_recommendation
+from tests.unit.domain.test_decisions import _approval
+from tests.unit.mcp_server.test_cancel_draft import _rejection
 
 from procurement.agent.graph import build_walking_skeleton_graph
 from procurement.agent.nodes.walking_skeleton import (
@@ -26,8 +29,10 @@ from procurement.agent.state import (
     UnresolvedResult,
 )
 from procurement.bootstrap.mcp import _fictional_evidence
+from procurement.domain.decisions import APPROVAL_VALIDITY, DecisionId, DecisionRecord
 from procurement.domain.errors import ErrorCode
 from procurement.domain.identifiers import Environment
+from procurement.domain.models import UtcTimestamp
 from procurement.domain.policy.evidence import (
     EvidenceStatus,
     OfferEvidence,
@@ -44,6 +49,7 @@ from procurement.observability.metrics import AgentMetrics, create_agent_metrics
 from procurement.ports.erp import ProcurementEvidenceQuery
 from procurement.ports.mcp import (
     CandidatePage,
+    DecisionOutcome,
     McpTimeoutError,
     ProcurementMcpPort,
     PurchaseOrderDraft,
@@ -95,6 +101,8 @@ class FakeMcp(ProcurementMcpPort):
         default_factory=list
     )
     draft_error: Exception | None = None
+    confirm_calls: list[tuple[Environment, str, str]] = field(default_factory=list)
+    cancel_calls: list[tuple[Environment, str, str]] = field(default_factory=list)
 
     async def list_replenishment_candidates(
         self,
@@ -166,13 +174,45 @@ class FakeMcp(ProcurementMcpPort):
         if self.draft_error is not None:
             raise self.draft_error
         return PurchaseOrderDraft(
-            po_id=1,
-            write_date="2026-08-20 00:00:00",
+            po_id=41,
+            write_date="2026-08-21 12:00:00",
             state="draft",
-            partner_id=1,
+            partner_id=17,
             currency_id=1,
-            amount_total=command.quantity * command.unit_price,
+            amount_total=Decimal("312.500000"),
         )
+
+    async def confirm_purchase_order(
+        self, *, environment: Environment, decision_id: str, idempotency_key: str
+    ) -> DecisionOutcome:
+        self.confirm_calls.append((environment, decision_id, idempotency_key))
+        return DecisionOutcome.confirmed(
+            decision_id=decision_id,
+            po_id=41,
+            po_reference="P00041",
+            write_date="2026-08-21 12:01:00",
+            reconciled=False,
+        )
+
+    async def cancel_draft_purchase_order(
+        self, *, environment: Environment, decision_id: str, idempotency_key: str
+    ) -> DecisionOutcome:
+        self.cancel_calls.append((environment, decision_id, idempotency_key))
+        return DecisionOutcome.cancelled(
+            decision_id=decision_id,
+            po_id=41,
+            po_reference="P00041",
+            write_date="2026-08-21 12:01:00",
+            reconciled=False,
+        )
+
+
+@dataclass
+class DecisionReaderFake:
+    records: dict[str, DecisionRecord]
+
+    async def get_decision(self, decision_id: DecisionId) -> DecisionRecord | None:
+        return self.records.get(decision_id.value)
 
 
 @pytest.mark.anyio
@@ -508,6 +548,96 @@ def test_no_valid_offer_rationale_for_single_reason() -> None:
     assert _no_valid_offer_rationale(offers) == (
         "No eligible offer: 2 offers rejected (vendor not approved)."
     )
+
+
+@pytest.mark.anyio
+async def test_approve_resume_routes_to_confirm_once() -> None:
+    saver = InMemorySaver()
+    decided_at = UtcTimestamp(datetime.now(tz=UTC))
+    approval = _approval(
+        decided_at=decided_at,
+        expires_at=UtcTimestamp(decided_at.value + APPROVAL_VALIDITY),
+    )
+    decisions = DecisionReaderFake({approval.decision_id.value: approval})
+    mcp = FakeMcp(
+        page=CandidatePage(
+            environment=Environment.DEV,
+            candidates=(_candidate(),),
+            next_cursor=None,
+        )
+    )
+    graph = build_walking_skeleton_graph(
+        mcp=mcp,
+        llm=FakeStructuredLlm(response=t27_recommendation()),
+        decisions=decisions,
+        checkpointer=saver,
+    )
+    config: RunnableConfig = {
+        "configurable": {"thread_id": "scan-001:product-101"}
+    }
+
+    paused = await graph.ainvoke(
+        {
+            "scan_id": "scan-001",
+            "environment": Environment.DEV,
+            "candidates": (_candidate(),),
+        },
+        config=config,
+    )
+    assert paused["__interrupt__"]
+
+    resumed = await graph.ainvoke(
+        Command(resume=approval.decision_id.value), config=config
+    )
+
+    assert mcp.confirm_calls == [
+        (Environment.DEV, approval.decision_id.value, approval.idempotency_key)
+    ]
+    assert mcp.cancel_calls == []
+    assert resumed["decision_outcome"].outcome == "confirmed"
+
+
+@pytest.mark.anyio
+async def test_reject_resume_routes_to_cancel_once() -> None:
+    saver = InMemorySaver()
+    rejection = _rejection()
+    decisions = DecisionReaderFake({rejection.decision_id.value: rejection})
+    mcp = FakeMcp(
+        page=CandidatePage(
+            environment=Environment.DEV,
+            candidates=(_candidate(),),
+            next_cursor=None,
+        )
+    )
+    graph = build_walking_skeleton_graph(
+        mcp=mcp,
+        llm=FakeStructuredLlm(response=t27_recommendation()),
+        decisions=decisions,
+        checkpointer=saver,
+    )
+    config: RunnableConfig = {
+        "configurable": {"thread_id": "scan-001:product-101"}
+    }
+
+    paused = await graph.ainvoke(
+        {
+            "scan_id": "scan-001",
+            "environment": Environment.DEV,
+            "candidates": (_candidate(),),
+        },
+        config=config,
+    )
+    assert paused["__interrupt__"]
+
+    resumed = await graph.ainvoke(
+        Command(resume=rejection.decision_id.value), config=config
+    )
+
+    assert mcp.confirm_calls == []
+    assert mcp.cancel_calls == [
+        (Environment.DEV, rejection.decision_id.value, rejection.idempotency_key)
+    ]
+    assert resumed["decision_outcome"].outcome == "cancelled"
 
 
 def test_no_valid_offer_rationale_singular_offer_count() -> None:

@@ -36,6 +36,7 @@ from procurement.ports.erp import CandidatePage as ErpCandidatePage
 from procurement.ports.erp import ReplenishmentCandidateRecord
 from procurement.ports.mcp import (
     CandidatePage,
+    DecisionOutcome,
     McpDraftReconciliationRequiredError,
     McpUnavailableError,
     ProcurementMcpPort,
@@ -251,6 +252,18 @@ class RealTransportMcpClient(ProcurementMcpPort):
             return _purchase_order_draft(result.structuredContent)
         except (TypeError, ValueError) as error:
             raise McpUnavailableError(retry_count=0, private_detail=error) from None
+
+    async def confirm_purchase_order(
+        self, *, environment: Environment, decision_id: str, idempotency_key: str
+    ) -> DecisionOutcome:
+        del environment, decision_id, idempotency_key
+        raise NotImplementedError
+
+    async def cancel_draft_purchase_order(
+        self, *, environment: Environment, decision_id: str, idempotency_key: str
+    ) -> DecisionOutcome:
+        del environment, decision_id, idempotency_key
+        raise NotImplementedError
 
 
 def _purchase_order_draft(payload: Mapping[str, object]) -> PurchaseOrderDraft:

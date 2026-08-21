@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import httpx
 import uvicorn
@@ -50,6 +50,7 @@ from procurement.api.auth.cognito import (
 from procurement.api.config import ApiSettings
 from procurement.api.observability import create_http_metrics
 from procurement.api.services.scans import ScanWorkflow
+from procurement.domain.decisions import DecisionType
 from procurement.domain.errors import ErrorCode
 from procurement.domain.identifiers import Environment
 from procurement.domain.policy.evidence import (
@@ -71,6 +72,9 @@ from procurement.ports.llm import (
 )
 from procurement.ports.mcp import (
     CandidatePage,
+    DecisionOutcome,
+    McpApprovalStaleError,
+    McpDecisionReconciliationRequiredError,
     McpDraftReconciliationRequiredError,
     McpTimeoutError,
     McpUnavailableError,
@@ -88,6 +92,8 @@ _MCP_TOOL_NAME = "list_replenishment_candidates"
 _MCP_EVIDENCE_TOOL_NAME = "get_procurement_evidence"
 _MCP_PREFERENCES_TOOL_NAME = "get_procurement_preferences"
 _MCP_CREATE_DRAFT_TOOL_NAME = "create_purchase_order_draft"
+_MCP_CONFIRM_TOOL_NAME = "confirm_purchase_order"
+_MCP_CANCEL_TOOL_NAME = "cancel_draft_purchase_order"
 _MIN_TOKEN_LENGTH = 32
 _MAX_TOKEN_LENGTH = 512
 
@@ -450,6 +456,46 @@ def _purchase_order_draft(payload: Mapping[str, object]) -> PurchaseOrderDraft:
     )
 
 
+def _decision_outcome(
+    payload: Mapping[str, object],
+    *,
+    decision_id: str,
+    decision_type: DecisionType,
+) -> DecisionOutcome:
+    if set(payload) != {
+        "po_id",
+        "po_reference",
+        "state",
+        "write_date",
+        "reconciled",
+    }:
+        raise ValueError("purchase-order action payload is invalid")
+    state = str(payload["state"])
+    outcome: Literal["confirmed", "cancelled"] = (
+        "confirmed" if decision_type is DecisionType.APPROVE else "cancelled"
+    )
+    return DecisionOutcome(
+        decision_id=decision_id,
+        decision_type=decision_type,
+        outcome=outcome,
+        po_id=int(cast(int, payload["po_id"])),
+        po_reference=str(payload["po_reference"]),
+        write_date=str(payload["write_date"]),
+        odoo_state=state,
+        reconciled=cast(bool, payload["reconciled"]),
+    )
+
+
+def _raise_decision_mcp_error(result: CallToolResult) -> None:
+    payload = _safe_error_payload(result)
+    error_code = payload.get("error_code") if payload is not None else None
+    if error_code == ErrorCode.APPROVAL_STALE.value:
+        raise McpApprovalStaleError(retry_count=0)
+    if error_code == ErrorCode.RECONCILIATION_REQUIRED.value:
+        raise McpDecisionReconciliationRequiredError(retry_count=0)
+    _raise_mcp_error(result)
+
+
 @dataclass(frozen=True, slots=True)
 class StreamableHttpProcurementMcp(ProcurementMcpPort):
     """Authenticated MCP port adapter using the real Streamable HTTP transport."""
@@ -623,6 +669,81 @@ class StreamableHttpProcurementMcp(ProcurementMcpPort):
         except (InvalidOperation, TypeError, ValueError) as error:
             raise McpUnavailableError(retry_count=0, private_detail=error) from None
 
+    async def confirm_purchase_order(
+        self,
+        *,
+        environment: Environment,
+        decision_id: str,
+        idempotency_key: str,
+    ) -> DecisionOutcome:
+        return await self._apply_decision(
+            tool_name=_MCP_CONFIRM_TOOL_NAME,
+            environment=environment,
+            decision_id=decision_id,
+            idempotency_key=idempotency_key,
+            decision_type=DecisionType.APPROVE,
+        )
+
+    async def cancel_draft_purchase_order(
+        self,
+        *,
+        environment: Environment,
+        decision_id: str,
+        idempotency_key: str,
+    ) -> DecisionOutcome:
+        return await self._apply_decision(
+            tool_name=_MCP_CANCEL_TOOL_NAME,
+            environment=environment,
+            decision_id=decision_id,
+            idempotency_key=idempotency_key,
+            decision_type=DecisionType.REJECT,
+        )
+
+    async def _apply_decision(
+        self,
+        *,
+        tool_name: str,
+        environment: Environment,
+        decision_id: str,
+        idempotency_key: str,
+        decision_type: DecisionType,
+    ) -> DecisionOutcome:
+        try:
+            async with httpx.AsyncClient(
+                headers={"Authorization": f"Bearer {self.bearer_token}"},
+                timeout=self.timeout_seconds,
+            ) as http_client:
+                async with streamable_http_client(
+                    self.url,
+                    http_client=http_client,
+                ) as (read_stream, write_stream, _):
+                    async with ClientSession(read_stream, write_stream) as session:
+                        await session.initialize()
+                        result = await session.call_tool(
+                            tool_name,
+                            arguments={
+                                "environment": environment.value,
+                                "decision_id": decision_id,
+                                "idempotency_key": idempotency_key,
+                            },
+                        )
+        except httpx.TimeoutException:
+            raise McpDecisionReconciliationRequiredError(retry_count=0) from None
+        except Exception as error:
+            raise McpUnavailableError(retry_count=0, private_detail=error) from None
+        if result.isError:
+            _raise_decision_mcp_error(result)
+        if not isinstance(result.structuredContent, Mapping):
+            raise McpUnavailableError(retry_count=0)
+        try:
+            return _decision_outcome(
+                result.structuredContent,
+                decision_id=decision_id,
+                decision_type=decision_type,
+            )
+        except (TypeError, ValueError) as error:
+            raise McpUnavailableError(retry_count=0, private_detail=error) from None
+
 
 def create_local_api_app(
     settings: LocalApiSettings | None = None,
@@ -687,6 +808,7 @@ def create_local_api_app(
         metrics=agent_metrics,
         logger=logger,
         company_id=str(resolved.odoo_company_id),
+        decisions=application_repository,
     )
     identity_provider = identity_provider_override
     if (
