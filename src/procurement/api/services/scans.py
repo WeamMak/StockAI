@@ -61,6 +61,7 @@ class ScanStatus(StrEnum):
     FAILED = "failed"
     SKIPPED = "skipped"
     PENDING_APPROVAL = "pending_approval"
+    CREATING_DRAFT = "creating_draft"
     APPROVED = "approved"
     REJECTED = "rejected"
     CONFIRMING = "confirming"
@@ -180,6 +181,16 @@ class UnconfiguredScanWorkflow:
             "result": UnresolvedResult(
                 error_code=ErrorCode.LLM_UNAVAILABLE,
                 message="The decision workflow is not configured.",
+                retryable=True,
+            )
+        }
+
+    async def aensure_draft(self, workflow_thread_id: str) -> ScanState:
+        del workflow_thread_id
+        return {
+            "result": UnresolvedResult(
+                error_code=ErrorCode.LLM_UNAVAILABLE,
+                message="The draft workflow is not configured.",
                 retryable=True,
             )
         }

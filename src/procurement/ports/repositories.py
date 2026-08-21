@@ -132,6 +132,7 @@ class CaseRecord:
     refinement_count: int = 0
     draft: DraftRecord | None = None
     workflow_thread_id: str | None = None
+    draft_request_idempotency_key: str | None = None
     decision: DecisionOutcomeRecord | None = None
 
 
