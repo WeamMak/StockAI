@@ -27,13 +27,13 @@ images:
   # These sentinels deliberately cannot identify a mutable image tag.
   - name: stockai/frontend
     newName: docker.io/weammakhoul/stockai-frontend
-    digest: sha256:c45ae7de79e6eff9612a709543c44405f830b38137dac47444bf945caa6ce328
+    digest: sha256:634024720ed14ac9af402984f983f4bbf205830457e550e6d6436ebf32132063
   - name: stockai/api
     newName: docker.io/weammakhoul/stockai-api
-    digest: sha256:efb2201cc1fab0cfabca03f0aa440948508ac42d8e294c107f0e908c7215ea8c
+    digest: sha256:a1fd779e236f0d5a3dc02b7b8fd576965465d9a8e3a07985e56c3883df478353
   - name: stockai/mcp
     newName: docker.io/weammakhoul/stockai-mcp
-    digest: sha256:710a37a41d830387b58d2050384c6af6a9f48f33d39d721906d7d4cbc5ddd553
+    digest: sha256:585eb680854642015330836de011840ec8482eab355c6a0d4c9e69ddd15fe3f5
   - name: stockai/odoo
     newName: docker.io/weammakhoul/stockai-odoo
     digest: sha256:61050671c7ae00a86029206314f805204f71e09dcc6a007b6e60ac4b5d341b3c
