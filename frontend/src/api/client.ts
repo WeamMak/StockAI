@@ -10,7 +10,13 @@ export type ScanStatus =
   | "succeeded"
   | "failed"
   | "skipped"
-  | "pending_approval";
+  | "pending_approval"
+  | "approved"
+  | "rejected"
+  | "confirming"
+  | "confirmed"
+  | "cancelled"
+  | "reconciliation_required";
 export type ScanTrigger = "manual" | "cron";
 
 export interface VendorPerformanceEvidence {
@@ -154,26 +160,11 @@ export interface NoValidOfferResult {
   read_only: true;
 }
 
-/**
- * Placeholder shape for a manager-confirmed purchase order. No backend
- * code path produces this outcome yet -- see docs/superpowers/specs/
- * 2026-08-18-t27c-scan-cardinality-design.md's ConfirmedResult decision.
- */
-export interface ConfirmedResult {
-  outcome: "confirmed";
-  product_id: string;
-  product_name: string;
-  po_reference: string;
-  po_amount: string;
-  read_only: true;
-}
-
 export type ScanResult =
   | ApprovalReadyResult
   | LegacyApprovalReadyResult
   | ManualReviewResult
-  | NoValidOfferResult
-  | ConfirmedResult;
+  | NoValidOfferResult;
 
 export interface ScanFailure {
   error_code: string;
@@ -194,6 +185,7 @@ export interface DraftReference {
 export interface CaseDetail {
   scan_id: string;
   case_id: string;
+  revision?: number;
   status: ScanStatus;
   trigger: ScanTrigger;
   created_at: string;
@@ -204,6 +196,40 @@ export interface CaseDetail {
   error: ScanFailure | null;
   refinement_count: number;
   draft: DraftReference | null;
+  decision?: CaseDecision | null;
+}
+
+export interface CaseDecision {
+  decision_id: string;
+  decision_type: "approve" | "reject";
+  status: string;
+  po_id: number;
+  po_reference: string;
+  write_date: string;
+  odoo_state: string;
+  reconciled: boolean;
+}
+
+export interface AcceptedDecision {
+  decision_id: string;
+  decision_type: "approve" | "reject";
+  status: string;
+  created: boolean;
+}
+
+export interface AuditEvent {
+  event_id: string;
+  event_type: string;
+  actor_id: string;
+  occurred_at: string;
+  correlation_id: string;
+  source_revision: number;
+  outcome: string;
+  evidence_digest: string | null;
+  decision_id: string | null;
+  decision_type: "approve" | "reject" | null;
+  justification: string | null;
+  reason: string | null;
 }
 
 export interface CaseSummary {
@@ -304,24 +330,6 @@ function parseResult(value: unknown): ScanResult | null {
       product_name: value.product_name,
       rationale: value.rationale,
       evidence_limitations: value.evidence_limitations,
-      read_only: true,
-    };
-  }
-  if (value.outcome === "confirmed") {
-    if (
-      typeof value.product_id !== "string" ||
-      typeof value.product_name !== "string" ||
-      typeof value.po_reference !== "string" ||
-      typeof value.po_amount !== "string"
-    ) {
-      return invalidResponse();
-    }
-    return {
-      outcome: "confirmed",
-      product_id: value.product_id,
-      product_name: value.product_name,
-      po_reference: value.po_reference,
-      po_amount: value.po_amount,
       read_only: true,
     };
   }
@@ -630,6 +638,12 @@ const CASE_STATUSES = [
   "failed",
   "skipped",
   "pending_approval",
+  "approved",
+  "rejected",
+  "confirming",
+  "confirmed",
+  "cancelled",
+  "reconciliation_required",
 ];
 
 function parseDraft(value: unknown): DraftReference | null {
@@ -654,6 +668,35 @@ function parseDraft(value: unknown): DraftReference | null {
     partner_id: value.partner_id as number,
     currency_id: value.currency_id as number,
     amount_total: value.amount_total,
+  };
+}
+
+function parseDecision(value: unknown): CaseDecision | null {
+  if (value === null) {
+    return null;
+  }
+  if (
+    !isRecord(value) ||
+    typeof value.decision_id !== "string" ||
+    !["approve", "reject"].includes(String(value.decision_type)) ||
+    typeof value.status !== "string" ||
+    !Number.isInteger(value.po_id) ||
+    typeof value.po_reference !== "string" ||
+    typeof value.write_date !== "string" ||
+    typeof value.odoo_state !== "string" ||
+    typeof value.reconciled !== "boolean"
+  ) {
+    return invalidResponse();
+  }
+  return {
+    decision_id: value.decision_id,
+    decision_type: value.decision_type as CaseDecision["decision_type"],
+    status: value.status,
+    po_id: value.po_id as number,
+    po_reference: value.po_reference,
+    write_date: value.write_date,
+    odoo_state: value.odoo_state,
+    reconciled: value.reconciled,
   };
 }
 
@@ -691,6 +734,7 @@ function parseCaseDetail(value: unknown): CaseDetail {
     return invalidResponse();
   }
   const draft = parseDraft(value.draft ?? null);
+  const decision = parseDecision(value.decision ?? null);
   if (value.status === "pending_approval" && draft === null) {
     return invalidResponse();
   }
@@ -698,6 +742,9 @@ function parseCaseDetail(value: unknown): CaseDetail {
   return {
     scan_id: value.scan_id,
     case_id: value.case_id,
+    ...(Number.isInteger(value.revision)
+      ? { revision: value.revision as number }
+      : {}),
     status: value.status as ScanStatus,
     trigger: value.trigger as ScanTrigger,
     created_at: value.created_at,
@@ -708,6 +755,7 @@ function parseCaseDetail(value: unknown): CaseDetail {
     error,
     refinement_count: value.refinement_count as number,
     draft,
+    ...(value.decision === undefined ? {} : { decision }),
   };
 }
 
@@ -942,6 +990,174 @@ export async function refineCase(
     return invalidResponse();
   }
   return parseCaseDetail(response.body);
+}
+
+function decisionBinding(caseDetail: CaseDetail) {
+  const result = caseDetail.result;
+  const draft = caseDetail.draft;
+  if (
+    result?.outcome !== "approval_ready" ||
+    result.validation_level !== "t27" ||
+    draft === null ||
+    caseDetail.revision === undefined
+  ) {
+    return invalidResponse();
+  }
+  const evidence = caseDetail.evidence.find(
+    (item) => item.product_id === result.product_id,
+  );
+  const offer = evidence?.offers.find((item) => item.offer_id === result.offer_id);
+  if (evidence === undefined || offer === undefined) {
+    return invalidResponse();
+  }
+  return { draft, evidence, offer, result, revision: caseDetail.revision };
+}
+
+function decisionIdempotencyKey(): string {
+  return `decision-${crypto.randomUUID()}`;
+}
+
+function parseAcceptedDecision(value: unknown): AcceptedDecision {
+  if (
+    !isRecord(value) ||
+    typeof value.decision_id !== "string" ||
+    !["approve", "reject"].includes(String(value.decision_type)) ||
+    typeof value.status !== "string" ||
+    typeof value.created !== "boolean"
+  ) {
+    return invalidResponse();
+  }
+  return {
+    decision_id: value.decision_id,
+    decision_type: value.decision_type as AcceptedDecision["decision_type"],
+    status: value.status,
+    created: value.created,
+  };
+}
+
+export async function approveCase(
+  caseDetail: CaseDetail,
+  budgetException: boolean,
+  justification: string | null,
+  options: RequestOptions = {},
+): Promise<AcceptedDecision> {
+  const binding = decisionBinding(caseDetail);
+  const csrfToken = cookieValue(CSRF_COOKIE_NAME);
+  const response = await request(
+    `${CASES_PATH}/${encodeURIComponent(caseDetail.case_id)}/approve`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Idempotency-Key": decisionIdempotencyKey(),
+        ...(csrfToken === null ? {} : { "X-CSRF-Token": csrfToken }),
+      },
+      body: JSON.stringify({
+        environment: binding.evidence.environment,
+        case_revision: binding.revision,
+        po_id: binding.draft.po_id,
+        po_revision: binding.draft.write_date,
+        vendor_id: binding.offer.vendor_id,
+        quantity: binding.result.quantity,
+        amount: binding.result.normalized_cost,
+        currency: binding.offer.currency,
+        budget_status: binding.result.budget_status,
+        overage: binding.evidence.budget?.overage ?? "0",
+        evidence_digest: binding.result.evidence_digest,
+        budget_exception: budgetException,
+        justification,
+      }),
+      signal: options.signal,
+    },
+  );
+  if (response.status !== 202) {
+    return invalidResponse();
+  }
+  return parseAcceptedDecision(response.body);
+}
+
+export async function rejectCase(
+  caseDetail: CaseDetail,
+  reason: string,
+  options: RequestOptions = {},
+): Promise<AcceptedDecision> {
+  const binding = decisionBinding(caseDetail);
+  const csrfToken = cookieValue(CSRF_COOKIE_NAME);
+  const response = await request(
+    `${CASES_PATH}/${encodeURIComponent(caseDetail.case_id)}/reject`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Idempotency-Key": decisionIdempotencyKey(),
+        ...(csrfToken === null ? {} : { "X-CSRF-Token": csrfToken }),
+      },
+      body: JSON.stringify({
+        environment: binding.evidence.environment,
+        case_revision: binding.revision,
+        po_id: binding.draft.po_id,
+        po_revision: binding.draft.write_date,
+        evidence_digest: binding.result.evidence_digest,
+        reason,
+      }),
+      signal: options.signal,
+    },
+  );
+  if (response.status !== 202) {
+    return invalidResponse();
+  }
+  return parseAcceptedDecision(response.body);
+}
+
+export async function getCaseAudit(
+  caseId: string,
+  options: RequestOptions = {},
+): Promise<AuditEvent[]> {
+  const response = await request(
+    `${CASES_PATH}/${encodeURIComponent(caseId)}/audit`,
+    { method: "GET", signal: options.signal },
+  );
+  if (
+    !isRecord(response.body) ||
+    response.body.case_id !== caseId ||
+    !Array.isArray(response.body.events) ||
+    response.body.events.length > 100
+  ) {
+    return invalidResponse();
+  }
+  return response.body.events.map((value): AuditEvent => {
+    if (
+      !isRecord(value) ||
+      typeof value.event_id !== "string" ||
+      typeof value.event_type !== "string" ||
+      typeof value.actor_id !== "string" ||
+      typeof value.occurred_at !== "string" ||
+      typeof value.correlation_id !== "string" ||
+      !Number.isInteger(value.source_revision) ||
+      typeof value.outcome !== "string" ||
+      !isNullableString(value.evidence_digest) ||
+      !isNullableString(value.decision_id) ||
+      !(value.decision_type === null || ["approve", "reject"].includes(String(value.decision_type))) ||
+      !isNullableString(value.justification) ||
+      !isNullableString(value.reason)
+    ) {
+      return invalidResponse();
+    }
+    return {
+      event_id: value.event_id,
+      event_type: value.event_type,
+      actor_id: value.actor_id,
+      occurred_at: value.occurred_at,
+      correlation_id: value.correlation_id,
+      source_revision: value.source_revision as number,
+      outcome: value.outcome,
+      evidence_digest: value.evidence_digest,
+      decision_id: value.decision_id,
+      decision_type: value.decision_type as AuditEvent["decision_type"],
+      justification: value.justification,
+      reason: value.reason,
+    };
+  });
 }
 
 const MAX_RECENT_CASES_LENGTH = 20;

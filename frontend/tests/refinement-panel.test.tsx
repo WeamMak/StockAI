@@ -22,6 +22,7 @@ describe("RefinementPanel", () => {
     const runningCase: CaseDetail = {
       scan_id: "scan-101",
       case_id: "scan-101:product-101",
+      revision: 2,
       status: "running",
       trigger: "manual",
       created_at: "2026-08-05T10:00:00Z",
@@ -32,6 +33,7 @@ describe("RefinementPanel", () => {
       error: null,
       refinement_count: 0,
       draft: null,
+      decision: null,
     };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(runningCase)));
     const onRefined = vi.fn();

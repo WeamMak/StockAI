@@ -236,7 +236,9 @@ describe("OverviewPage", () => {
     const panel = await screen.findByRole("region", {
       name: "Recent recommendations",
     });
-    expect(within(panel).getByText("Fictional Safety Gloves")).toBeInTheDocument();
+    expect(
+      await within(panel).findByText("Fictional Safety Gloves"),
+    ).toBeInTheDocument();
     expect(within(panel).getByText("Fictional Cable Ties")).toBeInTheDocument();
     expect(within(panel).getByText("Manual review")).toBeInTheDocument();
 
@@ -263,7 +265,9 @@ describe("OverviewPage", () => {
     const panel = await screen.findByRole("region", {
       name: "Recent recommendations",
     });
-    expect(within(panel).getByText(/no recommendations yet/i)).toBeInTheDocument();
+    expect(
+      await within(panel).findByText(/no recommendations yet/i),
+    ).toBeInTheDocument();
   });
 
   it("starts a manual scan from a 202 response", async () => {

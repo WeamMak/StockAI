@@ -106,6 +106,7 @@ export function App() {
             <RecommendationPage
               scanId={selectedScanId}
               caseId={selectedCaseId}
+              session={session}
               onBack={() => setSelectedCaseId(null)}
             />
           )}

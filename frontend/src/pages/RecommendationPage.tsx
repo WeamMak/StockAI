@@ -7,7 +7,10 @@ import {
   type CaseDetail,
   type ProcurementEvidence as ProcurementEvidenceRecord,
   type ScanFailure,
+  type Session,
 } from "../api/client";
+import { AuditTimeline } from "../components/AuditTimeline";
+import { ManagerDecisionPanel } from "../components/ManagerDecisionPanel";
 import { ProcurementEvidence } from "../components/ProcurementEvidence";
 import { RecommendationHeader } from "../components/RecommendationHeader";
 import { RefinementPanel } from "../components/RefinementPanel";
@@ -20,6 +23,7 @@ const DEFAULT_MAX_POLL_ATTEMPTS = 130;
 interface RecommendationPageProps {
   scanId: string;
   caseId: string;
+  session?: Session;
   onBack: () => void;
   pollIntervalMs?: number;
   maxPollAttempts?: number;
@@ -210,6 +214,7 @@ function RecommendationSummary({
 export function RecommendationPage({
   scanId,
   caseId,
+  session = { user_id: "unknown", email: "", role: "officer" },
   onBack,
   pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
   maxPollAttempts = DEFAULT_MAX_POLL_ATTEMPTS,
@@ -242,7 +247,7 @@ export function RecommendationPage({
         }
         setScan(nextScan);
         setRequestError(null);
-        if (nextScan.status === "queued" || nextScan.status === "running") {
+        if (["queued", "running", "approved", "rejected", "confirming"].includes(nextScan.status)) {
           if (attempts >= maxPollAttempts) {
             setRequestError({
               code: "POLL_LIMIT_REACHED",
@@ -328,6 +333,19 @@ export function RecommendationPage({
               </p>
             </section>
           ) : null}
+          {scan.decision ? (
+            <section className="notice notice--review" role="status">
+              <h2>{scan.decision.status.replaceAll("_", " ")}</h2>
+              <p>
+                Fictional Odoo PO {scan.decision.po_reference} is {scan.decision.odoo_state}.
+              </p>
+            </section>
+          ) : null}
+          <ManagerDecisionPanel
+            session={session}
+            caseDetail={scan}
+            onAccepted={() => setRefinementNonce((value) => value + 1)}
+          />
           <RecommendationSummary scan={scan} evidence={findRecommendedEvidence(scan)} />
           {findRecommendedEvidence(scan) ? (
             <ProcurementEvidence
@@ -340,13 +358,16 @@ export function RecommendationPage({
             />
           ) : null}
           {scan.result.outcome === "approval_ready" &&
-          scan.status !== "pending_approval" ? (
+          scan.status === "succeeded" ? (
             <RefinementPanel
               scanId={scanId}
               caseId={caseId}
               refinementCount={scan.refinement_count}
               onRefined={handleRefined}
             />
+          ) : null}
+          {scan.status !== "succeeded" ? (
+            <AuditTimeline caseId={caseId} refreshKey={refinementNonce} />
           ) : null}
         </>
       ) : (
