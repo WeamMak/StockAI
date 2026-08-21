@@ -113,13 +113,15 @@ def test_local_scan_evaluates_multiple_candidates_as_isolated_cases(
     body = detail.json()
     assert body["status"] == "succeeded"
     assert len(body["results"]) == 2
-    assert body["outcome_counts"] == {"approval_ready": 1, "no_valid_offer": 1}
+    assert body["outcome_counts"] == {"pending_approval": 1, "no_valid_offer": 1}
+    assert cases["product-101"]["status"] == "pending_approval"
     assert cases["product-101"]["result"]["outcome"] == "approval_ready"
+    assert cases["product-101"]["draft"]["state"] == "draft"
     assert cases["product-102"]["result"]["outcome"] == "no_valid_offer"
     assert cases["product-102"]["result"]["product_id"] == "product-102"
 
 
-def test_local_case_can_be_refined_once_with_an_officer_note(
+def test_local_pending_draft_cannot_be_refined(
     tmp_path: Path,
 ) -> None:
     with run_local_skeleton(tmp_path) as skeleton:
@@ -139,15 +141,14 @@ def test_local_case_can_be_refined_once_with_an_officer_note(
                 headers=auth_headers,
                 json={"note": "Prioritize delivery speed this time."},
             )
-            refined_detail = _poll_scan(
-                client,
-                f"/api/v1/scans/{scan_id}/cases/{case_id}",
-                headers=auth_headers,
+            unchanged = client.get(
+                f"/api/v1/scans/{scan_id}/cases/{case_id}", headers=auth_headers
             )
 
-    assert refined.status_code == 202
-    assert refined.json()["status"] == "running"
-    assert refined_detail.status_code == 200
-    assert refined_detail.json()["status"] == "succeeded"
-    assert refined_detail.json()["refinement_count"] == 1
-    assert refined_detail.json()["result"]["outcome"] == "approval_ready"
+    assert refined.status_code == 422
+    assert refined.json()["error_code"] == "VALIDATION_FAILED"
+    assert unchanged.status_code == 200
+    assert unchanged.json()["status"] == "pending_approval"
+    assert unchanged.json()["refinement_count"] == 0
+    assert unchanged.json()["result"]["outcome"] == "approval_ready"
+    assert unchanged.json()["draft"]["state"] == "draft"
