@@ -14,6 +14,7 @@ from pydantic import ValidationError
 from procurement.domain.errors import ErrorCode
 from procurement.domain.identifiers import Environment
 from procurement.mcp_server.idempotency import (
+    DraftErpPort,
     DraftReconciliationRequiredError,
     resolve_idempotent_draft,
 )
@@ -21,7 +22,6 @@ from procurement.mcp_server.observability import McpMetrics
 from procurement.mcp_server.schemas import CreateDraftInput, PurchaseOrderDraftOutput
 from procurement.observability.logging import log_event
 from procurement.ports.erp import (
-    ErpPort,
     ErpUnavailableError,
     PurchaseOrderDraft,
     PurchaseOrderDraftCommand,
@@ -132,7 +132,7 @@ def _raise_safe_error(
 async def create_purchase_order_draft(
     *,
     request: CreateDraftInput,
-    erp: ErpPort,
+    erp: DraftErpPort,
     server_environment: Environment,
     metrics: McpMetrics,
     logger: logging.Logger,

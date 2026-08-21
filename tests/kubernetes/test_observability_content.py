@@ -22,6 +22,7 @@ EXPECTED_DASHBOARDS = {
 }
 EXPECTED_ALERTS = {
     "StockAIDependencyUnavailable",
+    "StockAIDecisionReconciliationRequired",
     "StockAIHttpErrorRateHigh",
     "StockAIHttpsCertificateExpiring",
     "StockAILlmFailures",
@@ -30,6 +31,7 @@ EXPECTED_ALERTS = {
     "StockAIPersistentVolumePressure",
     "StockAIPodCrashLooping",
     "StockAIPodUnavailable",
+    "StockAIPurchaseOrderActionFailures",
     "StockAIPublicHttpsUnavailable",
     "StockAIWorkerDiskPressure",
     "StockAIWorkerReadyMismatch",
@@ -87,12 +89,16 @@ def test_required_dashboard_panels_and_queries_are_present() -> None:
         "Requests per minute by result",
         "Request error rate",
         "Request latency p50 / p95 / p99",
+        "Pending decisions",
+        "Decision completion latency",
     } <= titles["agent-health.json"]
     assert {
         "LLM input tokens",
         "LLM output tokens",
         "Retries, repairs, and safe fallbacks",
         "Preference premium outcomes",
+        "Purchase order action failures",
+        "Purchase order reconciliation",
     } <= titles["llm-mcp.json"]
     assert {
         "HPA current and desired replicas",
@@ -122,6 +128,10 @@ def test_required_dashboard_panels_and_queries_are_present() -> None:
         'procurement_llm_tokens_total{direction="input"}',
         'procurement_llm_tokens_total{direction="output"}',
         "procurement_preference_offer_outcomes_total",
+        "procurement_manager_decisions_total",
+        "procurement_decision_completion_seconds_bucket",
+        "procurement_purchase_order_actions_total",
+        "procurement_purchase_order_reconciliation_seconds_bucket",
         "procurement_llm_repairs_total",
         "procurement_llm_fallbacks_total",
         "kube_horizontalpodautoscaler_status_current_replicas",

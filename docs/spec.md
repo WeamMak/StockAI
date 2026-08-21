@@ -550,7 +550,12 @@ justifications, and other business text never become prompt instructions.
 
 [Tutorial-supported approach] LangGraph checkpoints use the course-supported DynamoDB checkpointer so a workflow survives pod restart and human waiting.
 
-[Project decision] The graph thread identifier is the immutable procurement case identifier.
+[Project decision] The initial graph run uses the immutable procurement case
+identifier as its thread ID. Each bounded refinement uses its own immutable
+`{case_id}:refine-{attempt}` thread so completed checkpoints are never reused.
+When either run creates a draft and pauses, the application persists that exact
+draft-owning thread ID on the case and uses it for the later manager-decision
+resume; it never guesses or reconstructs a different checkpoint after restart.
 
 [Project decision] Durable vendor, product, offer, budget, and purchase history remains in Odoo and is reread when needed. The MVP does not duplicate it into a vector store or maintain free-form LLM memory that could become stale.
 
@@ -650,7 +655,7 @@ ownership, release schedules, incompatible dependencies, or external consumers.
 6. `[Project decision]` Bedrock applies the effective advisory priorities, selects or declines to select among the remaining eligible offers, and returns a structured explanation.
 7. `[Project decision]` The graph validates the response and asks MCP to create one idempotent draft PO.
 8. `[Project decision]` The graph checkpoints and interrupts for manager input.
-9. `[Project decision]` FastAPI records the manager’s authenticated decision and resumes the same graph thread.
+9. `[Project decision]` FastAPI records the manager’s authenticated decision and resumes the exact persisted draft-owning graph thread.
 10. `[Project decision]` MCP independently validates the matching approval before confirming or canceling the Odoo PO.
 11. `[Project decision]` The UI polls the API for status, while metrics, sanitized logs, preference-revision evidence, and audit records capture the interaction.
 

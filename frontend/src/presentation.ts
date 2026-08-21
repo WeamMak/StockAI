@@ -89,6 +89,11 @@ export const OUTCOME_LABEL: Record<string, string> = {
   confirmed: "Confirmed",
   error: "Error",
   pending_approval: "Pending approval",
+  approved: "Approved",
+  rejected: "Rejected",
+  confirming: "Confirming",
+  cancelled: "Cancelled",
+  reconciliation_required: "Reconciliation required",
 };
 
 export const OUTCOME_COLOR: Record<string, string> = {
@@ -98,4 +103,9 @@ export const OUTCOME_COLOR: Record<string, string> = {
   confirmed: "#2f9e58",
   error: "#c0392b",
   pending_approval: "#b4780a",
+  approved: "#3157c8",
+  rejected: "#c0392b",
+  confirming: "#3157c8",
+  cancelled: "#60708a",
+  reconciliation_required: "#c0392b",
 };

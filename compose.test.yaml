@@ -59,6 +59,10 @@ services:
     stop_grace_period: 10s
 
   mcp:
+    depends_on:
+      dynamodb-local:
+        condition: service_healthy
+        required: false
     environment:
       PROCUREMENT_LOG_LEVEL: ERROR
       PROCUREMENT_MCP_READ_TIMEOUT_SECONDS: "0.2"

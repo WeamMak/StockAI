@@ -12,10 +12,10 @@ reconciliation when that search still cannot tell.
 from __future__ import annotations
 
 import asyncio
+from typing import Protocol
 
 from procurement.ports.erp import (
     DraftWriteAmbiguousError,
-    ErpPort,
     PurchaseOrderDraft,
     PurchaseOrderDraftCommand,
 )
@@ -32,9 +32,21 @@ class DraftReconciliationRequiredError(Exception):
         super().__init__(self.safe_message)
 
 
+class DraftErpPort(Protocol):
+    """Narrow ERP seam required by idempotent draft creation."""
+
+    async def find_purchase_order_draft(
+        self, *, origin: str
+    ) -> PurchaseOrderDraft | None: ...
+
+    async def create_purchase_order_draft(
+        self, command: PurchaseOrderDraftCommand
+    ) -> PurchaseOrderDraft: ...
+
+
 async def resolve_idempotent_draft(
     *,
-    erp: ErpPort,
+    erp: DraftErpPort,
     command: PurchaseOrderDraftCommand,
     create_timeout_seconds: float = DEFAULT_CREATE_TIMEOUT_SECONDS,
 ) -> PurchaseOrderDraft:

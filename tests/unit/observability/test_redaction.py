@@ -6,16 +6,19 @@ from io import StringIO
 
 import pytest
 from httpx2 import ASGITransport, AsyncClient
+from prometheus_client import generate_latest
 
 from procurement.api.app import create_app
 from procurement.api.config import ApiSettings
 from procurement.domain.identifiers import Environment
+from procurement.mcp_server.observability import create_mcp_metrics
 from procurement.observability.logging import (
     REDACTED,
     configure_json_logging,
     log_event,
     sanitize_log_fields,
 )
+from procurement.observability.metrics import create_agent_metrics
 
 
 def test_sensitive_log_fields_are_recursively_redacted() -> None:
@@ -55,6 +58,49 @@ def test_sensitive_log_fields_are_recursively_redacted() -> None:
     assert "confidential manager note" not in serialized
     assert "database password leaked" not in serialized
     assert "odoo-secret-key" not in serialized
+
+
+def test_manager_and_purchase_order_metrics_use_only_bounded_labels() -> None:
+    agent = create_agent_metrics()
+    agent.observe_manager_decision(
+        decision="approve", result="accepted", duration_seconds=0.25
+    )
+    mcp = create_mcp_metrics()
+    mcp.observe_purchase_order_action(
+        action="confirm",
+        result="reconciliation_required",
+        duration_seconds=0.5,
+    )
+
+    agent_text = generate_latest(agent.registry).decode()
+    mcp_text = generate_latest(mcp.registry).decode()
+    assert (
+        'procurement_manager_decisions_total{decision="approve",result="accepted"}'
+        in agent_text
+    )
+    assert (
+        'procurement_decision_completion_seconds_count{decision="approve"}'
+        in agent_text
+    )
+    assert (
+        'procurement_purchase_order_actions_total{action="confirm",result="reconciliation_required"}'
+        in mcp_text
+    )
+    assert (
+        'procurement_purchase_order_reconciliation_seconds_count{action="confirm"}'
+        in mcp_text
+    )
+    for forbidden in (
+        "case_id",
+        "decision_id",
+        "manager_id",
+        "vendor_id",
+        "amount",
+        "evidence_digest",
+        "reason",
+        "justification",
+    ):
+        assert f'{forbidden}="' not in agent_text + mcp_text
 
 
 def test_log_event_emits_the_required_json_fields() -> None:

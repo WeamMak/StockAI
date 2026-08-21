@@ -14,6 +14,8 @@ _KNOWN_MCP_TOOLS = frozenset(
         "get_procurement_evidence",
         "get_procurement_preferences",
         "create_purchase_order_draft",
+        "confirm_purchase_order",
+        "cancel_draft_purchase_order",
     }
 )
 
@@ -28,6 +30,8 @@ class McpMetrics:
     timeouts: Counter
     retries: Counter
     duration: Histogram
+    purchase_order_actions: Counter
+    purchase_order_reconciliation: Histogram
 
     @staticmethod
     def _safe_tool(tool: str) -> str:
@@ -62,6 +66,26 @@ class McpMetrics:
         """Record one safe retry of an MCP read."""
 
         self.retries.labels(tool=self._safe_tool(tool)).inc()
+
+    def observe_purchase_order_action(
+        self,
+        *,
+        action: str,
+        result: str,
+        duration_seconds: float,
+        reconciled: bool = False,
+    ) -> None:
+        safe_action = action if action in {"confirm", "cancel"} else "unknown"
+        safe_result = (
+            result
+            if result in {"success", "stale", "reconciliation_required", "error"}
+            else "error"
+        )
+        self.purchase_order_actions.labels(action=safe_action, result=safe_result).inc()
+        if safe_result == "reconciliation_required" or reconciled:
+            self.purchase_order_reconciliation.labels(action=safe_action).observe(
+                duration_seconds
+            )
 
 
 def create_mcp_metrics() -> McpMetrics:
@@ -98,6 +122,18 @@ def create_mcp_metrics() -> McpMetrics:
             "procurement_mcp_tool_duration_seconds",
             "Procurement MCP tool duration in seconds.",
             ("tool",),
+            registry=registry,
+        ),
+        purchase_order_actions=Counter(
+            "procurement_purchase_order_actions",
+            "Purchase-order actions by bounded result.",
+            ("action", "result"),
+            registry=registry,
+        ),
+        purchase_order_reconciliation=Histogram(
+            "procurement_purchase_order_reconciliation_seconds",
+            "Purchase-order reconciliation duration in seconds.",
+            ("action",),
             registry=registry,
         ),
     )

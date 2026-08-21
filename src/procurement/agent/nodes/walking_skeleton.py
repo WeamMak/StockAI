@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from time import perf_counter
 
 from langgraph.types import interrupt
@@ -15,7 +17,8 @@ from procurement.agent.state import (
     ScanState,
     UnresolvedResult,
 )
-from procurement.domain.errors import ErrorCode
+from procurement.domain.decisions import ApprovalRecord, DecisionId, RejectionRecord
+from procurement.domain.errors import DomainValidationError, ErrorCode
 from procurement.domain.identifiers import Environment
 from procurement.domain.policy.evidence import (
     EvidenceStatus,
@@ -25,6 +28,7 @@ from procurement.domain.policy.evidence import (
 from procurement.domain.policy.preferences import apply_preferences
 from procurement.observability.logging import log_event
 from procurement.observability.metrics import AgentMetrics
+from procurement.ports.decisions import DecisionReader
 from procurement.ports.llm import (
     LlmOutputInvalidError,
     LlmUnavailableError,
@@ -33,6 +37,9 @@ from procurement.ports.llm import (
     StructuredLlmPort,
 )
 from procurement.ports.mcp import (
+    DecisionOutcome,
+    McpApprovalStaleError,
+    McpDecisionReconciliationRequiredError,
     McpDraftReconciliationRequiredError,
     McpReadError,
     McpTimeoutError,
@@ -79,6 +86,9 @@ class WalkingSkeletonNodes:
     metrics: AgentMetrics
     logger: logging.Logger
     company_id: str
+    decisions: DecisionReader | None = None
+    now: Callable[[], datetime] = lambda: datetime.now(tz=UTC)
+    pause_for_decision: bool = False
 
     async def discover_candidates(
         self, *, environment: Environment, scan_id: str
@@ -521,18 +531,160 @@ class WalkingSkeletonNodes:
             status="success",
             tool_name="create_purchase_order_draft",
         )
-        interrupt(
-            {
-                "case_id": case_id,
-                "po_id": draft.po_id,
-                "write_date": draft.write_date,
-                "state": draft.state,
-                "partner_id": draft.partner_id,
-                "currency_id": draft.currency_id,
-                "amount_total": format(draft.amount_total, "f"),
-            }
-        )
+        if self.decisions is None and self.pause_for_decision:
+            interrupt(
+                {
+                    "case_id": case_id,
+                    "po_id": draft.po_id,
+                    "write_date": draft.write_date,
+                    "state": draft.state,
+                    "partner_id": draft.partner_id,
+                    "currency_id": draft.currency_id,
+                    "amount_total": format(draft.amount_total, "f"),
+                }
+            )
         return {"draft": draft}
+
+    async def load_decision(self, state: ScanState) -> dict[str, object]:
+        """Load the immutable decision selected only by the resumed ID."""
+
+        raw_decision_id = state.get("manager_decision_id")
+        if raw_decision_id is None:
+            draft = state.get("draft")
+            result = state.get("result")
+            if draft is None or not isinstance(result, ApprovalReadyResult):
+                return {
+                    "result": UnresolvedResult(
+                        error_code=ErrorCode.APPROVAL_STALE,
+                        message="The pending draft checkpoint is incomplete.",
+                        retryable=False,
+                    )
+                }
+            raw_decision_id = interrupt(
+                {
+                    "case_id": f"{state['scan_id']}:{result.product_id}",
+                    "po_id": draft.po_id,
+                    "write_date": draft.write_date,
+                    "state": draft.state,
+                    "partner_id": draft.partner_id,
+                    "currency_id": draft.currency_id,
+                    "amount_total": format(draft.amount_total, "f"),
+                }
+            )
+        environment = state["environment"]
+        try:
+            decision_id = DecisionId(environment, raw_decision_id)
+            decision = (
+                await self.decisions.get_decision(decision_id)
+                if self.decisions is not None
+                else None
+            )
+        except (DomainValidationError, TypeError, ValueError):
+            decision = None
+        if decision is None or (
+            isinstance(decision, ApprovalRecord)
+            and self.now() >= decision.expires_at.value
+        ):
+            return {
+                "result": UnresolvedResult(
+                    error_code=ErrorCode.APPROVAL_STALE,
+                    message="The manager decision is missing, expired, or stale.",
+                    retryable=False,
+                )
+            }
+        return {
+            "manager_decision_id": decision.decision_id.value,
+            "decision_type": decision.decision_type.value,
+        }
+
+    async def confirm(self, state: ScanState) -> dict[str, object]:
+        decision = await self._read_loaded_decision(state)
+        if not isinstance(decision, ApprovalRecord):
+            return self._stale_decision_result()
+        return await self._apply_terminal_decision(
+            state=state, decision=decision, confirm=True
+        )
+
+    async def cancel(self, state: ScanState) -> dict[str, object]:
+        decision = await self._read_loaded_decision(state)
+        if not isinstance(decision, RejectionRecord):
+            return self._stale_decision_result()
+        return await self._apply_terminal_decision(
+            state=state, decision=decision, confirm=False
+        )
+
+    async def _apply_terminal_decision(
+        self,
+        *,
+        state: ScanState,
+        decision: ApprovalRecord | RejectionRecord,
+        confirm: bool,
+    ) -> dict[str, object]:
+        try:
+            if confirm:
+                outcome = await self.mcp.confirm_purchase_order(
+                    environment=state["environment"],
+                    decision_id=decision.decision_id.value,
+                    idempotency_key=decision.idempotency_key,
+                )
+            else:
+                outcome = await self.mcp.cancel_draft_purchase_order(
+                    environment=state["environment"],
+                    decision_id=decision.decision_id.value,
+                    idempotency_key=decision.idempotency_key,
+                )
+        except McpApprovalStaleError:
+            return {
+                "result": UnresolvedResult(
+                    error_code=ErrorCode.APPROVAL_STALE,
+                    message="The approved purchase-order revision is stale.",
+                    retryable=False,
+                )
+            }
+        except McpDecisionReconciliationRequiredError:
+            return {
+                "decision_outcome": DecisionOutcome(
+                    decision_id=decision.decision_id.value,
+                    decision_type=decision.decision_type,
+                    outcome="reconciliation_required",
+                    po_id=decision.po_id,
+                    po_reference=str(decision.po_id),
+                    write_date=decision.po_write_date,
+                    odoo_state=decision.po_state,
+                    reconciled=False,
+                )
+            }
+        except McpReadError as error:
+            return {
+                "result": UnresolvedResult(
+                    error_code=ErrorCode.ODOO_UNAVAILABLE,
+                    message=error.safe_message,
+                    retryable=True,
+                    retry_count=error.retry_count,
+                )
+            }
+        return {"decision_outcome": outcome}
+
+    async def _read_loaded_decision(
+        self, state: ScanState
+    ) -> ApprovalRecord | RejectionRecord | None:
+        if self.decisions is None:
+            return None
+        try:
+            decision_id = DecisionId(state["environment"], state["manager_decision_id"])
+            return await self.decisions.get_decision(decision_id)
+        except (DomainValidationError, KeyError, TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _stale_decision_result() -> dict[str, object]:
+        return {
+            "result": UnresolvedResult(
+                error_code=ErrorCode.APPROVAL_STALE,
+                message="The manager decision is missing, expired, or stale.",
+                retryable=False,
+            )
+        }
 
     @staticmethod
     def _fallback(*, risk_flag: str, limitation: str) -> ManualReviewResult:

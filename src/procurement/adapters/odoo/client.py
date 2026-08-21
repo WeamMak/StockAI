@@ -19,6 +19,7 @@ from procurement.adapters.odoo.draft import (
     DRAFT_SNAPSHOT_FIELDS,
     OdooDraftMappingError,
     many2one,
+    purchase_order_action_result_from_row,
     purchase_order_draft_from_row,
 )
 from procurement.adapters.odoo.evidence import build_odoo_evidence
@@ -34,14 +35,18 @@ from procurement.domain.policy.evidence import ProcurementEvidence
 from procurement.domain.policy.preferences import ProcurementPreference
 from procurement.observability.logging import log_event
 from procurement.ports.erp import (
+    ApprovalStaleError,
     CandidatePage,
     DraftWriteAmbiguousError,
     ErpPort,
     ErpUnavailableError,
     ProcurementEvidenceQuery,
     ProcurementPreferenceQuery,
+    PurchaseOrderAction,
+    PurchaseOrderActionResult,
     PurchaseOrderDraft,
     PurchaseOrderDraftCommand,
+    PurchaseOrderWriteAmbiguousError,
     ReplenishmentCandidatesQuery,
 )
 
@@ -85,6 +90,8 @@ _DRAFT_OPERATIONS = frozenset(
         "search_replenishment_uom",
         "read_purchase_order",
         "create_purchase_order",
+        "confirm_purchase_order",
+        "cancel_purchase_order",
     }
 )
 
@@ -429,6 +436,103 @@ class OdooJson2Client:
             raise DraftWriteAmbiguousError(error, retry_count=0) from None
         self._record_completion(
             operation="create_purchase_order",
+            status="success",
+            started_at=started_at,
+            retry_count=0,
+        )
+        return result
+
+    async def apply_purchase_order_action_once(
+        self,
+        *,
+        po_id: int,
+        expected: PurchaseOrderDraft,
+        action: PurchaseOrderAction,
+    ) -> Any:
+        """Call one fixed StockAI add-on action exactly once."""
+
+        if type(po_id) is not int or po_id <= 0 or expected.po_id != po_id:
+            raise ValueError("Odoo purchase-order action binding is invalid")
+        method_by_action = {
+            PurchaseOrderAction.CONFIRM: "action_stockai_confirm",
+            PurchaseOrderAction.CANCEL: "action_stockai_cancel_draft",
+        }
+        operation_by_action = {
+            PurchaseOrderAction.CONFIRM: "confirm_purchase_order",
+            PurchaseOrderAction.CANCEL: "cancel_purchase_order",
+        }
+        try:
+            method = method_by_action[action]
+            operation = operation_by_action[action]
+        except (KeyError, TypeError):
+            raise ValueError("Odoo purchase-order action is not allowed") from None
+        payload = {
+            "ids": [po_id],
+            "expected": {
+                "write_date": expected.write_date,
+                "state": expected.state,
+                "partner_id": expected.partner_id,
+                "currency_id": expected.currency_id,
+                "amount_total": format(expected.amount_total, "f"),
+            },
+        }
+        started_at = perf_counter()
+        try:
+            async with httpx.AsyncClient(
+                base_url=self.base_url.rstrip("/"),
+                headers={
+                    "Authorization": f"bearer {self.api_key}",
+                    "X-Odoo-Database": self.database,
+                },
+                timeout=min(self.timeout_seconds, 15.0),
+                transport=self.transport,
+            ) as client:
+                async with client.stream(
+                    "POST",
+                    f"/json/2/purchase.order/{method}",
+                    json=payload,
+                ) as response:
+                    if response.status_code == 422:
+                        raise ApprovalStaleError()
+                    if not 200 <= response.status_code < 300:
+                        raise PurchaseOrderWriteAmbiguousError()
+                    content = bytearray()
+                    async for chunk in response.aiter_bytes():
+                        if len(content) + len(chunk) > self.max_response_bytes:
+                            raise PurchaseOrderWriteAmbiguousError()
+                        content.extend(chunk)
+            try:
+                result = json.loads(content)
+            except (UnicodeDecodeError, ValueError) as error:
+                raise PurchaseOrderWriteAmbiguousError(error) from None
+        except ApprovalStaleError:
+            self._record_completion(
+                operation=operation,
+                status="error",
+                started_at=started_at,
+                retry_count=0,
+            )
+            raise
+        except PurchaseOrderWriteAmbiguousError:
+            self._record_completion(
+                operation=operation,
+                status="error",
+                started_at=started_at,
+                retry_count=0,
+            )
+            raise
+        except (httpx.TimeoutException, httpx.RequestError) as error:
+            self._record_completion(
+                operation=operation,
+                status="timeout"
+                if isinstance(error, httpx.TimeoutException)
+                else "error",
+                started_at=started_at,
+                retry_count=0,
+            )
+            raise PurchaseOrderWriteAmbiguousError(error) from None
+        self._record_completion(
+            operation=operation,
             status="success",
             started_at=started_at,
             retry_count=0,
@@ -1003,6 +1107,36 @@ class OdooErpAdapter(ErpPort):
             return purchase_order_draft_from_row(row)
         except Exception as error:
             raise DraftWriteAmbiguousError(error) from None
+
+    async def read_purchase_order(self, *, po_id: int) -> PurchaseOrderActionResult:
+        """Read and strictly map one purchase-order lifecycle snapshot."""
+
+        try:
+            rows = await self.client.read_purchase_order(po_id=po_id)
+            return purchase_order_action_result_from_row(_single_mapping(rows))
+        except (OdooDraftMappingError, OdooReadTimeoutError, ErpUnavailableError):
+            raise
+        except (AttributeError, TypeError, ValueError) as error:
+            raise OdooDraftMappingError(error) from None
+
+    async def apply_purchase_order_action_once(
+        self,
+        *,
+        po_id: int,
+        expected: PurchaseOrderDraft,
+        action: PurchaseOrderAction,
+    ) -> PurchaseOrderActionResult:
+        """Apply one allowlisted atomic action and strictly map its snapshot."""
+
+        raw = await self.client.apply_purchase_order_action_once(
+            po_id=po_id, expected=expected, action=action
+        )
+        try:
+            if not isinstance(raw, Mapping):
+                raise ValueError("invalid purchase-order action response")
+            return purchase_order_action_result_from_row(raw)
+        except OdooDraftMappingError as error:
+            raise PurchaseOrderWriteAmbiguousError(error) from None
 
 
 def _single_mapping(raw: object) -> Mapping[str, object]:

@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
+from enum import StrEnum
 from typing import Protocol
 
 from procurement.domain.identifiers import Environment
@@ -139,6 +140,46 @@ class PurchaseOrderDraft:
     amount_total: Decimal
 
 
+class PurchaseOrderAction(StrEnum):
+    """The only terminal purchase-order writes exposed to the agent."""
+
+    CONFIRM = "confirm"
+    CANCEL = "cancel"
+
+
+@dataclass(frozen=True, slots=True)
+class PurchaseOrderActionResult:
+    """Strict post-action or reconciliation snapshot returned by the ERP."""
+
+    po_id: int
+    po_reference: str | None
+    write_date: str
+    state: str
+    partner_id: int
+    currency_id: int
+    amount_total: Decimal
+
+
+class ApprovalStaleError(Exception):
+    """The exact approved purchase-order revision is no longer current."""
+
+    safe_message = "The approved purchase-order revision is stale."
+
+    def __init__(self, private_detail: object = None) -> None:
+        del private_detail
+        super().__init__(self.safe_message)
+
+
+class PurchaseOrderWriteAmbiguousError(Exception):
+    """A terminal write may have committed and must be reconciled by reading."""
+
+    safe_message = "The purchase-order action outcome could not be confirmed."
+
+    def __init__(self, private_detail: object = None) -> None:
+        del private_detail
+        super().__init__(self.safe_message)
+
+
 class DraftWriteAmbiguousError(Exception):
     """A create call's outcome is unknown; the caller must search before
     ever considering a retry -- this is never safe to retry blindly."""
@@ -188,6 +229,18 @@ class ErpPort(Protocol):
         Raises `DraftWriteAmbiguousError` when the outcome is unknown (for
         example a timeout after Odoo may already have committed); the caller
         must search by origin before deciding whether to retry."""
+
+    async def read_purchase_order(self, *, po_id: int) -> PurchaseOrderActionResult:
+        """Read the current purchase-order lifecycle snapshot."""
+
+    async def apply_purchase_order_action_once(
+        self,
+        *,
+        po_id: int,
+        expected: PurchaseOrderDraft,
+        action: PurchaseOrderAction,
+    ) -> PurchaseOrderActionResult:
+        """Apply one revision-bound action without a blind write retry."""
 
 
 class ErpUnavailableError(Exception):

@@ -6,8 +6,9 @@ import re
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
-from typing import Protocol
+from typing import Literal, Protocol
 
+from procurement.domain.decisions import DecisionType
 from procurement.domain.identifiers import Environment
 from procurement.domain.policy.evidence import ProcurementEvidence
 from procurement.domain.policy.preferences import ProcurementPreference
@@ -175,6 +176,89 @@ class PurchaseOrderDraft:
             raise ValueError("amount_total must be a bounded decimal")
 
 
+@dataclass(frozen=True, slots=True)
+class DecisionOutcome:
+    """Validated terminal result from a manager-authorized MCP action."""
+
+    decision_id: str
+    decision_type: DecisionType
+    outcome: Literal["confirmed", "cancelled", "reconciliation_required"]
+    po_id: int
+    po_reference: str
+    write_date: str
+    odoo_state: str
+    reconciled: bool
+
+    def __post_init__(self) -> None:
+        if not _valid_identifier(self.decision_id):
+            raise ValueError("decision_id must be a bounded identifier")
+        if not isinstance(self.decision_type, DecisionType):
+            raise ValueError("decision_type must be approve or reject")
+        expected = {
+            DecisionType.APPROVE: ("confirmed", "purchase"),
+            DecisionType.REJECT: ("cancelled", "cancel"),
+        }[self.decision_type]
+        if (
+            self.outcome != "reconciliation_required"
+            and (
+                self.outcome,
+                self.odoo_state,
+            )
+            != expected
+        ):
+            raise ValueError("decision outcome and Odoo state do not match")
+        if type(self.po_id) is not int or self.po_id <= 0:
+            raise ValueError("po_id must be positive")
+        for field in ("po_reference", "write_date"):
+            value = getattr(self, field)
+            if not isinstance(value, str) or not value or len(value) > 128:
+                raise ValueError(f"{field} must be bounded text")
+        if type(self.reconciled) is not bool:
+            raise ValueError("reconciled must be boolean")
+
+    @classmethod
+    def confirmed(
+        cls,
+        *,
+        decision_id: str,
+        po_id: int,
+        po_reference: str,
+        write_date: str,
+        reconciled: bool,
+    ) -> DecisionOutcome:
+        return cls(
+            decision_id=decision_id,
+            decision_type=DecisionType.APPROVE,
+            outcome="confirmed",
+            po_id=po_id,
+            po_reference=po_reference,
+            write_date=write_date,
+            odoo_state="purchase",
+            reconciled=reconciled,
+        )
+
+    @classmethod
+    def cancelled(
+        cls,
+        *,
+        decision_id: str,
+        po_id: int,
+        po_reference: str,
+        write_date: str,
+        reconciled: bool,
+    ) -> DecisionOutcome:
+        return cls(
+            decision_id=decision_id,
+            decision_type=DecisionType.REJECT,
+            outcome="cancelled",
+            po_id=po_id,
+            po_reference=po_reference,
+            write_date=write_date,
+            odoo_state="cancel",
+            reconciled=reconciled,
+        )
+
+
 class ProcurementMcpPort(Protocol):
     """Read and one bounded write operation the LangGraph workflow requests
     through MCP."""
@@ -215,6 +299,24 @@ class ProcurementMcpPort(Protocol):
     ) -> PurchaseOrderDraft:
         """Idempotently create, or return the existing, draft PO for one case."""
 
+    async def confirm_purchase_order(
+        self,
+        *,
+        environment: Environment,
+        decision_id: str,
+        idempotency_key: str,
+    ) -> DecisionOutcome:
+        """Confirm the exact PO revision authorized by an immutable approval."""
+
+    async def cancel_draft_purchase_order(
+        self,
+        *,
+        environment: Environment,
+        decision_id: str,
+        idempotency_key: str,
+    ) -> DecisionOutcome:
+        """Cancel the exact PO revision authorized by an immutable rejection."""
+
 
 class McpReadError(Exception):
     """Safe MCP-client failure that discards private upstream detail."""
@@ -243,3 +345,15 @@ class McpDraftReconciliationRequiredError(McpReadError):
     """Safe signal that a draft write's outcome could not be determined."""
 
     safe_message = "The purchase-order draft could not be safely reconciled."
+
+
+class McpApprovalStaleError(McpReadError):
+    """The immutable decision no longer authorizes the current PO revision."""
+
+    safe_message = "The approved purchase-order revision is stale."
+
+
+class McpDecisionReconciliationRequiredError(McpReadError):
+    """A terminal PO action may have committed and remains unresolved."""
+
+    safe_message = "The purchase-order action requires reconciliation."
