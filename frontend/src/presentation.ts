@@ -83,6 +83,8 @@ export function formatRatioPercent(value: string | null): string {
 }
 
 export const OUTCOME_LABEL: Record<string, string> = {
+  queued: "Pending",
+  running: "Scanning",
   approval_ready: "Approval ready",
   manual_review: "Manual review",
   no_valid_offer: "No valid offer",

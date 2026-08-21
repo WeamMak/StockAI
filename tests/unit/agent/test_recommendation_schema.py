@@ -136,3 +136,13 @@ def test_schema_field_dump_is_rejected_as_explanatory_text() -> None:
 
     with pytest.raises(LlmOutputInvalidError):
         validate_recommendation_payload(payload, request, 1, 1)
+
+
+def test_placeholder_explanations_are_rejected() -> None:
+    request = t27_request()
+    payload = t27_payload(request)
+    payload["trade_offs"] = ["None"]
+    payload["uncertainty"] = "None"
+
+    with pytest.raises(LlmOutputInvalidError):
+        validate_recommendation_payload(payload, request, 1, 1)

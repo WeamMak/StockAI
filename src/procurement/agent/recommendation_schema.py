@@ -43,6 +43,7 @@ _REQUIRED_FIELDS = {
     "premium_outcome",
 }
 _SCHEMA_TOKEN = re.compile(r"[a-z][a-z0-9_]*")
+_EXPLANATION_PLACEHOLDERS = frozenset({"none", "n/a", "not applicable"})
 _IDENTIFIER = {
     "type": ["string", "null"],
     "minLength": 1,
@@ -166,6 +167,10 @@ def _looks_like_schema_field_dump(value: str) -> bool:
     return len(schema_tokens) >= 2
 
 
+def _is_explanation_placeholder(value: str) -> bool:
+    return value.strip().lower().removesuffix(".") in _EXPLANATION_PLACEHOLDERS
+
+
 def validate_recommendation_payload(
     payload: Mapping[str, object],
     request: RecommendationRequest,
@@ -194,10 +199,10 @@ def validate_recommendation_payload(
             payload["evidence_limitations"], field="evidence_limitations"
         )
         if any(
-            _looks_like_schema_field_dump(value)
+            _looks_like_schema_field_dump(value) or _is_explanation_placeholder(value)
             for value in (rationale, uncertainty, *trade_offs, *limitations)
         ):
-            raise ValueError("recommendation explanation contains schema metadata")
+            raise ValueError("recommendation explanation is not user-facing prose")
 
         if decision is RecommendationDecision.MANUAL_REVIEW:
             selected_fields = (

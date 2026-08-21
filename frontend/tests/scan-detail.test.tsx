@@ -96,6 +96,62 @@ describe("ScanDetailPage", () => {
     expect(donut).toHaveAccessibleName(/1 pending approval/i);
   });
 
+  it("shows confirmed after an approval instead of the original recommendation outcome", async () => {
+    const confirmed = {
+      ...AGGREGATE,
+      results: [{ ...AGGREGATE.results[0], status: "confirmed" }],
+      outcome_counts: { confirmed: 1 },
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(confirmed)));
+
+    render(
+      <ScanDetailPage scanId="scan-4278" onBack={vi.fn()} onSelectCase={vi.fn()} />,
+    );
+
+    const results = await screen.findByRole("region", {
+      name: "Results from this scan",
+    });
+    expect(within(results).getByText("Confirmed")).toBeInTheDocument();
+    expect(within(results).queryByText("Approval ready")).not.toBeInTheDocument();
+  });
+
+  it("shows an incomplete case as scanning without an actionable recommendation", async () => {
+    const running = {
+      ...AGGREGATE,
+      status: "running",
+      completed_at: null,
+      results: [
+        {
+          ...AGGREGATE.results[0],
+          product_name: "product-1",
+          outcome: "error",
+          status: "running",
+          completed_at: null,
+        },
+      ],
+      outcome_counts: { running: 1 },
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(running)));
+
+    render(
+      <ScanDetailPage
+        scanId="scan-4278"
+        onBack={vi.fn()}
+        onSelectCase={vi.fn()}
+        pollIntervalMs={10_000}
+      />,
+    );
+
+    const results = await screen.findByRole("region", {
+      name: "Results from this scan",
+    });
+    expect(within(results).getByText("Scanning")).toBeInTheDocument();
+    expect(within(results).queryByText("Error")).not.toBeInTheDocument();
+    expect(
+      within(results).queryByRole("button", { name: "View recommendation" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("calls onSelectCase with the row's case id when clicked", async () => {
     const user = userEvent.setup();
     const onSelectCase = vi.fn();

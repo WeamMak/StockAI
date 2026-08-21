@@ -172,10 +172,14 @@ export function ScanDetailPage({
               <h2>Results from this scan</h2>
               <ul className="scan-results-list">
                 {aggregate.results.map((row) => {
-                  const badge =
-                    row.status === "pending_approval"
-                      ? "pending_approval"
-                      : row.outcome;
+                  const badge = ["succeeded", "skipped", "failed"].includes(
+                    row.status,
+                  )
+                    ? row.outcome
+                    : row.status;
+                  const recommendationAvailable = !["queued", "running"].includes(
+                    row.status,
+                  );
                   return (
                     <li key={row.case_id}>
                       <div>
@@ -188,14 +192,18 @@ export function ScanDetailPage({
                       <span>
                         {row.amount ? formatCurrency(row.amount, "USD") : "—"}
                       </span>
-                      <button
-                        className="view-recommendation-button"
-                        type="button"
-                        onClick={() => onSelectCase(row.case_id)}
-                      >
-                        View recommendation
-                        <span aria-hidden="true">›</span>
-                      </button>
+                      {recommendationAvailable ? (
+                        <button
+                          className="view-recommendation-button"
+                          type="button"
+                          onClick={() => onSelectCase(row.case_id)}
+                        >
+                          View recommendation
+                          <span aria-hidden="true">›</span>
+                        </button>
+                      ) : (
+                        <span aria-label="Recommendation is still being prepared">—</span>
+                      )}
                     </li>
                   );
                 })}

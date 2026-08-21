@@ -114,3 +114,5 @@ must contain user-facing prose, never output-schema field names or lists of
 field names. Use an empty array when there is no evidence limitation to report.
 When there is no material trade-off, state that in one brief user-facing
 sentence.
+Never use placeholder values such as `None`, `N/A`, or `Not applicable` in an
+explanation field.
