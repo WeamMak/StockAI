@@ -183,6 +183,7 @@ class PurchaseOrder(models.Model):
         self.invalidate_recordset(list(_EXPECTED_FIELDS))
         return {
             "id": self.id,
+            "name": self.name,
             "write_date": fields.Datetime.to_string(self.write_date),
             "state": self.state,
             "partner_id": self.partner_id.id,

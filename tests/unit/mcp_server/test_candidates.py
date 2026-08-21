@@ -363,13 +363,17 @@ async def test_server_discovery_publishes_strict_read_only_contracts() -> None:
         "get_procurement_preferences",
     }
     assert {tool.name for tool in tools} == read_only_tool_names | {
-        "create_purchase_order_draft"
+        "create_purchase_order_draft",
+        "confirm_purchase_order",
+        "cancel_draft_purchase_order",
     }
     for tool in tools:
         assert tool.inputSchema["additionalProperties"] is False
         assert tool.outputSchema is not None
         assert tool.annotations is not None
-        assert tool.annotations.destructiveHint is False
+        assert tool.annotations.destructiveHint is (
+            tool.name == "cancel_draft_purchase_order"
+        )
         is_read_only = tool.name in read_only_tool_names
         assert tool.annotations.readOnlyHint is is_read_only
     assert settings.required_scopes == [READ_SCOPE]

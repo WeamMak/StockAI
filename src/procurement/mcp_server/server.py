@@ -12,6 +12,7 @@ from pydantic import ConfigDict
 from starlette.requests import Request
 from starlette.responses import Response
 
+from procurement.domain.decisions import DecisionId, DecisionRecord
 from procurement.domain.identifiers import Environment
 from procurement.mcp_server.auth import (
     StaticBearerTokenVerifier,
@@ -19,6 +20,7 @@ from procurement.mcp_server.auth import (
 )
 from procurement.mcp_server.observability import McpMetrics, create_mcp_metrics
 from procurement.mcp_server.schemas import (
+    ApplyDecisionInput,
     CandidateCursor,
     CandidateLimit,
     CreateDraftInput,
@@ -30,13 +32,28 @@ from procurement.mcp_server.schemas import (
     ListReplenishmentCandidatesOutput,
     ProcurementEvidenceOutput,
     ProcurementPreferenceOutput,
+    PurchaseOrderActionOutput,
     PurchaseOrderDraftOutput,
 )
-from procurement.mcp_server.tools import candidates, create_draft, evidence, preferences
+from procurement.mcp_server.tools import (
+    cancel_draft,
+    candidates,
+    confirm,
+    create_draft,
+    evidence,
+    preferences,
+)
 from procurement.observability.logging import configure_json_logging
+from procurement.ports.decisions import DecisionReader
 from procurement.ports.erp import ErpPort
 
 SERVICE_NAME = "procurement-mcp"
+
+
+class _MissingDecisionReader:
+    async def get_decision(self, decision_id: DecisionId) -> DecisionRecord | None:
+        del decision_id
+        return None
 
 
 def _harden_tool_argument_validation(server: FastMCP) -> None:
@@ -47,6 +64,8 @@ def _harden_tool_argument_validation(server: FastMCP) -> None:
         evidence.TOOL_NAME,
         preferences.TOOL_NAME,
         create_draft.TOOL_NAME,
+        confirm.TOOL_NAME,
+        cancel_draft.TOOL_NAME,
     ):
         tool = server._tool_manager.get_tool(tool_name)
         if tool is None:  # pragma: no cover - construction invariant
@@ -65,6 +84,7 @@ def _harden_tool_argument_validation(server: FastMCP) -> None:
 def create_mcp_server(
     *,
     erp: ErpPort,
+    decisions: DecisionReader | None = None,
     environment: Environment,
     bearer_token: str,
     host: str = "127.0.0.1",
@@ -78,6 +98,7 @@ def create_mcp_server(
     """Create one independently configured MCP service instance."""
 
     resolved_metrics = metrics or create_mcp_metrics()
+    resolved_decisions = decisions or _MissingDecisionReader()
     server_environment = environment
     resolved_logger = logger or configure_json_logging(
         service=SERVICE_NAME,
@@ -238,6 +259,68 @@ def create_mcp_server(
         )
         return await create_draft.create_purchase_order_draft(
             request=request,
+            erp=erp,
+            server_environment=server_environment,
+            metrics=resolved_metrics,
+            logger=resolved_logger,
+        )
+
+    @server.tool(
+        name=confirm.TOOL_NAME,
+        title="Confirm an approved purchase order",
+        description="Confirm only the exact draft authorized by an immutable approval.",
+        annotations=ToolAnnotations(
+            readOnlyHint=False,
+            destructiveHint=False,
+            idempotentHint=True,
+            openWorldHint=False,
+        ),
+        structured_output=True,
+    )
+    async def confirm_purchase_order(
+        environment: EnvironmentValue,
+        decision_id: str,
+        idempotency_key: str,
+    ) -> PurchaseOrderActionOutput:
+        request = ApplyDecisionInput(
+            environment=environment,
+            decision_id=decision_id,
+            idempotency_key=idempotency_key,
+        )
+        return await confirm.confirm_purchase_order(
+            request=request,
+            decisions=resolved_decisions,
+            erp=erp,
+            server_environment=server_environment,
+            metrics=resolved_metrics,
+            logger=resolved_logger,
+        )
+
+    @server.tool(
+        name=cancel_draft.TOOL_NAME,
+        title="Cancel a rejected draft purchase order",
+        description="Cancel only the exact draft authorized by an immutable rejection.",
+        annotations=ToolAnnotations(
+            readOnlyHint=False,
+            destructiveHint=True,
+            idempotentHint=True,
+            openWorldHint=False,
+        ),
+        structured_output=True,
+    )
+    async def cancel_draft_purchase_order(
+        environment: EnvironmentValue,
+        decision_id: str,
+        idempotency_key: str,
+    ) -> PurchaseOrderActionOutput:
+        request = ApplyDecisionInput(
+            environment=environment,
+            decision_id=decision_id,
+            idempotency_key=idempotency_key,
+        )
+        return await cancel_draft.cancel_draft_purchase_order(
+            request=request,
+            decisions=resolved_decisions,
             erp=erp,
             server_environment=server_environment,
             metrics=resolved_metrics,

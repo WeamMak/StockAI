@@ -157,6 +157,8 @@ async def test_real_client_discovers_and_calls_the_tool_over_streamable_http() -
         "get_procurement_evidence",
         "get_procurement_preferences",
         "create_purchase_order_draft",
+        "confirm_purchase_order",
+        "cancel_draft_purchase_order",
     ]
     assert listed.tools[0].inputSchema["additionalProperties"] is False
     assert listed.tools[0].outputSchema is not None

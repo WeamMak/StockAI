@@ -14,6 +14,8 @@ _KNOWN_MCP_TOOLS = frozenset(
         "get_procurement_evidence",
         "get_procurement_preferences",
         "create_purchase_order_draft",
+        "confirm_purchase_order",
+        "cancel_draft_purchase_order",
     }
 )
 
