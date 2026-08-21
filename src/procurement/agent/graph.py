@@ -11,7 +11,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
 from procurement.agent.nodes.walking_skeleton import WalkingSkeletonNodes
-from procurement.agent.state import ScanState, UnresolvedResult
+from procurement.agent.state import ApprovalReadyResult, ScanState, UnresolvedResult
 from procurement.domain.identifiers import Environment
 from procurement.observability.metrics import AgentMetrics, create_agent_metrics
 from procurement.ports.llm import StructuredLlmPort
@@ -57,11 +57,21 @@ def build_walking_skeleton_graph(
     builder.add_node("gather_evidence", nodes.gather_evidence)
     builder.add_node("resolve_preferences", nodes.resolve_preferences)
     builder.add_node("reason", nodes.reason_about_candidate)
+    builder.add_node("create_draft", nodes.create_draft)
     builder.add_edge(START, "gather_evidence")
     builder.add_edge("gather_evidence", "resolve_preferences")
     builder.add_edge("resolve_preferences", "reason")
-    builder.add_edge("reason", END)
+    builder.add_conditional_edges("reason", _route_after_reason, ["create_draft", END])
+    builder.add_edge("create_draft", END)
     return builder.compile(checkpointer=checkpointer)
+
+
+def _route_after_reason(state: ScanState) -> str:
+    """Only a validated approval-ready recommendation may create a draft."""
+
+    if isinstance(state.get("result"), ApprovalReadyResult):
+        return "create_draft"
+    return END
 
 
 @dataclass(frozen=True, slots=True)

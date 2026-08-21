@@ -357,15 +357,19 @@ async def test_server_discovery_publishes_strict_read_only_contracts() -> None:
     tools = await server.list_tools()
     settings = create_auth_settings()
 
-    assert {tool.name for tool in tools} == {
+    read_only_tool_names = {
         "list_replenishment_candidates",
         "get_procurement_evidence",
         "get_procurement_preferences",
+    }
+    assert {tool.name for tool in tools} == read_only_tool_names | {
+        "create_purchase_order_draft"
     }
     for tool in tools:
         assert tool.inputSchema["additionalProperties"] is False
         assert tool.outputSchema is not None
         assert tool.annotations is not None
-        assert tool.annotations.readOnlyHint is True
         assert tool.annotations.destructiveHint is False
+        is_read_only = tool.name in read_only_tool_names
+        assert tool.annotations.readOnlyHint is is_read_only
     assert settings.required_scopes == [READ_SCOPE]

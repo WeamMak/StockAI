@@ -224,6 +224,54 @@ class ProcurementEvidenceOutput(BaseModel):
     preferences: dict[str, object] | None = None
 
 
+class CreateDraftInput(BaseModel):
+    """Arguments for one idempotent draft purchase-order creation."""
+
+    model_config = _STRICT_MODEL_CONFIG
+
+    environment: EnvironmentValue
+    origin: str = Field(min_length=1, max_length=128, pattern=_IDENTIFIER_PATTERN)
+    vendor_id: str = Field(min_length=1, max_length=128, pattern=_IDENTIFIER_PATTERN)
+    currency_code: str = Field(pattern=r"^[A-Z]{3}$")
+    product_id: str = Field(min_length=1, max_length=128, pattern=_IDENTIFIER_PATTERN)
+    product_name: str = Field(min_length=1, max_length=200)
+    # Decimal/date fields cannot be satisfied by wire JSON under strict mode
+    # (only an actual Decimal/date instance passes, never a str/int/float) --
+    # so quantity, unit_price, and need_by_date cross the MCP boundary as
+    # bounded strings and are parsed to their real types by the tool.
+    quantity: str = Field(pattern=r"^\d{1,15}(\.\d{1,6})?$")
+    unit_price: str = Field(pattern=r"^\d{1,15}(\.\d{1,6})?$")
+    need_by_date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+
+    @field_validator("product_name")
+    @classmethod
+    def validate_product_name(cls, value: str) -> str:
+        """Reject blank names and unsafe control characters without rewriting data."""
+
+        if not value.strip() or _CONTROL_CHARACTER_PATTERN.search(value) is not None:
+            raise ValueError("product_name must be bounded normal text")
+        return value
+
+
+class PurchaseOrderDraftOutput(BaseModel):
+    """Odoo purchase-order identity and optimistic-concurrency snapshot."""
+
+    model_config = _STRICT_MODEL_CONFIG
+
+    po_id: int = Field(strict=True, gt=0)
+    write_date: str = Field(min_length=1, max_length=32)
+    state: str = Field(min_length=1, max_length=32)
+    partner_id: int = Field(strict=True, gt=0)
+    currency_id: int = Field(strict=True, gt=0)
+    amount_total: Decimal = Field(
+        ge=Decimal("0"),
+        le=Decimal("999999999.999999"),
+        max_digits=15,
+        decimal_places=6,
+        allow_inf_nan=False,
+    )
+
+
 class GetProcurementPreferencesInput(BaseModel):
     """Identifiers required to resolve one environment-bound profile."""
 

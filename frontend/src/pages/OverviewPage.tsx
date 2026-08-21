@@ -100,7 +100,10 @@ function outcomeClass(scan: ScanAggregate): string {
   return scan.status;
 }
 
-function recommendationIcon(outcome: string): "check" | "alert" {
+function recommendationIcon(outcome: string): "check" | "alert" | "document" {
+  if (outcome === "pending_approval") {
+    return "document";
+  }
   return outcome === "approval_ready" || outcome === "confirmed" ? "check" : "alert";
 }
 
@@ -247,36 +250,37 @@ export function OverviewPage({
     </div>
   ) : (
     <ul className="scan-list" aria-label="Recent procurement recommendations">
-      {recentCases.map((row) => (
-        <li key={row.case_id}>
-          <button
-            className="scan-link"
-            type="button"
-            onClick={() => onSelectCase(row.scan_id, row.case_id)}
-            aria-label={`Open ${row.product_name}, ${
-              OUTCOME_LABEL[row.outcome] ?? row.outcome
-            }`}
-          >
-            <span
-              className={`scan-list-icon scan-list-icon--${
-                recommendationIcon(row.outcome) === "check" ? "approval" : "review"
-              }`}
+      {recentCases.map((row) => {
+        const badge = row.status === "pending_approval" ? "pending_approval" : row.outcome;
+        return (
+          <li key={row.case_id}>
+            <button
+              className="scan-link"
+              type="button"
+              onClick={() => onSelectCase(row.scan_id, row.case_id)}
+              aria-label={`Open ${row.product_name}, ${OUTCOME_LABEL[badge] ?? badge}`}
             >
-              <Icon name={recommendationIcon(row.outcome)} />
-            </span>
-            <span className="scan-list-copy">
-              <strong>{row.product_name}</strong>
-              <small>
-                Scan #{row.scan_id} · Need by {formatDate(row.need_by_date)}
-              </small>
-            </span>
-            <span className={`status status--${row.outcome}`}>
-              {OUTCOME_LABEL[row.outcome] ?? row.outcome}
-            </span>
-            <span>{row.amount ? formatCurrency(row.amount, "USD") : "—"}</span>
-          </button>
-        </li>
-      ))}
+              <span
+                className={`scan-list-icon scan-list-icon--${
+                  recommendationIcon(badge) === "check" ? "approval" : "review"
+                }`}
+              >
+                <Icon name={recommendationIcon(badge)} />
+              </span>
+              <span className="scan-list-copy">
+                <strong>{row.product_name}</strong>
+                <small>
+                  Scan #{row.scan_id} · Need by {formatDate(row.need_by_date)}
+                </small>
+              </span>
+              <span className={`status status--${badge}`}>
+                {OUTCOME_LABEL[badge] ?? badge}
+              </span>
+              <span>{row.amount ? formatCurrency(row.amount, "USD") : "—"}</span>
+            </button>
+          </li>
+        );
+      })}
     </ul>
   );
 

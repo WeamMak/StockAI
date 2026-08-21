@@ -12,7 +12,7 @@ from procurement.domain.errors import ErrorCode
 from procurement.domain.identifiers import Environment
 from procurement.domain.policy.evidence import ProcurementEvidence
 from procurement.ports.llm import StructuredRecommendation
-from procurement.ports.mcp import ReplenishmentCandidate
+from procurement.ports.mcp import PurchaseOrderDraft, ReplenishmentCandidate
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,3 +129,4 @@ class ScanState(TypedDict, total=False):
     result: ScanResult
     skip_reason: str
     officer_note: str
+    draft: PurchaseOrderDraft

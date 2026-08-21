@@ -15,6 +15,12 @@ from typing import Any
 import httpx
 from prometheus_client import CollectorRegistry, Counter, Histogram
 
+from procurement.adapters.odoo.draft import (
+    DRAFT_SNAPSHOT_FIELDS,
+    OdooDraftMappingError,
+    many2one,
+    purchase_order_draft_from_row,
+)
 from procurement.adapters.odoo.evidence import build_odoo_evidence
 from procurement.adapters.odoo.mappers import (
     OdooMappingError,
@@ -29,10 +35,13 @@ from procurement.domain.policy.preferences import ProcurementPreference
 from procurement.observability.logging import log_event
 from procurement.ports.erp import (
     CandidatePage,
+    DraftWriteAmbiguousError,
     ErpPort,
     ErpUnavailableError,
     ProcurementEvidenceQuery,
     ProcurementPreferenceQuery,
+    PurchaseOrderDraft,
+    PurchaseOrderDraftCommand,
     ReplenishmentCandidatesQuery,
 )
 
@@ -67,6 +76,15 @@ _EVIDENCE_OPERATIONS = frozenset(
         "read_evidence_uoms",
         "read_preferences",
         "read_preference_priorities",
+    }
+)
+_DRAFT_OPERATIONS = frozenset(
+    {
+        "search_purchase_order_by_origin",
+        "search_currency_by_code",
+        "search_replenishment_uom",
+        "read_purchase_order",
+        "create_purchase_order",
     }
 )
 
@@ -158,6 +176,7 @@ def _safe_operation(operation: str) -> str:
             "search_candidate_orderpoints",
             "read_candidate_products",
             *_EVIDENCE_OPERATIONS,
+            *_DRAFT_OPERATIONS,
         }
         else "unknown"
     )
@@ -284,6 +303,137 @@ class OdooJson2Client:
                 "order": order,
             },
         )
+
+    async def search_purchase_order_by_origin(self, *, origin: str) -> Any:
+        """Find at most one existing draft bound to this stable case origin."""
+
+        if not origin or len(origin) > 128:
+            raise ValueError("Odoo purchase-order origin is invalid")
+        return await self._post(
+            operation="search_purchase_order_by_origin",
+            model="purchase.order",
+            method="search_read",
+            payload={
+                "domain": [["origin", "=", origin]],
+                "fields": list(DRAFT_SNAPSHOT_FIELDS),
+                "limit": 2,
+                "order": "id asc",
+            },
+        )
+
+    async def search_currency_by_code(self, *, code: str) -> Any:
+        """Resolve one ISO currency code to its Odoo `res.currency` ID."""
+
+        if not code:
+            raise ValueError("Odoo currency code is invalid")
+        return await self._post(
+            operation="search_currency_by_code",
+            model="res.currency",
+            method="search_read",
+            payload={
+                "domain": [["name", "=", code]],
+                "fields": ["id", "name"],
+                "limit": 2,
+                "order": "id asc",
+            },
+        )
+
+    async def search_replenishment_uom(
+        self, *, product_id: int, company_id: int
+    ) -> Any:
+        """Resolve the same replenishment UoM the evidence quantity used."""
+
+        if product_id <= 0 or company_id <= 0:
+            raise ValueError("Odoo replenishment UoM query is invalid")
+        return await self._post(
+            operation="search_replenishment_uom",
+            model="stock.warehouse.orderpoint",
+            method="search_read",
+            payload={
+                "domain": [
+                    ["product_id", "=", product_id],
+                    ["company_id", "=", company_id],
+                ],
+                "fields": ["id", "replenishment_uom_id"],
+                "limit": 2,
+                "order": "id asc",
+            },
+        )
+
+    async def read_purchase_order(self, *, po_id: int) -> Any:
+        """Read one purchase order's stable optimistic-concurrency snapshot."""
+
+        if type(po_id) is not int or po_id <= 0:
+            raise ValueError("Odoo purchase-order ID is invalid")
+        return await self._post(
+            operation="read_purchase_order",
+            model="purchase.order",
+            method="read",
+            payload={"ids": [po_id], "fields": list(DRAFT_SNAPSHOT_FIELDS)},
+        )
+
+    async def create_purchase_order_once(self, *, vals: Mapping[str, object]) -> Any:
+        """Attempt exactly one non-retried `purchase.order` creation.
+
+        A write is never safe to blindly retry, so any failure here --
+        transient status, timeout, or a malformed response -- raises
+        `DraftWriteAmbiguousError` instead of the normal safely-retryable
+        errors: the caller must search for the order before deciding what to
+        do next, never resend this same create.
+        """
+
+        started_at = perf_counter()
+        try:
+            async with httpx.AsyncClient(
+                base_url=self.base_url.rstrip("/"),
+                headers={
+                    "Authorization": f"bearer {self.api_key}",
+                    "X-Odoo-Database": self.database,
+                },
+                timeout=self.timeout_seconds,
+                transport=self.transport,
+            ) as client:
+                async with client.stream(
+                    "POST",
+                    "/json/2/purchase.order/create",
+                    json={"vals_list": [dict(vals)]},
+                ) as response:
+                    if not 200 <= response.status_code < 300:
+                        raise DraftWriteAmbiguousError(retry_count=0)
+                    content = bytearray()
+                    async for chunk in response.aiter_bytes():
+                        if len(content) + len(chunk) > self.max_response_bytes:
+                            raise DraftWriteAmbiguousError(retry_count=0)
+                        content.extend(chunk)
+            try:
+                result = json.loads(content)
+            except (UnicodeDecodeError, ValueError) as error:
+                raise DraftWriteAmbiguousError(error, retry_count=0) from None
+        except DraftWriteAmbiguousError:
+            self._record_completion(
+                operation="create_purchase_order",
+                status="error",
+                started_at=started_at,
+                retry_count=0,
+            )
+            raise
+        except (httpx.TimeoutException, httpx.RequestError) as error:
+            self._record_completion(
+                operation="create_purchase_order",
+                status="timeout"
+                if isinstance(error, httpx.TimeoutException)
+                else "error",
+                started_at=started_at,
+                retry_count=0,
+            )
+            raise DraftWriteAmbiguousError(error, retry_count=0) from None
+        self._record_completion(
+            operation="create_purchase_order",
+            status="success",
+            started_at=started_at,
+            retry_count=0,
+        )
+        return result
 
     async def _post(
         self,
@@ -747,11 +897,130 @@ class OdooErpAdapter(ErpPort):
         except (AttributeError, TypeError, ValueError) as error:
             raise OdooMappingError(error) from None
 
+    async def find_purchase_order_draft(
+        self, *, origin: str
+    ) -> PurchaseOrderDraft | None:
+        """Return the existing draft bound to this origin, if any."""
+
+        try:
+            rows = await self.client.search_purchase_order_by_origin(origin=origin)
+            if not isinstance(rows, list):
+                raise ValueError("invalid purchase-order search response")
+            if not rows:
+                return None
+            if len(rows) > 1:
+                raise ValueError("more than one purchase order shares this origin")
+            row = rows[0]
+            if not isinstance(row, Mapping):
+                raise ValueError("invalid purchase-order row")
+            return purchase_order_draft_from_row(row)
+        except (OdooDraftMappingError, OdooReadTimeoutError, ErpUnavailableError):
+            raise
+        except (AttributeError, TypeError, ValueError) as error:
+            raise OdooDraftMappingError(error) from None
+
+    async def create_purchase_order_draft(
+        self, command: PurchaseOrderDraftCommand
+    ) -> PurchaseOrderDraft:
+        """Resolve Odoo identifiers, then attempt one non-retried creation.
+
+        Everything before the actual `create` call is a safe, retryable read
+        -- its failures propagate with their normal retryable semantics.
+        Everything from the `create` call onward is treated as ambiguous on
+        any failure, including a follow-up confirmation-read failure after a
+        create that may have already committed, so the caller always
+        resolves through a fresh search rather than risking a duplicate.
+        """
+
+        try:
+            vendor_id = _prefixed_positive_integer(
+                command.vendor_id,
+                prefix="vendor-",
+            )
+            product_id = int(command.product_id)
+            if vendor_id <= 0 or product_id <= 0:
+                raise ValueError("invalid draft vendor or product identifier")
+
+            currency_rows = await self.client.search_currency_by_code(
+                code=command.currency_code
+            )
+            if not isinstance(currency_rows, list) or not currency_rows:
+                raise ValueError("unknown Odoo currency code")
+            currency_row = currency_rows[0]
+            if not isinstance(currency_row, Mapping):
+                raise ValueError("invalid currency row")
+            currency_id = currency_row["id"]
+            if type(currency_id) is not int or currency_id <= 0:
+                raise ValueError("invalid Odoo currency id")
+
+            uom_rows = await self.client.search_replenishment_uom(
+                product_id=product_id, company_id=self.company_id
+            )
+            if not isinstance(uom_rows, list) or not uom_rows:
+                raise ValueError("no replenishment rule for this product")
+            uom_row = uom_rows[0]
+            if not isinstance(uom_row, Mapping):
+                raise ValueError("invalid replenishment-UoM row")
+            uom_id, _uom_name = many2one(uom_row["replenishment_uom_id"])
+        except (OdooReadTimeoutError, ErpUnavailableError):
+            raise
+        except (AttributeError, TypeError, ValueError) as error:
+            raise OdooMappingError(error) from None
+
+        vals: dict[str, object] = {
+            "partner_id": vendor_id,
+            "origin": command.origin,
+            "currency_id": currency_id,
+            "company_id": self.company_id,
+            "order_line": [
+                (
+                    0,
+                    0,
+                    {
+                        "name": command.product_name,
+                        "product_id": product_id,
+                        "product_qty": float(command.quantity),
+                        "product_uom_id": uom_id,
+                        "date_planned": datetime.combine(
+                            command.need_by_date, datetime.min.time()
+                        ).strftime("%Y-%m-%d %H:%M:%S"),
+                        "price_unit": float(command.unit_price),
+                    },
+                )
+            ],
+        }
+        created = await self.client.create_purchase_order_once(vals=vals)
+        if (
+            not isinstance(created, list)
+            or len(created) != 1
+            or type(created[0]) is not int
+        ):
+            raise DraftWriteAmbiguousError()
+        po_id = created[0]
+        try:
+            rows = await self.client.read_purchase_order(po_id=po_id)
+            row = _single_mapping(rows)
+            return purchase_order_draft_from_row(row)
+        except Exception as error:
+            raise DraftWriteAmbiguousError(error) from None
+
 
 def _single_mapping(raw: object) -> Mapping[str, object]:
     if not isinstance(raw, list) or len(raw) != 1 or not isinstance(raw[0], Mapping):
         raise ValueError("expected one Odoo record")
     return raw[0]
+
+
+def _prefixed_positive_integer(value: object, *, prefix: str) -> int:
+    if not isinstance(value, str) or not value.startswith(prefix):
+        raise ValueError("invalid prefixed identifier")
+    raw_identifier = value.removeprefix(prefix)
+    if not raw_identifier.isascii() or not raw_identifier.isdecimal():
+        raise ValueError("invalid prefixed identifier")
+    identifier = int(raw_identifier)
+    if identifier <= 0 or value != f"{prefix}{identifier}":
+        raise ValueError("invalid prefixed identifier")
+    return identifier
 
 
 def _relationship_id(raw: object) -> int:

@@ -8,9 +8,10 @@ import logging
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from enum import StrEnum
 from time import perf_counter
-from typing import Protocol
+from typing import Any, Protocol, cast
 from uuid import uuid4
 
 from procurement.agent.state import (
@@ -35,6 +36,7 @@ from procurement.ports.repositories import (
     CandidateSnapshot,
     CaseRecord,
     CaseSummary,
+    DraftRecord,
     FailureRecord,
     InMemoryApplicationRepository,
     RecommendationRecord,
@@ -44,6 +46,7 @@ from procurement.ports.repositories import (
 
 DEFAULT_WORKFLOW_TIMEOUT_SECONDS = 120.0
 MAX_SCAN_HISTORY = 100
+MAX_CASES_PER_SCAN = 100
 MAX_REFINEMENTS = 3
 _RETENTION_DAYS = {Environment.DEV: 30, Environment.PROD: 365}
 
@@ -56,6 +59,7 @@ class ScanStatus(StrEnum):
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     SKIPPED = "skipped"
+    PENDING_APPROVAL = "pending_approval"
 
 
 class ScanTrigger(StrEnum):
@@ -96,6 +100,7 @@ class ScanSnapshot:
     )
     error: ScanFailure | None
     refinement_count: int
+    draft: DraftRecord | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -268,10 +273,20 @@ class ScanService:
             scan_id=record.case_id.value.split(":", 1)[0],
             budget_status=budget_status,
             completed_at=record.completed_at,
+            status=record.status,
         )
 
     async def get_scan(self, scan_id: str) -> ScanAggregateSnapshot:
-        """Return one scan or a stable safe not-found error."""
+        """Return one scan or a stable safe not-found error.
+
+        Its per-case results are re-derived live from the current
+        `CaseRecord`s rather than trusting `ScanRecord.case_summaries`,
+        which is written once when the scan completes and is never updated
+        afterward -- a case refined, or moved to `pending_approval` by a
+        draft, after its scan already finished would otherwise show stale
+        forever here while the live case-detail and recent-cases views
+        already show the current state.
+        """
 
         try:
             id_ = ScanId(self._environment, scan_id)
@@ -283,7 +298,50 @@ class ScanService:
                 error_code=ErrorCode.VALIDATION_FAILED,
                 safe_message="The requested scan was not found.",
             )
-        return self._scan_snapshot(record)
+        results = await self._live_case_summaries(scan_id)
+        return self._scan_snapshot(record, results=results)
+
+    async def _live_case_summaries(self, scan_id: str) -> tuple[CaseSummary, ...]:
+        page = await self._repository.list_cases(
+            limit=MAX_CASES_PER_SCAN, scan_id=scan_id
+        )
+        summaries = (self._live_case_summary(record) for record in page.records)
+        return tuple(summary for summary in summaries if summary is not None)
+
+    @staticmethod
+    def _live_case_summary(record: CaseRecord) -> CaseSummary | None:
+        """Like `_summarize_record`, but never drops a case for lacking a
+        product name. `_summarize_record` does that for the cross-scan
+        recent-cases list, where an evidence-less early failure isn't worth
+        a row; here, a scan's own results must always account for every one
+        of its non-skipped cases, or the count silently goes missing again
+        exactly like the staleness this method exists to fix.
+        """
+
+        summary = ScanService._summarize_record(record)
+        if summary is not None or record.status == ScanStatus.SKIPPED.value:
+            return summary
+        _, _, product_id = record.case_id.value.partition(":")
+        if record.result is not None:
+            outcome = record.result.outcome
+            amount = record.result.normalized_cost
+            budget_status = record.result.budget_status
+        else:
+            outcome = "error"
+            amount = None
+            budget_status = "not_evaluated"
+        return CaseSummary(
+            case_id=record.case_id.value,
+            product_id=product_id,
+            product_name=product_id,
+            outcome=outcome,
+            amount=amount,
+            need_by_date=None,
+            scan_id=record.case_id.value.split(":", 1)[0],
+            budget_status=budget_status,
+            completed_at=record.completed_at,
+            status=record.status,
+        )
 
     async def get_case(self, case_id: str) -> ScanSnapshot:
         """Return one case or a stable safe not-found error."""
@@ -318,6 +376,7 @@ class ScanService:
             or record.result is None
             or record.result.outcome != "approval_ready"
             or record.candidate_snapshot is None
+            or record.draft is not None
         ):
             raise DomainError(
                 error_code=ErrorCode.VALIDATION_FAILED,
@@ -387,7 +446,12 @@ class ScanService:
                     },
                     config={"configurable": {"thread_id": thread_id}},
                 )
-            terminal = self._apply_result(running, state)
+            draft = self._interrupted_draft(state)
+            terminal = (
+                self._apply_pending_draft(running, state, draft)
+                if draft is not None
+                else self._apply_result(running, state)
+            )
         except TimeoutError:
             terminal = self._fail(
                 running,
@@ -591,7 +655,10 @@ class ScanService:
                     },
                     config={"configurable": {"thread_id": case_id_value}},
                 )
-            if state.get("skip_reason") is not None:
+            draft = self._interrupted_draft(state)
+            if draft is not None:
+                terminal = self._apply_pending_draft(running, state, draft)
+            elif state.get("skip_reason") is not None:
                 terminal = replace(running, status=ScanStatus.SKIPPED.value)
             else:
                 terminal = self._apply_result(running, state)
@@ -648,27 +715,7 @@ class ScanService:
                 record,
                 status=ScanStatus.SUCCEEDED.value,
                 evidence=evidence,
-                result=RecommendationRecord(
-                    product_id=result.product_id,
-                    product_name=result.product_name,
-                    offer_id=result.offer_id,
-                    rationale=result.rationale,
-                    trade_offs=result.trade_offs,
-                    risk_flags=result.risk_flags,
-                    uncertainty=result.uncertainty,
-                    evidence_limitations=result.evidence_limitations,
-                    evidence_digest=result.evidence_digest,
-                    quantity=result.quantity,
-                    unit_price=result.unit_price,
-                    normalized_cost=result.normalized_cost,
-                    budget_status=result.budget_status,
-                    preference_profile_id=result.preference_profile_id,
-                    preference_scope=result.preference_scope,
-                    preference_revision=result.preference_revision,
-                    priority_order=result.priority_order,
-                    premium_outcome=result.premium_outcome,
-                    evidence=result.evidence,
-                ),
+                result=self._recommendation_record(result),
             )
         if isinstance(result, ManualReviewResult):
             return replace(
@@ -713,6 +760,77 @@ class ScanService:
             error_code=ErrorCode.LLM_OUTPUT_INVALID,
             message="The procurement scan returned an invalid result.",
             retryable=False,
+        )
+
+    @staticmethod
+    def _recommendation_record(result: ApprovalReadyResult) -> RecommendationRecord:
+        return RecommendationRecord(
+            product_id=result.product_id,
+            product_name=result.product_name,
+            offer_id=result.offer_id,
+            rationale=result.rationale,
+            trade_offs=result.trade_offs,
+            risk_flags=result.risk_flags,
+            uncertainty=result.uncertainty,
+            evidence_limitations=result.evidence_limitations,
+            evidence_digest=result.evidence_digest,
+            quantity=result.quantity,
+            unit_price=result.unit_price,
+            normalized_cost=result.normalized_cost,
+            budget_status=result.budget_status,
+            preference_profile_id=result.preference_profile_id,
+            preference_scope=result.preference_scope,
+            preference_revision=result.preference_revision,
+            priority_order=result.priority_order,
+            premium_outcome=result.premium_outcome,
+            evidence=result.evidence,
+        )
+
+    def _apply_pending_draft(
+        self,
+        record: CaseRecord,
+        state: ScanState,
+        draft: DraftRecord,
+    ) -> CaseRecord:
+        """Persist the paused case: a bound draft awaiting a manager decision.
+
+        The graph node already created the draft idempotently and is paused
+        at `interrupt()`, so `state["result"]` still holds the validated
+        `ApprovalReadyResult` even though the node never reached its own
+        `return` statement.
+        """
+
+        result = state.get("result")
+        if not isinstance(result, ApprovalReadyResult):  # pragma: no cover - invariant
+            raise ValueError("a pending draft requires an approval-ready result")
+        return replace(
+            record,
+            status=ScanStatus.PENDING_APPROVAL.value,
+            evidence=state.get("evidence", ()),
+            draft=draft,
+            result=self._recommendation_record(result),
+        )
+
+    @staticmethod
+    def _interrupted_draft(state: ScanState) -> DraftRecord | None:
+        """Extract the draft snapshot surfaced by the graph's `interrupt()`.
+
+        LangGraph does not merge a paused node's return value into state, so
+        the draft cannot be read from `state["draft"]` at pause time -- it is
+        read from the interrupt payload itself instead.
+        """
+
+        interrupts = cast(Mapping[str, object], state).get("__interrupt__")
+        if not interrupts:
+            return None
+        payload = cast(Any, interrupts)[0].value
+        return DraftRecord(
+            po_id=int(cast(int, payload["po_id"])),
+            write_date=str(payload["write_date"]),
+            state=str(payload["state"]),
+            partner_id=int(cast(int, payload["partner_id"])),
+            currency_id=int(cast(int, payload["currency_id"])),
+            amount_total=Decimal(str(payload["amount_total"])),
         )
 
     @staticmethod
@@ -765,6 +883,7 @@ class ScanService:
             scan_id=terminal.case_id.value.split(":", 1)[0],
             budget_status=budget_status,
             completed_at=terminal.completed_at,
+            status=terminal.status,
         )
 
     async def _append_audit(self, record: CaseRecord) -> None:
@@ -933,10 +1052,15 @@ class ScanService:
             result=result,
             error=error,
             refinement_count=record.refinement_count,
+            draft=record.draft,
         )
 
     @staticmethod
-    def _scan_snapshot(record: ScanRecord) -> ScanAggregateSnapshot:
+    def _scan_snapshot(
+        record: ScanRecord,
+        *,
+        results: tuple[CaseSummary, ...] | None = None,
+    ) -> ScanAggregateSnapshot:
         error = (
             ScanFailure(
                 error_code=ErrorCode(record.error.error_code),
@@ -958,6 +1082,6 @@ class ScanService:
             completed_at=(
                 record.completed_at.value if record.completed_at is not None else None
             ),
-            results=record.case_summaries,
+            results=results if results is not None else record.case_summaries,
             error=error,
         )

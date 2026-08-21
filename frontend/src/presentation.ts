@@ -88,6 +88,7 @@ export const OUTCOME_LABEL: Record<string, string> = {
   no_valid_offer: "No valid offer",
   confirmed: "Confirmed",
   error: "Error",
+  pending_approval: "Pending approval",
 };
 
 export const OUTCOME_COLOR: Record<string, string> = {
@@ -96,4 +97,5 @@ export const OUTCOME_COLOR: Record<string, string> = {
   no_valid_offer: "#c0392b",
   confirmed: "#2f9e58",
   error: "#c0392b",
+  pending_approval: "#b4780a",
 };

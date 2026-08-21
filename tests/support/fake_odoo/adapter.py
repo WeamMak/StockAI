@@ -11,6 +11,8 @@ from procurement.ports.erp import (
     CandidatePage,
     ProcurementEvidenceQuery,
     ProcurementPreferenceQuery,
+    PurchaseOrderDraft,
+    PurchaseOrderDraftCommand,
     ReplenishmentCandidatesQuery,
 )
 
@@ -50,3 +52,21 @@ class FakeOdooAdapter:
         self, query: ProcurementPreferenceQuery
     ) -> ProcurementPreference:
         return _fictional_preference(query)
+
+    async def find_purchase_order_draft(
+        self, *, origin: str
+    ) -> PurchaseOrderDraft | None:
+        del origin
+        return None
+
+    async def create_purchase_order_draft(
+        self, command: PurchaseOrderDraftCommand
+    ) -> PurchaseOrderDraft:
+        return PurchaseOrderDraft(
+            po_id=1,
+            write_date="2026-08-20 00:00:00",
+            state="draft",
+            partner_id=1,
+            currency_id=1,
+            amount_total=command.quantity * command.unit_price,
+        )

@@ -207,7 +207,7 @@ def test_scan_and_graph_state_survive_api_process_restart(
             assert {item["outcome"]["S"] for item in audit_items} == {
                 "queued",
                 "running",
-                "succeeded",
+                "pending_approval",
             }
             session_items = client.query(
                 TableName=APPLICATION_TABLE,

@@ -21,6 +21,7 @@ from procurement.mcp_server.observability import McpMetrics, create_mcp_metrics
 from procurement.mcp_server.schemas import (
     CandidateCursor,
     CandidateLimit,
+    CreateDraftInput,
     EnvironmentValue,
     GetProcurementEvidenceInput,
     GetProcurementPreferencesInput,
@@ -29,8 +30,9 @@ from procurement.mcp_server.schemas import (
     ListReplenishmentCandidatesOutput,
     ProcurementEvidenceOutput,
     ProcurementPreferenceOutput,
+    PurchaseOrderDraftOutput,
 )
-from procurement.mcp_server.tools import candidates, evidence, preferences
+from procurement.mcp_server.tools import candidates, create_draft, evidence, preferences
 from procurement.observability.logging import configure_json_logging
 from procurement.ports.erp import ErpPort
 
@@ -44,6 +46,7 @@ def _harden_tool_argument_validation(server: FastMCP) -> None:
         candidates.TOOL_NAME,
         evidence.TOOL_NAME,
         preferences.TOOL_NAME,
+        create_draft.TOOL_NAME,
     ):
         tool = server._tool_manager.get_tool(tool_name)
         if tool is None:  # pragma: no cover - construction invariant
@@ -83,7 +86,8 @@ def create_mcp_server(
     server = FastMCP(
         name="StockAI Procurement MCP",
         instructions=(
-            "Expose bounded, read-only procurement evidence through strict schemas."
+            "Expose bounded procurement evidence, and one idempotent draft "
+            "purchase-order creation, through strict schemas."
         ),
         host=host,
         port=port,
@@ -193,6 +197,51 @@ def create_mcp_server(
             metrics=resolved_metrics,
             logger=resolved_logger,
             read_timeout_seconds=read_timeout_seconds,
+        )
+
+    @server.tool(
+        name=create_draft.TOOL_NAME,
+        title="Create a draft purchase order",
+        description=(
+            "Idempotently create, or return the existing, draft purchase order "
+            "bound to one case."
+        ),
+        annotations=ToolAnnotations(
+            readOnlyHint=False,
+            destructiveHint=False,
+            idempotentHint=True,
+            openWorldHint=False,
+        ),
+        structured_output=True,
+    )
+    async def create_purchase_order_draft(
+        environment: EnvironmentValue,
+        origin: str,
+        vendor_id: str,
+        currency_code: str,
+        product_id: str,
+        product_name: str,
+        quantity: str,
+        unit_price: str,
+        need_by_date: str,
+    ) -> PurchaseOrderDraftOutput:
+        request = CreateDraftInput(
+            environment=environment,
+            origin=origin,
+            vendor_id=vendor_id,
+            currency_code=currency_code,
+            product_id=product_id,
+            product_name=product_name,
+            quantity=quantity,
+            unit_price=unit_price,
+            need_by_date=need_by_date,
+        )
+        return await create_draft.create_purchase_order_draft(
+            request=request,
+            erp=erp,
+            server_environment=server_environment,
+            metrics=resolved_metrics,
+            logger=resolved_logger,
         )
 
     _harden_tool_argument_validation(server)

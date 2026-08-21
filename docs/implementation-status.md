@@ -22,6 +22,97 @@
 - T24 is complete. Protected `main` promotion retained the exact four
   dev-tested image digests, and the production release records passed dev
   validation before Argo reconciliation and the production smoke check.
+- T28 Steps 0-4 are implemented on `feature/t28-idempotent-draft-creation`
+  (branched from `main` at `84a9d87`). `ports/repositories.py` gained
+  `DraftRecord` (mirrors the Odoo add-on's `_stockai_snapshot()` shape) and
+  `CaseRecord.draft`; `ScanService.refine_case` now rejects a case once a
+  draft exists. `ports/erp.py`/`ports/mcp.py` gained a `PurchaseOrderDraft`/
+  `PurchaseOrderDraftCommand` pair and the first write-capable MCP tool,
+  `create_purchase_order_draft` (registered in `mcp_server/server.py` with
+  `readOnlyHint=False`). `mcp_server/idempotency.py::resolve_idempotent_draft`
+  always searches Odoo by origin before creating and re-searches once (never
+  blindly retries) on an ambiguous write, raising
+  `DraftReconciliationRequiredError` only when that second search still
+  cannot resolve it. `adapters/odoo/client.py` adds a single-attempt,
+  never-retried `create_purchase_order_once` (a write is not a safely
+  retryable read) plus origin/currency/replenishment-UoM lookups reused from
+  the same patterns T25's evidence gathering already established. The graph
+  gained its first `interrupt()`: a new `create_draft` node runs only when
+  `reason` produces an `ApprovalReadyResult`, idempotently creates the draft,
+  then pauses; `ScanService` detects `state["__interrupt__"]` and persists
+  `ScanStatus.PENDING_APPROVAL` with the draft snapshot via the existing
+  revision-guarded `update_case`. `DynamoApplicationRepository` gained
+  `draft` (de)serialization. `uv run mypy` passed 191 source files;
+  `make test-unit` passed all 450 Python and 59 React tests, including new
+  focused suites `tests/unit/mcp_server/test_idempotency.py` (6 tests: repeat
+  call, create-once, ambiguous-write resolution and reconciliation, timeout-
+  as-ambiguous, pre-write reads stay retryable), `tests/unit/adapters/odoo/
+  test_draft.py` (8 tests covering the Odoo client/adapter), and
+  `tests/unit/mcp_server/test_create_draft.py` (5 tests covering tool-level
+  error mapping); `tests/integration/test_api_agent_mcp.py` was extended and
+  passed, proving the full path (idempotent create → interrupt →
+  `pending_approval`) over the real Streamable HTTP MCP transport.
+  `frontend/src/api/client.ts` also needed one correctness fix outside Step
+  5's scope: its case-detail parser rejected any status outside
+  `queued/running/succeeded/failed/skipped` as `INVALID_RESPONSE`, so a case
+  reaching `pending_approval` would have broken the already-shipped
+  recommendation page before any T28 UI work landed. Added
+  `pending_approval` to the parser's accepted statuses and result-nullness
+  check, plus a new frontend parsing test; the refine button still renders on
+  a pending-approval case today (it only fails gracefully server-side) —
+  hiding/disabling it remains genuine Step 5 UI work.
+
+  Step 5 is now also implemented (scope fixed in conversation 2026-08-20: the
+  draft must be visible in the application, not only in Odoo, since the
+  manager works entirely from this app and T29's approve step already needs
+  to show vendor/quantity/amount/PO-revision before a decision; visibility
+  only, no Approve/Reject button — that needs the approval/decision backend
+  T29 owns, and a button with nothing real to call would be half-finished).
+  `ScanSnapshot`/`CaseResponse` gained `draft` (a `DraftResponse` mirroring
+  `DraftRecord`); `CaseSummary`/`CaseSummaryResponse` gained `status`, so
+  `scan_aggregate_response()`'s outcome breakdown can label a pending case
+  `pending_approval` instead of folding it into `approval_ready` (the
+  case's own `result.outcome` correctly still reads `approval_ready` — that
+  remains the recommendation; `pending_approval` describes what happened to
+  it since). `client.ts` gained `DraftReference`/`CaseSummary.status`;
+  `RecommendationPage` shows a "Pending manager approval" notice with the
+  draft's PO reference/amount and now hides `RefinementPanel` once pending;
+  `OverviewPage`/`ScanDetailPage` show a `pending_approval` badge (new
+  color/label in `presentation.ts`) in the results list and outcome donut.
+  `uv run mypy` passed 191 files; `make check`-equivalent passed 459 Python
+  and 62 React tests (2 new backend: API exposure end to end via HTTP, and
+  the aggregate-breakdown labeling tested directly; 2 new frontend: the
+  pending notice/hidden-refine control, and the results-list/donut badge).
+  `npm run typecheck`, `lint`, `test`, and `build` all pass.
+
+  A live-testing session surfaced and fixed one pre-existing bug (not
+  introduced by T28, but made far more visible by the new `pending_approval`
+  status): `ScanRecord.case_summaries` is written once when a scan finishes
+  and never refreshed, so the Scan Detail page could show `approval_ready`
+  forever for a case that later gained a draft, while the Home page's
+  live-derived "Recent recommendations" correctly showed `pending_approval`
+  for the same case. Fixed by making `ScanService.get_scan` re-derive
+  results live via `list_cases(scan_id=...)`
+  (`_live_case_summaries`/`_live_case_summary`), which also closes a related
+  gap where an evidence-less early failure could vanish entirely from its
+  own scan's results. `list_scans()`'s bulk history list still uses the
+  stored snapshot (a live per-case lookup for every scan in a list would be
+  N+1-expensive). `uv run mypy` passed 191 files; the full unit + real-
+  transport integration suite passed 460 Python tests (1 new regression:
+  `get_scan` reflects a case status change made after the scan completed).
+
+  Step 6 (real Odoo dev creation, a process-restart-mid-write drill, and
+  dev-smoke) remains outstanding; `docker`-gated contract/DynamoDB-Local/e2e
+  tests remain unverified in this WSL environment (pre-existing limitation).
+- T27C scan-cardinality (one independent case per candidate) is merged to
+  `main` (PR #60, `84a9d87`). Two further sub-projects merged in the same PR
+  were tracked only as `docs/superpowers/plans/` side documents, not as
+  plan.md tasks: bounded case refinement (`ScanService.refine_case`, capped
+  at 3 manager-supplied notes per case) and no-valid-offer evidence/rationale
+  improvements. `docs/plan.md` §T28 and `docs/spec.md` §7.2/§7.3 have now
+  been amended to fold the refinement feature's state-machine interaction
+  into T28's scope before T28 implementation starts; see
+  `### Refinement and no-valid-offer sub-projects` below.
 
 ## Task status
 
@@ -63,6 +154,41 @@
 | T26 | Complete in dev; authenticated smoke passed; production promotion pending | Odoo now stores one current typed profile per company/category/product scope with ordered price/delivery/reliability criteria, bounded premium policy, advisory/hard enforcement, tracked administrator changes, archive-only lifecycle, and row-locked monotonic revisions. The read-only adapter and third MCP tool resolve product → category → company; LangGraph applies policy before model reasoning and snapshots the exact profile, revision, and results through evidence, persistence, API/audit output, React, metrics, and Grafana. `make ACTIONLINT=/tmp/actionlint check` passed strict mypy over 177 source files, Ruff/ESLint/actionlint/architecture checks, 370 Python unit tests, and 17 React tests. `make test-integration` passed all 12 real-transport tests; the clean Odoo contract passed all 24 tests; and Kubernetes validation passed 56 tests plus both 86-resource overlays with 0 invalid resources or errors. Live reconciliation exposed and repaired two upgrade boundaries: the seed Job now upgrades an already-installed Odoo add-on before seeding, and the evidence reader accepts only the exact preference-free T25 schema while retaining strict T26 validation. Dev release `sha256:3a484d89fb6fab209aa2a38acfeb04f4ba579f4c7a62dda55331b16816a3d69a` reconciled `Synced` and `Healthy` at `59afb5003115e95ba5863a8aeed57a249db71e6a`. Authenticated `make smoke-dev` passed as `dev-smoke-20260815T161508Z` with sanitized evidence digest `sha256:b4b028f5bbe5c8138af4145f6f55cf078e63a1ef8cb9ed1d94713f20962d247a`, verifying the exact four deployed image digests and the public critical path. | Production desired state is generated from the exact dev-validated release and remains pending PR checks, merge, Argo reconciliation, and production smoke. T26 remains read-only; draft PO creation starts in T28. |
 | T26A | Implemented locally; frontend verification passed | The authenticated UI now has a responsive application shell with distinct working Home dashboard and Scans list destinations, a clearer home hero, truthful scan-status counts, timestamps, loading skeletons, and improved recent-scan cards. Scan detail uses four icon-backed existing-coverage, uncovered-target-gap, offer, and recommendation cards with language that distinguishes projected on-hand inventory, coverage from existing sources, and the residual gap at the lowest projection; a green risk check appears only when no flags exist. Inventory evidence now defaults to an accessible SVG projection while exact daily values remain expandable. Eligible offers appear first with centered status treatment and rejected offers are separately expandable without inventing a best vendor. Applied preferences use ordered priorities, policy badges, premium details, and per-offer outcomes. Scan IDs are readable and copyable, evidence metadata is retained, and existing queued, running, manual-review, safe-error, and read-only behavior remains unchanged. All 24 React tests passed; ESLint, the TypeScript/Vite production build, and `git diff --check` passed. | Dev image publication, Argo `Synced`/`Healthy`, `make smoke-dev`, and desktop/narrow live browser inspection remain pending. Backend behavior, API contracts, approval actions, fabricated vendor selection, inactive navigation, and the guided explainability timeline remain out of scope. |
 | T27 | Complete; protected production smoke passed | The existing Bedrock and LangGraph path receives bounded authoritative evidence plus the exact applied preference snapshot and returns either a strict offer-level recommendation or a genuine read-only manual-review fallback. The validator rejects wrappers, unknown or ineligible offers, evidence or preference mismatches, malformed output, and untrusted prompt content. Historical successful records remain `approval_ready` with `validation_level=legacy`; the React overview and detail view distinguish AI reasoning, legacy validation, and actual manual review. The idempotent Odoo seed reconciles four active products, three approved vendors, and exactly three offers per product, with outcomes `skipped`, `llm_safe_set_3`, `llm_safe_set_2`, and `no_valid_offer`. Offline verification passed 383 Python unit tests, 27 React tests plus typecheck/lint/build, 12 real-transport integration tests, 24 clean Odoo/add-on/MCP tests, 56 Kubernetes tests, and strict validation of both 86-resource overlays with 0 invalid resources and 0 errors. Dev workflow `31935330949` passed; authenticated dev smoke `dev-smoke-20260816T092556Z` passed in 42.13 seconds for release `sha256:028b9b053a1a1271d3c6af79c49c435067de5d6a072204b235306d684ff80960` at Argo revision `4a3b8aa7d783e03509544401d009f30ef77938ec`, with evidence digest `sha256:7a37b245f500b86770d3e45ddb2456e6e7fb7fc6c00052426a1acccb1b247e2c`. PR #55 merged T27 to `main` at `02e743c`. Protected production workflow run `31941174472`, attempt 8, passed exact-release verification, Argo observation, and the public production smoke on 2026-08-17. The smoke step passed in 111 seconds and retained sanitized artifact `9292311527`; its GitHub artifact-archive digest is `sha256:d5310ec9650eed7a86f7df674f795f6c7bd4ad4d41224b16a0f45aa1bd2d8fb2`. | T27 is strictly read-only and finished. Draft PO creation remains T28. The separate operational-hardening branch must still pass its own dev and production promotion before those infrastructure improvements are called live. |
+| T27C | Complete; merged to `main` | `discover_candidates` moved out of the LangGraph graph into one plain `ScanService` call per scan; the graph now starts from `gather_evidence`, invoked once per candidate on its own `thread_id`. A new `ScanRecord` aggregates per-candidate case summaries and a new case-detail API route serves each case to the unmodified `RecommendationPage`. `feature/no-valid-offer-improvements` (below) and bounded case refinement (below) both build on this per-case model. Merged via PR #60 at `84a9d87`. | See the refinement and no-valid-offer notes below for two sub-projects folded into the same merge but not previously tracked as plan.md tasks. |
+
+### Refinement and no-valid-offer sub-projects — 2026-08-18
+
+Both merged to `main` in PR #60 (`84a9d87`) alongside T27C, but were designed
+and executed as standalone `docs/superpowers/plans/` sub-projects rather than
+as tracked plan.md tasks. `docs/plan.md` §T28 and `docs/spec.md` §7.2/§7.3
+have since been amended (2026-08-20) to give the refinement feature an
+explicit place in the case state machine before T28 implementation begins.
+
+**Bounded case refinement.** Adds `RecommendationRequest.officer_note`
+(bounded, validated identically to existing free text), a `CandidateSnapshot`
+and `refinement_count` on `CaseRecord`, and `ScanService.refine_case`: a
+manager may request at most 3 re-runs of evidence gathering and LLM
+reasoning on an `approval_ready` case, each carrying one bounded note
+threaded to the LLM as untrusted business data. A same-branch fix
+(`30a4035`) corrected a stale-result bug where `refine_case` did not clear
+the case's prior result when moving it to `running`, and the DynamoDB
+adapter's `update_case` did not emit `REMOVE` for attributes cleared to
+`None`, leaving stale result data in the stored item. This feature was not
+in the original T28 plan text; it introduces a manager-refinement loop that
+T28 must now explicitly bound to "before a draft exists" (see §T28 Step 0).
+
+**No-valid-offer improvements.** A deterministic (no-LLM) rationale builder
+in `gather_evidence` and the `no_valid_offer` evidence/reason-code display
+in `RecommendationPage.tsx`/`OfferComparison.tsx` — real evidence and a
+specific rejection reason instead of a generic message. Does not touch
+`manual_review` or `approval_ready` behavior and has no bearing on T28.
+
+Actual offline results on the merged `main` state: `uv run pytest -q` passed
+603 tests with 2 skipped; the 8 failures and 16 errors were exclusively in
+Docker-dependent Odoo-contract, DynamoDB-Local, and e2e-stack tests that
+cannot run in this WSL environment without Docker (the same pre-existing
+limitation noted under T27 operational hardening). `npm test` passed all 59
+frontend tests across 9 files.
 
 ### T27 operational hardening — 2026-08-17
 

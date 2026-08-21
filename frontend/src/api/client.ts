@@ -9,7 +9,8 @@ export type ScanStatus =
   | "running"
   | "succeeded"
   | "failed"
-  | "skipped";
+  | "skipped"
+  | "pending_approval";
 export type ScanTrigger = "manual" | "cron";
 
 export interface VendorPerformanceEvidence {
@@ -181,6 +182,15 @@ export interface ScanFailure {
   retry_count: number;
 }
 
+export interface DraftReference {
+  po_id: number;
+  write_date: string;
+  state: string;
+  partner_id: number;
+  currency_id: number;
+  amount_total: string;
+}
+
 export interface CaseDetail {
   scan_id: string;
   case_id: string;
@@ -193,6 +203,7 @@ export interface CaseDetail {
   result: ScanResult | null;
   error: ScanFailure | null;
   refinement_count: number;
+  draft: DraftReference | null;
 }
 
 export interface CaseSummary {
@@ -205,6 +216,7 @@ export interface CaseSummary {
   scan_id: string;
   budget_status: string;
   completed_at: string | null;
+  status: ScanStatus;
 }
 
 export interface ScanAggregate {
@@ -611,7 +623,39 @@ function parsePreferences(value: unknown): AppliedPreferences | null {
   };
 }
 
-const CASE_STATUSES = ["queued", "running", "succeeded", "failed", "skipped"];
+const CASE_STATUSES = [
+  "queued",
+  "running",
+  "succeeded",
+  "failed",
+  "skipped",
+  "pending_approval",
+];
+
+function parseDraft(value: unknown): DraftReference | null {
+  if (value === null) {
+    return null;
+  }
+  if (
+    !isRecord(value) ||
+    !Number.isInteger(value.po_id) ||
+    typeof value.write_date !== "string" ||
+    typeof value.state !== "string" ||
+    !Number.isInteger(value.partner_id) ||
+    !Number.isInteger(value.currency_id) ||
+    typeof value.amount_total !== "string"
+  ) {
+    return invalidResponse();
+  }
+  return {
+    po_id: value.po_id as number,
+    write_date: value.write_date,
+    state: value.state,
+    partner_id: value.partner_id as number,
+    currency_id: value.currency_id as number,
+    amount_total: value.amount_total,
+  };
+}
 
 function parseCaseDetail(value: unknown): CaseDetail {
   if (
@@ -639,10 +683,15 @@ function parseCaseDetail(value: unknown): CaseDetail {
   const evidence = value.evidence.map(parseEvidence);
   if (
     (value.status === "succeeded" && result === null) ||
+    (value.status === "pending_approval" && result === null) ||
     (value.status === "failed" && error === null) ||
     (["queued", "running"].includes(value.status) &&
       (result !== null || error !== null))
   ) {
+    return invalidResponse();
+  }
+  const draft = parseDraft(value.draft ?? null);
+  if (value.status === "pending_approval" && draft === null) {
     return invalidResponse();
   }
 
@@ -658,6 +707,7 @@ function parseCaseDetail(value: unknown): CaseDetail {
     result,
     error,
     refinement_count: value.refinement_count as number,
+    draft,
   };
 }
 
@@ -672,7 +722,9 @@ function parseCaseSummary(value: unknown): CaseSummary {
     !isNullableString(value.need_by_date) ||
     typeof value.scan_id !== "string" ||
     typeof value.budget_status !== "string" ||
-    !isNullableString(value.completed_at)
+    !isNullableString(value.completed_at) ||
+    typeof value.status !== "string" ||
+    !CASE_STATUSES.includes(value.status)
   ) {
     return invalidResponse();
   }
@@ -686,6 +738,7 @@ function parseCaseSummary(value: unknown): CaseSummary {
     scan_id: value.scan_id,
     budget_status: value.budget_status,
     completed_at: value.completed_at,
+    status: value.status as ScanStatus,
   };
 }
 

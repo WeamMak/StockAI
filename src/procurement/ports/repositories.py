@@ -79,6 +79,21 @@ class CandidateSnapshot:
 
 
 @dataclass(frozen=True, slots=True)
+class DraftRecord:
+    """Odoo purchase-order identity and optimistic-concurrency snapshot for one
+    case's draft, mirroring `_stockai_snapshot()` in the StockAI Odoo add-on so
+    it can be passed back unchanged as the `expected` revision for a later
+    update/cancel/confirm action."""
+
+    po_id: int
+    write_date: str
+    state: str
+    partner_id: int
+    currency_id: int
+    amount_total: Decimal
+
+
+@dataclass(frozen=True, slots=True)
 class CaseRecord:
     """Durable application view of one procurement scan/case."""
 
@@ -95,6 +110,7 @@ class CaseRecord:
     error: FailureRecord | None = None
     candidate_snapshot: CandidateSnapshot | None = None
     refinement_count: int = 0
+    draft: DraftRecord | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,6 +142,7 @@ class CaseSummary:
     scan_id: str
     budget_status: str
     completed_at: UtcTimestamp | None
+    status: str
 
 
 @dataclass(frozen=True, slots=True)

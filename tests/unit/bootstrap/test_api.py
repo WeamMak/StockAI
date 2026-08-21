@@ -56,6 +56,8 @@ from procurement.ports.erp import (  # noqa: E402
 )
 from procurement.ports.mcp import (  # noqa: E402
     CandidatePage,
+    PurchaseOrderDraft,
+    PurchaseOrderDraftCommand,
     ReplenishmentCandidate,
 )
 
@@ -216,6 +218,23 @@ async def _procurement_preferences(
     )
 
 
+async def _purchase_order_draft(
+    _self: StreamableHttpProcurementMcp,
+    *,
+    environment: Environment,
+    command: PurchaseOrderDraftCommand,
+) -> PurchaseOrderDraft:
+    del environment
+    return PurchaseOrderDraft(
+        po_id=1,
+        write_date="2026-08-20 00:00:00",
+        state="draft",
+        partner_id=1,
+        currency_id=1,
+        amount_total=command.quantity * command.unit_price,
+    )
+
+
 def _patch_mcp(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         StreamableHttpProcurementMcp,
@@ -231,6 +250,11 @@ def _patch_mcp(monkeypatch: pytest.MonkeyPatch) -> None:
         StreamableHttpProcurementMcp,
         "get_procurement_preferences",
         _procurement_preferences,
+    )
+    monkeypatch.setattr(
+        StreamableHttpProcurementMcp,
+        "create_purchase_order_draft",
+        _purchase_order_draft,
     )
 
 

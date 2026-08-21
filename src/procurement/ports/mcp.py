@@ -109,8 +109,75 @@ class CandidatePage:
             raise ValueError("next_cursor must be a bounded opaque cursor")
 
 
+@dataclass(frozen=True, slots=True)
+class PurchaseOrderDraftCommand:
+    """Authoritative, already-validated inputs needed to create one draft PO."""
+
+    origin: str
+    vendor_id: str
+    currency_code: str
+    product_id: str
+    product_name: str
+    quantity: Decimal
+    unit_price: Decimal
+    need_by_date: date
+
+    def __post_init__(self) -> None:
+        if not _valid_identifier(self.origin):
+            raise ValueError("origin must be a bounded identifier")
+        if not _valid_identifier(self.vendor_id):
+            raise ValueError("vendor_id must be a bounded identifier")
+        if not re.fullmatch(r"[A-Z]{3}", self.currency_code):
+            raise ValueError("currency_code must be a three-letter ISO code")
+        if not _valid_identifier(self.product_id):
+            raise ValueError("product_id must be a bounded identifier")
+        if (
+            not isinstance(self.product_name, str)
+            or not self.product_name.strip()
+            or len(self.product_name) > 200
+            or _CONTROL_CHARACTER_PATTERN.search(self.product_name) is not None
+        ):
+            raise ValueError("product_name must be bounded normal text")
+        if (
+            not _valid_decimal(self.quantity, allow_negative=False)
+            or self.quantity <= 0
+        ):
+            raise ValueError("quantity must be a bounded positive decimal")
+        if not _valid_decimal(self.unit_price, allow_negative=False):
+            raise ValueError("unit_price must be a bounded decimal")
+        if type(self.need_by_date) is not date:
+            raise ValueError("need_by_date must be a date")
+
+
+@dataclass(frozen=True, slots=True)
+class PurchaseOrderDraft:
+    """Odoo purchase-order identity and optimistic-concurrency snapshot."""
+
+    po_id: int
+    write_date: str
+    state: str
+    partner_id: int
+    currency_id: int
+    amount_total: Decimal
+
+    def __post_init__(self) -> None:
+        if type(self.po_id) is not int or self.po_id <= 0:
+            raise ValueError("po_id must be a positive integer")
+        if not isinstance(self.write_date, str) or not self.write_date.strip():
+            raise ValueError("write_date must be a non-empty string")
+        if not isinstance(self.state, str) or not self.state.strip():
+            raise ValueError("state must be a non-empty string")
+        if type(self.partner_id) is not int or self.partner_id <= 0:
+            raise ValueError("partner_id must be a positive integer")
+        if type(self.currency_id) is not int or self.currency_id <= 0:
+            raise ValueError("currency_id must be a positive integer")
+        if not _valid_decimal(self.amount_total, allow_negative=False):
+            raise ValueError("amount_total must be a bounded decimal")
+
+
 class ProcurementMcpPort(Protocol):
-    """Read operations the LangGraph workflow requests through MCP."""
+    """Read and one bounded write operation the LangGraph workflow requests
+    through MCP."""
 
     async def list_replenishment_candidates(
         self,
@@ -140,6 +207,14 @@ class ProcurementMcpPort(Protocol):
     ) -> ProcurementPreference:
         """Return one independently validated effective preference profile."""
 
+    async def create_purchase_order_draft(
+        self,
+        *,
+        environment: Environment,
+        command: PurchaseOrderDraftCommand,
+    ) -> PurchaseOrderDraft:
+        """Idempotently create, or return the existing, draft PO for one case."""
+
 
 class McpReadError(Exception):
     """Safe MCP-client failure that discards private upstream detail."""
@@ -162,3 +237,9 @@ class McpTimeoutError(McpReadError):
 
 class McpUnavailableError(McpReadError):
     """Safe signal that MCP returned no usable candidate data."""
+
+
+class McpDraftReconciliationRequiredError(McpReadError):
+    """Safe signal that a draft write's outcome could not be determined."""
+
+    safe_message = "The purchase-order draft could not be safely reconciled."

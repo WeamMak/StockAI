@@ -6,6 +6,8 @@ import logging
 from dataclasses import dataclass
 from time import perf_counter
 
+from langgraph.types import interrupt
+
 from procurement.agent.state import (
     ApprovalReadyResult,
     ManualReviewResult,
@@ -31,9 +33,11 @@ from procurement.ports.llm import (
     StructuredLlmPort,
 )
 from procurement.ports.mcp import (
+    McpDraftReconciliationRequiredError,
     McpReadError,
     McpTimeoutError,
     ProcurementMcpPort,
+    PurchaseOrderDraftCommand,
     ReplenishmentCandidate,
 )
 
@@ -404,6 +408,131 @@ class WalkingSkeletonNodes:
                 ),
             ),
         }
+
+    async def create_draft(self, state: ScanState) -> dict[str, object]:
+        """Idempotently create this case's draft PO, then pause for a manager.
+
+        The MCP call is idempotent (it searches for an existing draft bound
+        to this case before ever creating one), so it is safe to run before
+        `interrupt()` even though the whole node re-runs from the top on
+        resume -- calling it again after a resume returns the same draft
+        rather than creating a second one.
+        """
+
+        result = state.get("result")
+        if not isinstance(result, ApprovalReadyResult):
+            return {}
+        evidence = result.evidence
+        if evidence is None:
+            return {
+                "result": UnresolvedResult(
+                    error_code=ErrorCode.LLM_OUTPUT_INVALID,
+                    message="The recommendation is missing its bound evidence.",
+                    retryable=False,
+                )
+            }
+        offer = next(
+            (item for item in evidence.offers if item.offer_id == result.offer_id),
+            None,
+        )
+        if offer is None:
+            return {
+                "result": UnresolvedResult(
+                    error_code=ErrorCode.LLM_OUTPUT_INVALID,
+                    message="The recommended offer could not be matched to evidence.",
+                    retryable=False,
+                )
+            }
+        case_id = f"{state['scan_id']}:{result.product_id}"
+        started_at = perf_counter()
+        try:
+            draft = await self.mcp.create_purchase_order_draft(
+                environment=state["environment"],
+                command=PurchaseOrderDraftCommand(
+                    origin=case_id,
+                    vendor_id=offer.vendor_id,
+                    currency_code=offer.currency,
+                    product_id=result.product_id,
+                    product_name=result.product_name,
+                    quantity=result.quantity,
+                    unit_price=result.unit_price,
+                    need_by_date=evidence.shortage.need_by_date,
+                ),
+            )
+        except McpDraftReconciliationRequiredError as error:
+            self._record_mcp_completion(
+                scan_id=state["scan_id"],
+                started_at=started_at,
+                status="error",
+                error_code=ErrorCode.RECONCILIATION_REQUIRED,
+                retry_count=error.retry_count,
+                tool_name="create_purchase_order_draft",
+            )
+            return {
+                "result": UnresolvedResult(
+                    error_code=ErrorCode.RECONCILIATION_REQUIRED,
+                    message=error.safe_message,
+                    retryable=False,
+                    retry_count=error.retry_count,
+                )
+            }
+        except McpReadError as error:
+            error_code = (
+                ErrorCode.MCP_TIMEOUT
+                if isinstance(error, McpTimeoutError)
+                else ErrorCode.ODOO_UNAVAILABLE
+            )
+            self._record_mcp_completion(
+                scan_id=state["scan_id"],
+                started_at=started_at,
+                status="error",
+                error_code=error_code,
+                retry_count=error.retry_count,
+                tool_name="create_purchase_order_draft",
+            )
+            if isinstance(error, McpTimeoutError):
+                self.metrics.record_mcp_timeout(tool="create_purchase_order_draft")
+            return {
+                "result": UnresolvedResult(
+                    error_code=error_code,
+                    message=error.safe_message,
+                    retryable=True,
+                    retry_count=error.retry_count,
+                )
+            }
+        except Exception:
+            self._record_mcp_completion(
+                scan_id=state["scan_id"],
+                started_at=started_at,
+                status="error",
+                error_code=ErrorCode.ODOO_UNAVAILABLE,
+                tool_name="create_purchase_order_draft",
+            )
+            return {
+                "result": UnresolvedResult(
+                    error_code=ErrorCode.ODOO_UNAVAILABLE,
+                    message="The purchase-order draft could not be created.",
+                    retryable=True,
+                )
+            }
+        self._record_mcp_completion(
+            scan_id=state["scan_id"],
+            started_at=started_at,
+            status="success",
+            tool_name="create_purchase_order_draft",
+        )
+        interrupt(
+            {
+                "case_id": case_id,
+                "po_id": draft.po_id,
+                "write_date": draft.write_date,
+                "state": draft.state,
+                "partner_id": draft.partner_id,
+                "currency_id": draft.currency_id,
+                "amount_total": format(draft.amount_total, "f"),
+            }
+        )
+        return {"draft": draft}
 
     @staticmethod
     def _fallback(*, risk_flag: str, limitation: str) -> ManualReviewResult:

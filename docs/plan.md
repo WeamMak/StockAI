@@ -3037,45 +3037,173 @@ T28/T29 can consume one case's validated recommendation exactly as before.
   `src/procurement/mcp_server/idempotency.py`, and graph draft/interrupt nodes.
 - Extend case/checkpoint/evidence/revision/audit repositories, case API output,
   and React recommendation detail.
+- Add a `draft` field to `CaseRecord` recording that an Odoo PO now exists for
+  the case, and extend `ScanService.refine_case`'s eligibility guard
+  accordingly (see Step 0). Grounding check before implementation confirmed
+  `domain/states.py::CaseState` is fully dormant (zero references outside its
+  own file and its own unit test) and models a wider lifecycle
+  (`Detected`/`Skipped`/`ChangeRequested`/... ) that nothing else in the
+  codebase has ever wired in; migrating `CaseRecord.status` from the
+  currently-used `ScanStatus` enum onto `CaseState` is a disproportionately
+  large, risky change for this task (simplicity rule) and is not required —
+  the `draft` field plus one added `ScanStatus.PENDING_APPROVAL` value is
+  sufficient to satisfy spec §7.2/§7.3. Leave `CaseState` unused for now.
 - Add unit, MCP transport, concurrency, ambiguous-write, restart/resume, Odoo,
   API, UI, observability, and dev-smoke tests.
 
 **Interfaces**
 
-- Consumes: one validated T27 recommendation and its exact T25/T26 evidence.
+- Consumes: one validated T27/T27C recommendation (`outcome == approval_ready`),
+  which may be the product of 0–3 manager refinements
+  (`CaseRecord.refinement_count`, `feature/bounded-case-refinement`), and its
+  exact T25/T26 evidence.
 - Produces: at most one traceable Odoo draft, case/evidence hash, current PO
   revision, durable checkpoint, and `PendingApproval` state.
 
 **Work and tests**
 
-- [ ] **Step 1: Write idempotency and ambiguity tests.** Cover repeat and
+- [x] **Step 0: Reconcile with the refinement feature shipped after this task
+  was written.** `ScanService.refine_case` (merged 2026-08-18, PR #60) lets a
+  manager re-run evidence/LLM reasoning up to 3 times on an `approval_ready`
+  case, gated only on `ScanStatus`/`result.outcome` — it never checks
+  `CaseState`, which was still unused. Once this task moves a case into
+  `PendingApproval`, `refine_case`'s guard must also reject any case that has
+  a draft (i.e. is no longer in the pre-`PendingApproval` part of
+  `GatheringEvidence`), matching the spec §7.2 self-loop restriction ("only
+  before a draft exists"). Add a test that a refinement request is rejected
+  once a draft/`PendingApproval` exists for the case, in addition to the
+  existing 3-attempt cap. Bind whichever refinement produced the approved
+  recommendation (`refinement_count`, the officer notes that led to it) into
+  the draft's audit trail so the decision trail is traceable end to end.
+- [x] **Step 1: Write idempotency and ambiguity tests.** Cover repeat and
   concurrent calls, response loss after Odoo commit, process termination after
-  write, conflicting case/reference, revision changes, restart, and no long-
-  held HTTP request.
-- [ ] **Step 2: Create from authoritative inputs only.** Permit only the
+  write, conflicting case/reference, revision changes, restart, no long-
+  held HTTP request, and the post-refinement/post-draft rejection from Step 0.
+  Delivered as `tests/unit/mcp_server/test_idempotency.py` (repeat call,
+  create-once, ambiguous-write-then-found, ambiguous-write-then-reconciliation,
+  timeout-as-ambiguous, pre-write read failures stay safely retryable),
+  `tests/unit/adapters/odoo/test_draft.py` (the Odoo client never retries a
+  write; a post-create confirmation-read failure is still treated as
+  ambiguous), `tests/unit/mcp_server/test_create_draft.py` (tool-level error
+  mapping), and `tests/unit/api/test_scans.py`'s
+  `test_refine_case_rejects_a_case_that_already_has_a_draft`. "Restart" and
+  "no long-held HTTP request" are covered structurally: the draft node's MCP
+  call is idempotent and safe to re-run from the top (LangGraph's own
+  re-run-on-resume rule), and it runs inside the same `asyncio.create_task`
+  background pattern `refine_case`/`_run_case` already use, so the HTTP
+  request returns 202 immediately regardless of how long the draft/interrupt
+  step takes. A live process-restart-mid-write drill is deferred to Step 6.
+- [x] **Step 2: Create from authoritative inputs only.** Permit only the
   validated offer, deterministic quantity/date/cost, exact preference snapshot,
   and evidence hash. Store the stable case ID in Odoo origin/reference.
-- [ ] **Step 3: Coordinate Odoo and DynamoDB idempotency.** Use conditional
+  Delivered: the `create_draft` graph node builds its
+  `PurchaseOrderDraftCommand` only from the current `ApprovalReadyResult`
+  (`quantity`, `unit_price`, `product_id`) and the matching `OfferEvidence`
+  (`vendor_id`, `currency`) already bound to it — no re-derivation, no LLM
+  input — and sets `origin` to the stable `{scan_id}:{product_id}` case ID.
+- [x] **Step 3: Coordinate Odoo and DynamoDB idempotency.** Use conditional
   application records and the existing atomic Odoo contract. On timeout or
   ambiguous response, inspect both systems before retry and enter
-  `RECONCILIATION_REQUIRED` when safe resolution is unavailable.
-- [ ] **Step 4: Persist and interrupt.** Record PO ID/revision, immutable
+  `RECONCILIATION_REQUIRED` when safe resolution is unavailable. Delivered:
+  `mcp_server/idempotency.py::resolve_idempotent_draft` always searches Odoo
+  by origin before creating, and re-searches once (never blindly retries)
+  when the create call's outcome is ambiguous, raising
+  `DraftReconciliationRequiredError` (→ `RECONCILIATION_REQUIRED`, HTTP 409,
+  non-retryable) only when that second search still cannot resolve it. The
+  existing `CaseRecord` revision-guarded conditional update
+  (`expected_revision`) is the DynamoDB-side half, unchanged from T25.
+- [x] **Step 4: Persist and interrupt.** Record PO ID/revision, immutable
   evidence, checkpoint, and audit, then return control without holding an HTTP
-  request while waiting for a manager.
-- [ ] **Step 5: Expose safe UI and observability.** Show the draft link,
-  revision, evidence summary, and pending state; emit bounded create,
-  idempotency, ambiguity, reconciliation, and wait metrics/logs.
+  request while waiting for a manager. Delivered: the graph node calls
+  `interrupt()` after the idempotent create; `ScanService` detects
+  `state["__interrupt__"]`, persists `CaseRecord.draft` (the
+  `_stockai_snapshot()`-shaped `DraftRecord`) and `ScanStatus.PENDING_APPROVAL`
+  via the existing revision-guarded `update_case`, and appends the existing
+  audit event. The T13 DynamoDB checkpointer already covers durability; no
+  new checkpoint plumbing was needed. Verified end to end over the real MCP
+  transport in `tests/integration/test_api_agent_mcp.py`.
+- [x] **Step 5: Expose the draft and its pending state — visibility only, no
+  decision actions.** Scope fixed in conversation on 2026-08-20: the draft
+  must be visible in the application, not only in Odoo (the manager works
+  entirely from this app; T29's own approve step already requires showing
+  vendor/quantity/amount/budget/PO-revision before a decision, so this is a
+  T29 prerequisite, not optional polish) — and it belongs on the existing
+  recommendation page, not a new dedicated review screen, since that page
+  already renders everything an approval decision needs.
+  - Backend: add `draft` to `ScanSnapshot`/`CaseResponse` (a `DraftResponse`
+    mirroring `DraftRecord`: `po_id`, `write_date`, `state`, `partner_id`,
+    `currency_id`, `amount_total`). Add `status` to `CaseSummary`/
+    `CaseSummaryResponse` so the scan results list and outcome-breakdown
+    donut can distinguish `pending_approval` from `approval_ready` without
+    overloading `result.outcome` (which correctly stays `approval_ready` —
+    that is still what was recommended; `pending_approval` describes what
+    happened to it since).
+  - Frontend: show a "Pending manager approval" indicator with the draft's
+    PO reference/amount on the recommendation page; hide `RefinementPanel`
+    once a draft exists (it already fails gracefully server-side today, but
+    showing a control the backend now always rejects is confusing); add a
+    `pending_approval` badge to the scan results list and outcome donut.
+  - Explicitly out of scope for this step: any Approve/Reject/Decline
+    button, and any endpoint it would call. Those require the approval/
+    decision domain, service, and API routes that do not exist yet — that
+    is T29's own listed scope ("Add approve/reject React controls..."). A
+    button with nothing real to call would be a half-finished UI element;
+    it is deferred to T29, to be started only when explicitly requested.
+  - Metrics/logs for create/idempotency/ambiguity/reconciliation/wait are
+    deferred alongside Step 6, since they are observability, not user-facing
+    correctness, and the underlying events are already logged via the
+    existing `mcp_tool_completed`/`agent_mcp_call_completed` structured logs.
+  - Delivered: `ScanSnapshot`/`CaseResponse` gained `draft`; `CaseSummary`/
+    `CaseSummaryResponse` gained `status`; `scan_aggregate_response()`'s
+    outcome breakdown now labels a pending case `pending_approval` instead
+    of folding it into `approval_ready`. `client.ts` gained `DraftReference`
+    and `CaseSummary.status`; `RecommendationPage` shows a "Pending manager
+    approval" notice with the draft's PO reference/amount and hides
+    `RefinementPanel` once pending; `OverviewPage`/`ScanDetailPage` show a
+    `pending_approval` badge (new amber color/label in `presentation.ts`) in
+    place of `approval_ready` for such a case, in both the results list and
+    the outcome donut. `uv run mypy` passed 191 files; `make test-unit`-
+    equivalent passed 459 Python + 62 React tests (2 new backend tests: API
+    exposure end to end, and the aggregate-breakdown labeling in isolation;
+    2 new frontend tests: the pending notice/hidden-refine on the
+    recommendation page, and the results-list/donut badge on scan detail).
 - [ ] **Step 6: Verify restart-safe behavior.** Run focused tests, real MCP
   transport, real Odoo dev creation, process restart/resume, and release smoke.
 
-**Dependencies:** T27C.
+**Pre-existing bug found and fixed alongside Step 5 (2026-08-20):**
+`ScanRecord.case_summaries` is written once, when a scan finishes, and was
+never refreshed afterward -- predates T28 (`refine_case`'s
+`_run_refinement` already only updated the individual `CaseRecord`, never
+the parent scan), but the new `pending_approval` status made the resulting
+staleness far more visible: the Scan Detail page (`GET
+/api/v1/scans/{scan_id}`) could show `approval_ready` forever for a case
+that had since gained a draft, while the Home page's "Recent
+recommendations" (always derived live from the current `CaseRecord`)
+correctly showed `pending_approval` for the exact same case. Fixed by
+making `ScanService.get_scan` re-derive `results` live via
+`list_cases(scan_id=...)` instead of trusting the stored snapshot
+(`_live_case_summaries`/`_live_case_summary` in `api/services/scans.py`);
+`_live_case_summary` also closes a related gap where the existing
+`_summarize_record` (designed for the cross-scan recent-cases list, where
+dropping a product-less early failure is acceptable) would have silently
+excluded a case from its own scan's results if it failed before any
+evidence was gathered. `list_scans()` (the bulk scan-history list) still
+uses the stored snapshot -- a live per-case lookup for every scan in a list
+would be N+1-expensive, and that list doesn't surface the same staleness
+prominently. Verified with a new regression test asserting `get_scan`
+reflects a case's status change made after the scan's own completion.
+
+**Dependencies:** T27C, `feature/bounded-case-refinement` (merged to `main`
+at `84a9d87`), and the `no-valid-offer-improvements` sub-project (same merge;
+touches only the `no_valid_offer` path and does not otherwise affect this
+task).
 
 **Requirements:** CR-02, CR-03, CR-05, CR-06, CR-12, CR-13, CR-15; spec
-sections 7, 9, 11, and 19.
+sections 7 (including §7.2/§7.3 refinement additions), 9, 11, and 19.
 
 **Complete when:** A valid recommendation creates at most one evidence-bound
 draft and waits durably for a manager with ambiguous writes reconciled before
-retry.
+retry, and refinement is no longer possible once that draft exists.
 
 #### T29 — Complete the approve/confirm and reject/cancel lifecycle
 
