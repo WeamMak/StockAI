@@ -418,6 +418,7 @@ class ScanService:
             started_at=running_at,
             updated_at=running_at,
             result=None,
+            workflow_thread_id=None,
         )
         try:
             running = await self._repository.update_case(
@@ -467,14 +468,23 @@ class ScanService:
                     },
                     config={"configurable": {"thread_id": thread_id}},
                 )
-            draft = self._interrupted_draft(state)
-            terminal = (
-                self._apply_pending_draft(
-                    running, state, draft, workflow_thread_id=thread_id
+            interrupt_payload = self._interrupt_payload(state)
+            if self._is_recommendation_ready_pause(
+                interrupt_payload, case_id=running.case_id.value
+            ):
+                terminal = replace(
+                    self._apply_result(running, state),
+                    workflow_thread_id=thread_id,
                 )
-                if draft is not None
-                else self._apply_result(running, state)
-            )
+            elif interrupt_payload is not None:
+                terminal = self._apply_pending_draft(
+                    running,
+                    state,
+                    self._draft_from_interrupt_payload(interrupt_payload),
+                    workflow_thread_id=thread_id,
+                )
+            else:
+                terminal = self._apply_result(running, state)
         except TimeoutError:
             terminal = self._fail(
                 running,
@@ -678,10 +688,20 @@ class ScanService:
                     },
                     config={"configurable": {"thread_id": case_id_value}},
                 )
-            draft = self._interrupted_draft(state)
-            if draft is not None:
+            interrupt_payload = self._interrupt_payload(state)
+            if self._is_recommendation_ready_pause(
+                interrupt_payload, case_id=case_id_value
+            ):
+                terminal = replace(
+                    self._apply_result(running, state),
+                    workflow_thread_id=case_id_value,
+                )
+            elif interrupt_payload is not None:
                 terminal = self._apply_pending_draft(
-                    running, state, draft, workflow_thread_id=case_id_value
+                    running,
+                    state,
+                    self._draft_from_interrupt_payload(interrupt_payload),
+                    workflow_thread_id=case_id_value,
                 )
             elif state.get("skip_reason") is not None:
                 terminal = replace(running, status=ScanStatus.SKIPPED.value)
@@ -840,18 +860,47 @@ class ScanService:
         )
 
     @staticmethod
-    def _interrupted_draft(state: ScanState) -> DraftRecord | None:
-        """Extract the draft snapshot surfaced by the graph's `interrupt()`.
-
-        LangGraph does not merge a paused node's return value into state, so
-        the draft cannot be read from `state["draft"]` at pause time -- it is
-        read from the interrupt payload itself instead.
-        """
+    def _interrupt_payload(state: ScanState) -> Mapping[str, object] | None:
+        """Return one validated mapping payload from a graph interrupt."""
 
         interrupts = cast(Mapping[str, object], state).get("__interrupt__")
         if not interrupts:
             return None
         payload = cast(Any, interrupts)[0].value
+        if not isinstance(payload, Mapping):
+            raise ValueError("the workflow interrupt payload is invalid")
+        return cast(Mapping[str, object], payload)
+
+    @staticmethod
+    def _is_recommendation_ready_pause(
+        payload: Mapping[str, object] | None, *, case_id: str
+    ) -> bool:
+        if payload is None:
+            return False
+        phase = payload.get("phase")
+        if phase != "recommendation_ready":
+            return False
+        if payload.get("case_id") != case_id or set(payload) != {"phase", "case_id"}:
+            raise ValueError("the recommendation checkpoint binding is invalid")
+        return True
+
+    @staticmethod
+    def _draft_from_interrupt_payload(
+        payload: Mapping[str, object],
+    ) -> DraftRecord:
+        """Extract the legacy paused draft snapshot from its strict payload."""
+
+        required = {
+            "case_id",
+            "po_id",
+            "write_date",
+            "state",
+            "partner_id",
+            "currency_id",
+            "amount_total",
+        }
+        if set(payload) != required:
+            raise ValueError("the draft checkpoint payload is invalid")
         return DraftRecord(
             po_id=int(cast(int, payload["po_id"])),
             write_date=str(payload["write_date"]),
