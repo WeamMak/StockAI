@@ -89,6 +89,7 @@ def create_app(
         repository=application_repository,
         workflow=cast(DraftWorkflow, scan_workflow or UnconfiguredScanWorkflow()),
         environment=resolved_settings.environment,
+        metrics=agent_metrics,
     )
     application = FastAPI(
         title="StockAI Procurement API",

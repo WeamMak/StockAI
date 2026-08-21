@@ -132,6 +132,13 @@ async def test_compatible_replay_returns_the_existing_pending_draft() -> None:
     assert replay.json()["status"] == "pending_approval"
     assert replay.json()["created"] is False
     assert workflow.calls == [CASE_ID.value]
+    registry = application.state.agent_metrics.registry
+    assert registry.get_sample_value(
+        "procurement_draft_submissions_total", {"result": "accepted"}
+    ) == pytest.approx(1)
+    assert registry.get_sample_value(
+        "procurement_draft_submissions_total", {"result": "replay"}
+    ) == pytest.approx(1)
 
 
 @pytest.mark.anyio
@@ -168,6 +175,13 @@ async def test_changed_key_or_stale_revision_conflicts() -> None:
     assert accepted.status_code == 202
     assert changed.status_code == 409
     assert changed.json()["error_code"] == "REVISION_CONFLICT"
+    registry = application.state.agent_metrics.registry
+    assert registry.get_sample_value(
+        "procurement_draft_submissions_total", {"result": "accepted"}
+    ) == pytest.approx(1)
+    assert registry.get_sample_value(
+        "procurement_draft_submissions_total", {"result": "conflict"}
+    ) == pytest.approx(2)
 
 
 @pytest.mark.anyio
@@ -237,9 +251,18 @@ async def test_scan_binding_and_missing_checkpoint_are_rejected() -> None:
             headers={**headers, "Idempotency-Key": "draft-submit-001"},
             json={"case_revision": 4},
         )
+        missing_case = await client.post(
+            "/api/v1/scans/scan-001/cases/scan-001:product-999/draft",
+            headers={**headers, "Idempotency-Key": "draft-submit-002"},
+            json={"case_revision": 1},
+        )
 
     assert wrong_scan.status_code == 422
     assert missing_checkpoint.status_code == 409
+    assert missing_case.status_code == 422
+    assert application.state.agent_metrics.registry.get_sample_value(
+        "procurement_draft_submissions_total", {"result": "error"}
+    ) == pytest.approx(1)
 
 
 @pytest.mark.anyio

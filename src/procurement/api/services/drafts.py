@@ -6,6 +6,7 @@ import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
+from time import perf_counter
 from typing import Protocol
 
 from procurement.agent.state import ScanState
@@ -14,6 +15,7 @@ from procurement.domain.audit import AuditEvent
 from procurement.domain.errors import DomainError, ErrorCode
 from procurement.domain.identifiers import CaseId, Environment
 from procurement.domain.models import UtcTimestamp
+from procurement.observability.metrics import AgentMetrics
 from procurement.ports.mcp import PurchaseOrderDraft
 from procurement.ports.repositories import (
     ApplicationRepository,
@@ -49,15 +51,52 @@ class DraftSubmissionService:
         workflow: DraftWorkflow,
         environment: Environment,
         now: Callable[[], datetime] | None = None,
+        metrics: AgentMetrics | None = None,
     ) -> None:
         self._repository = repository
         self._workflow = workflow
         self._environment = environment
         self._now = now or (lambda: datetime.now(tz=UTC))
+        self._metrics = metrics
         self._tasks: set[asyncio.Task[None]] = set()
         self._active_cases: set[str] = set()
 
     async def submit(
+        self,
+        *,
+        case_id: str,
+        expected_revision: int,
+        actor_subject: str,
+        idempotency_key: str,
+        correlation_id: str,
+    ) -> AcceptedDraftSubmission:
+        started_at = perf_counter()
+        try:
+            accepted = await self._submit(
+                case_id=case_id,
+                expected_revision=expected_revision,
+                actor_subject=actor_subject,
+                idempotency_key=idempotency_key,
+                correlation_id=correlation_id,
+            )
+        except DomainError as error:
+            result = (
+                "conflict"
+                if error.error_code is ErrorCode.REVISION_CONFLICT
+                else "error"
+            )
+            self._observe_submission(result=result, started_at=started_at)
+            raise
+        except Exception:
+            self._observe_submission(result="error", started_at=started_at)
+            raise
+        self._observe_submission(
+            result="accepted" if accepted.created else "replay",
+            started_at=started_at,
+        )
+        return accepted
+
+    async def _submit(
         self,
         *,
         case_id: str,
@@ -134,6 +173,13 @@ class DraftSubmissionService:
             status=ScanStatus.CREATING_DRAFT,
             created=True,
         )
+
+    def _observe_submission(self, *, result: str, started_at: float) -> None:
+        if self._metrics is not None:
+            self._metrics.observe_draft_submission(
+                result=result,
+                duration_seconds=perf_counter() - started_at,
+            )
 
     def _schedule(
         self, case: CaseRecord, actor_subject: str, correlation_id: str

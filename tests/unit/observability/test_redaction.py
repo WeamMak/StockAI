@@ -6,7 +6,7 @@ from io import StringIO
 
 import pytest
 from httpx2 import ASGITransport, AsyncClient
-from prometheus_client import generate_latest
+from prometheus_client import CollectorRegistry, generate_latest
 
 from procurement.api.app import create_app
 from procurement.api.config import ApiSettings
@@ -19,6 +19,14 @@ from procurement.observability.logging import (
     sanitize_log_fields,
 )
 from procurement.observability.metrics import create_agent_metrics
+
+
+def _sample_value(
+    registry: CollectorRegistry,
+    name: str,
+    labels: dict[str, str] | None = None,
+) -> float | None:
+    return registry.get_sample_value(name, labels or {})
 
 
 def test_sensitive_log_fields_are_recursively_redacted() -> None:
@@ -101,6 +109,53 @@ def test_manager_and_purchase_order_metrics_use_only_bounded_labels() -> None:
         "justification",
     ):
         assert f'{forbidden}="' not in agent_text + mcp_text
+
+
+def test_draft_submission_metrics_bound_results_and_successful_latency() -> None:
+    registry = CollectorRegistry(auto_describe=True)
+    metrics = create_agent_metrics(registry)
+
+    metrics.observe_draft_submission(result="accepted", duration_seconds=0.2)
+    metrics.observe_draft_submission(result="replay", duration_seconds=0.1)
+    metrics.observe_draft_submission(result="conflict", duration_seconds=0.3)
+    metrics.observe_draft_submission(
+        result="untrusted-value", duration_seconds=0.4
+    )
+
+    assert _sample_value(
+        registry,
+        "procurement_draft_submissions_total",
+        {"result": "accepted"},
+    ) == pytest.approx(1)
+    assert _sample_value(
+        registry,
+        "procurement_draft_submissions_total",
+        {"result": "replay"},
+    ) == pytest.approx(1)
+    assert _sample_value(
+        registry,
+        "procurement_draft_submissions_total",
+        {"result": "conflict"},
+    ) == pytest.approx(1)
+    assert _sample_value(
+        registry,
+        "procurement_draft_submissions_total",
+        {"result": "error"},
+    ) == pytest.approx(1)
+    assert _sample_value(
+        registry,
+        "procurement_draft_submission_seconds_count",
+    ) == pytest.approx(2)
+
+    metric_text = generate_latest(registry).decode()
+    for forbidden in (
+        "case_id",
+        "actor_subject",
+        "environment",
+        "vendor_id",
+        "reason",
+    ):
+        assert f'{forbidden}="' not in metric_text
 
 
 def test_log_event_emits_the_required_json_fields() -> None:
