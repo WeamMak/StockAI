@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Literal
+from typing import Literal, cast
 
 from fastapi import APIRouter, Depends, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
@@ -106,24 +106,6 @@ class NoValidOfferResponse(BaseModel):
     read_only: Literal[True] = True
 
 
-class ConfirmedResponse(BaseModel):
-    """Placeholder shape for a manager-confirmed purchase order.
-
-    No code path in this repository produces this outcome yet -- it
-    exists so a future manager-decision task only needs to start
-    returning it, with no API contract change required then.
-    """
-
-    model_config = _RESPONSE_CONFIG
-
-    outcome: Literal["confirmed"] = "confirmed"
-    product_id: str
-    product_name: str
-    po_reference: str
-    po_amount: str
-    read_only: Literal[True] = True
-
-
 class DraftResponse(BaseModel):
     """Public reference to the one Odoo draft PO bound to a pending case."""
 
@@ -135,6 +117,21 @@ class DraftResponse(BaseModel):
     partner_id: int
     currency_id: int
     amount_total: str
+
+
+class CaseDecisionResponse(BaseModel):
+    """Safe terminal Odoo outcome without replacing recommendation evidence."""
+
+    model_config = _RESPONSE_CONFIG
+
+    decision_id: str
+    decision_type: Literal["approve", "reject"]
+    status: str
+    po_id: int
+    po_reference: str
+    write_date: str
+    odoo_state: str
+    reconciled: bool
 
 
 class ScanErrorResponse(BaseModel):
@@ -163,6 +160,7 @@ class CaseResponse(BaseModel):
 
     scan_id: str
     case_id: str
+    revision: int
     status: str
     trigger: str
     created_at: datetime
@@ -179,6 +177,7 @@ class CaseResponse(BaseModel):
     error: ScanErrorResponse | None
     refinement_count: int
     draft: DraftResponse | None
+    decision: CaseDecisionResponse | None
 
 
 class CaseSummaryResponse(BaseModel):
@@ -308,9 +307,26 @@ def case_response(snapshot: ScanSnapshot) -> CaseResponse:
         if snapshot.draft is not None
         else None
     )
+    decision = (
+        CaseDecisionResponse(
+            decision_id=snapshot.decision.decision_id,
+            decision_type=cast(
+                Literal["approve", "reject"], snapshot.decision.decision_type
+            ),
+            status=snapshot.decision.status,
+            po_id=snapshot.decision.po_id,
+            po_reference=snapshot.decision.po_reference,
+            write_date=snapshot.decision.write_date,
+            odoo_state=snapshot.decision.odoo_state,
+            reconciled=snapshot.decision.reconciled,
+        )
+        if snapshot.decision is not None
+        else None
+    )
     return CaseResponse(
         scan_id=snapshot.scan_id,
         case_id=snapshot.case_id,
+        revision=snapshot.revision,
         status=snapshot.status.value,
         trigger=snapshot.trigger.value,
         created_at=snapshot.created_at,
@@ -321,6 +337,7 @@ def case_response(snapshot: ScanSnapshot) -> CaseResponse:
         error=_error_response(snapshot.error),
         refinement_count=snapshot.refinement_count,
         draft=draft,
+        decision=decision,
     )
 
 
@@ -345,8 +362,8 @@ def _outcome_breakdown_label(row: CaseSummary) -> str:
     """Distinguish a pending draft from its underlying approval_ready outcome
     for the scan-level breakdown, without changing the case's own outcome."""
 
-    if row.status == "pending_approval":
-        return "pending_approval"
+    if row.status not in {"succeeded", "skipped", "failed"}:
+        return row.status
     return row.outcome
 
 

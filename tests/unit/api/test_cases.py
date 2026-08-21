@@ -8,8 +8,12 @@ import pytest
 from httpx2 import ASGITransport, AsyncClient
 from tests.support.local_identity import LocalIdentityProvider, sign_in
 from tests.unit.api.test_scans import MultiCandidateWorkflow, _poll_until_finished
+from tests.unit.ports.test_decisions import NOW, RETENTION, _rejection
 
 from procurement.api.app import create_app
+from procurement.domain.audit import AuditEvent
+from procurement.domain.identifiers import Environment, Revision
+from procurement.ports.repositories import CaseRecord, InMemoryApplicationRepository
 
 
 @pytest.mark.anyio
@@ -86,3 +90,52 @@ async def test_recent_cases_defaults_to_no_history() -> None:
 
     assert recent.status_code == 200
     assert recent.json()["cases"] == []
+
+
+@pytest.mark.anyio
+async def test_audit_is_officer_readable_and_joins_rejection_reason() -> None:
+    repository = InMemoryApplicationRepository(environment=Environment.DEV)
+    decision = _rejection()
+    await repository.create_case(
+        CaseRecord(
+            case_id=decision.case_id,
+            revision=Revision(3),
+            status="rejected",
+            trigger="manual",
+            created_at=NOW,
+            updated_at=NOW,
+        ),
+        idempotency_key="case-audit-001",
+        expires_at=RETENTION,
+    )
+    await repository.create_decision(decision, retention_expires_at=RETENTION)
+    await repository.append_audit(
+        AuditEvent(
+            event_id="00000000000000000003:a",
+            case_id=decision.case_id,
+            event_type="manager_rejected",
+            actor_id=decision.manager_subject,
+            occurred_at=NOW,
+            correlation_id="request-001",
+            source_revision=Revision(3),
+            outcome="rejected",
+            evidence_digest=decision.evidence_digest,
+            decision_id=decision.decision_id.value,
+        ),
+        expires_at=RETENTION,
+    )
+    application = create_app(
+        application_repository=repository,
+        identity_provider=LocalIdentityProvider(),
+    )
+    async with AsyncClient(
+        transport=ASGITransport(app=application), base_url="https://testserver"
+    ) as client:
+        await sign_in(client)
+        response = await client.get(f"/api/v1/cases/{decision.case_id.value}/audit")
+
+    assert response.status_code == 200
+    assert [event["event_type"] for event in response.json()["events"]] == [
+        "manager_rejected"
+    ]
+    assert response.json()["events"][0]["reason"] == decision.reason.value

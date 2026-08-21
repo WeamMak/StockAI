@@ -1,6 +1,7 @@
 """FastAPI application construction for the procurement service."""
 
 import logging
+from typing import cast
 
 from fastapi import FastAPI
 
@@ -17,9 +18,11 @@ from procurement.api.observability import (
 )
 from procurement.api.routes.auth import router as auth_router
 from procurement.api.routes.cases import router as cases_router
+from procurement.api.routes.decisions import router as decisions_router
 from procurement.api.routes.health import router as health_router
 from procurement.api.routes.internal import router as internal_router
 from procurement.api.routes.scans import router as scans_router
+from procurement.api.services.decisions import DecisionService, DecisionWorkflow
 from procurement.api.services.scans import (
     ScanService,
     ScanWorkflow,
@@ -50,6 +53,7 @@ def create_app(
     identity_provider: IdentityProvider | None = None,
     authentication_service: AuthenticationService | None = None,
     agent_metrics: AgentMetrics | None = None,
+    decision_service: DecisionService | None = None,
 ) -> FastAPI:
     """Create an isolated procurement API application."""
 
@@ -72,6 +76,12 @@ def create_app(
         metrics=agent_metrics,
         logger=resolved_logger,
     )
+    decision_service = decision_service or DecisionService(
+        repository=application_repository,
+        workflow=cast(DecisionWorkflow, scan_workflow or UnconfiguredScanWorkflow()),
+        environment=resolved_settings.environment,
+        metrics=agent_metrics,
+    )
     application = FastAPI(
         title="StockAI Procurement API",
         lifespan=lifespan_for(lifecycle),
@@ -82,6 +92,8 @@ def create_app(
     application.state.http_metrics = http_metrics
     application.state.agent_metrics = agent_metrics
     application.state.scan_service = scan_service
+    application.state.decision_service = decision_service
+    application.state.application_repository = application_repository
     application.state.authentication_service = (
         authentication_service
         or AuthenticationService(
@@ -96,6 +108,7 @@ def create_app(
     application.include_router(health_router)
     application.include_router(scans_router)
     application.include_router(cases_router)
+    application.include_router(decisions_router)
     application.include_router(internal_router)
     return application
 

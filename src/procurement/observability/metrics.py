@@ -39,6 +39,8 @@ class AgentMetrics:
     mcp_duration: Histogram
     retries: Counter
     preference_outcomes: Counter
+    manager_decisions: Counter
+    decision_completion: Histogram
 
     @staticmethod
     def _safe_tool(tool: str) -> str:
@@ -156,6 +158,23 @@ class AgentMetrics:
             scope=safe_scope, mode=safe_mode, outcome=safe_outcome
         ).inc()
 
+    def observe_manager_decision(
+        self, *, decision: str, result: str, duration_seconds: float
+    ) -> None:
+        """Record a bounded manager-decision result and successful latency."""
+
+        safe_decision = decision if decision in {"approve", "reject"} else "unknown"
+        safe_result = (
+            result
+            if result in {"accepted", "replay", "conflict", "stale", "error"}
+            else "error"
+        )
+        self.manager_decisions.labels(decision=safe_decision, result=safe_result).inc()
+        if safe_result in {"accepted", "replay"}:
+            self.decision_completion.labels(decision=safe_decision).observe(
+                duration_seconds
+            )
+
 
 def create_agent_metrics(
     registry: CollectorRegistry | None = None,
@@ -251,6 +270,18 @@ def create_agent_metrics(
             "procurement_preference_offer_outcomes",
             "Deterministic offer outcomes under the applied preference profile.",
             ("scope", "mode", "outcome"),
+            registry=resolved_registry,
+        ),
+        manager_decisions=Counter(
+            "procurement_manager_decisions",
+            "Manager decision submissions by bounded result.",
+            ("decision", "result"),
+            registry=resolved_registry,
+        ),
+        decision_completion=Histogram(
+            "procurement_decision_completion_seconds",
+            "Manager decision acceptance duration in seconds.",
+            ("decision",),
             registry=resolved_registry,
         ),
     )

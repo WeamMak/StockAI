@@ -29,6 +29,7 @@ from procurement.ports.repositories import (
     ApprovalRecord,
     CandidateSnapshot,
     CaseRecord,
+    DecisionOutcomeRecord,
     IdempotencyConflictError,
     ImmutableRecordError,
     LoginTransactionRecord,
@@ -104,6 +105,40 @@ def _case_item(*, revision: int = 1, status: str = "queued") -> dict[str, Any]:
         "updated_at": {"S": UPDATED_AT.value.isoformat()},
         "ttl": {"N": str(int(EXPIRES_AT.value.timestamp()))},
     }
+
+
+@pytest.mark.anyio
+async def test_case_round_trip_preserves_terminal_decision_outcome() -> None:
+    client = RecordingDynamoClient()
+    repository = DynamoApplicationRepository(
+        client=client, table_name=TABLE_NAME, environment=Environment.DEV
+    )
+    record = CaseRecord(
+        case_id=CASE_ID,
+        revision=Revision(4),
+        status="confirmed",
+        trigger="manual",
+        created_at=CREATED_AT,
+        updated_at=UPDATED_AT,
+        decision=DecisionOutcomeRecord(
+            decision_id="decision-abc",
+            decision_type="approve",
+            status="confirmed",
+            po_id=41,
+            po_reference="P00041",
+            write_date="2026-08-21 12:01:00",
+            odoo_state="purchase",
+            reconciled=False,
+        ),
+    )
+    client.queue(
+        "get_item",
+        {"Item": repository._case_item(record, expires_at=EXPIRES_AT)},
+    )
+
+    restored = await repository.get_case(CASE_ID)
+
+    assert restored == record
 
 
 @pytest.mark.anyio

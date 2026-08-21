@@ -41,6 +41,7 @@ from procurement.ports.repositories import (
     CasePage,
     CaseRecord,
     CaseSummary,
+    DecisionOutcomeRecord,
     DraftRecord,
     FailureRecord,
     IdempotencyConflictError,
@@ -67,6 +68,7 @@ _OPTIONAL_CASE_ATTRIBUTES = frozenset(
         "candidate_snapshot",
         "draft",
         "workflow_thread_id",
+        "decision",
     }
 )
 
@@ -480,9 +482,7 @@ class DynamoApplicationRepository(ApplicationRepository):
                         "TableName": self._table_name,
                         "Item": {
                             "PK": {"S": self._partition_key},
-                            "SK": {
-                                "S": f"DECISION_IDEMPOTENCY#{idempotency_digest}"
-                            },
+                            "SK": {"S": f"DECISION_IDEMPOTENCY#{idempotency_digest}"},
                             "entity_type": {"S": "decision_idempotency"},
                             "decision_id": {"S": record.decision_id.value},
                             "fingerprint": {"S": fingerprint},
@@ -780,9 +780,7 @@ class DynamoApplicationRepository(ApplicationRepository):
                     "normalized_cost": format(record.normalized_cost, "f"),
                     "budget_status": record.budget_status,
                     "budget_amount": format(record.budget_amount, "f"),
-                    "confirmed_commitment": format(
-                        record.confirmed_commitment, "f"
-                    ),
+                    "confirmed_commitment": format(record.confirmed_commitment, "f"),
                     "remaining_before": format(record.remaining_before, "f"),
                     "remaining_after": format(record.remaining_after, "f"),
                     "overage": format(record.overage, "f"),
@@ -844,9 +842,7 @@ class DynamoApplicationRepository(ApplicationRepository):
                     "confirmed_commitment": {
                         "S": format(record.confirmed_commitment, "f")
                     },
-                    "remaining_before": {
-                        "S": format(record.remaining_before, "f")
-                    },
+                    "remaining_before": {"S": format(record.remaining_before, "f")},
                     "remaining_after": {"S": format(record.remaining_after, "f")},
                     "overage": {"S": format(record.overage, "f")},
                     "exception_required": {"BOOL": record.exception_required},
@@ -863,9 +859,7 @@ class DynamoApplicationRepository(ApplicationRepository):
         return item
 
     def _decision_from_item(self, item: Mapping[str, Any]) -> DecisionRecord:
-        decision_id = DecisionId(
-            self._environment, self._string(item, "decision_id")
-        )
+        decision_id = DecisionId(self._environment, self._string(item, "decision_id"))
         case_id = CaseId(self._environment, self._string(item, "case_id"))
         manager_subject = self._string(item, "manager_subject")
         manager_role = self._string(item, "manager_role")
@@ -923,9 +917,7 @@ class DynamoApplicationRepository(ApplicationRepository):
             normalized_cost=Decimal(self._string(item, "normalized_cost")),
             budget_status=self._string(item, "budget_status"),
             budget_amount=Decimal(self._string(item, "budget_amount")),
-            confirmed_commitment=Decimal(
-                self._string(item, "confirmed_commitment")
-            ),
+            confirmed_commitment=Decimal(self._string(item, "confirmed_commitment")),
             remaining_before=Decimal(self._string(item, "remaining_before")),
             remaining_after=Decimal(self._string(item, "remaining_after")),
             overage=Decimal(self._string(item, "overage")),
@@ -957,9 +949,7 @@ class DynamoApplicationRepository(ApplicationRepository):
                 "enforcement_mode",
                 "precedence_source",
             }
-            profile = preference_from_dict(
-                {key: raw[key] for key in profile_keys}
-            )
+            profile = preference_from_dict({key: raw[key] for key in profile_keys})
             preferences = AppliedPreferences(
                 profile=profile,
                 cheapest_eligible_cost=Decimal(raw["cheapest_eligible_cost"]),
@@ -989,9 +979,7 @@ class DynamoApplicationRepository(ApplicationRepository):
             ),
             preferences=preferences,
             decision_id=(
-                self._string(item, "decision_id")
-                if "decision_id" in item
-                else None
+                self._string(item, "decision_id") if "decision_id" in item else None
             ),
         )
 
@@ -1249,6 +1237,20 @@ class DynamoApplicationRepository(ApplicationRepository):
                     "amount_total": {"S": format(draft.amount_total, "f")},
                 }
             }
+        if record.decision is not None:
+            decision = record.decision
+            values["decision"] = {
+                "M": {
+                    "decision_id": {"S": decision.decision_id},
+                    "decision_type": {"S": decision.decision_type},
+                    "status": {"S": decision.status},
+                    "po_id": {"N": str(decision.po_id)},
+                    "po_reference": {"S": decision.po_reference},
+                    "write_date": {"S": decision.write_date},
+                    "odoo_state": {"S": decision.odoo_state},
+                    "reconciled": {"BOOL": decision.reconciled},
+                }
+            }
         return values
 
     def _case_from_item(self, item: Mapping[str, Any]) -> CaseRecord:
@@ -1260,6 +1262,9 @@ class DynamoApplicationRepository(ApplicationRepository):
             Mapping[str, Any] | None, item.get("candidate_snapshot", {}).get("M")
         )
         draft_item = cast(Mapping[str, Any] | None, item.get("draft", {}).get("M"))
+        decision_item = cast(
+            Mapping[str, Any] | None, item.get("decision", {}).get("M")
+        )
         return CaseRecord(
             case_id=CaseId(self._environment, self._string(item, "case_id")),
             revision=Revision(self._number(item, "revision")),
@@ -1424,6 +1429,20 @@ class DynamoApplicationRepository(ApplicationRepository):
                     amount_total=Decimal(self._string(draft_item, "amount_total")),
                 )
                 if draft_item is not None
+                else None
+            ),
+            decision=(
+                DecisionOutcomeRecord(
+                    decision_id=self._string(decision_item, "decision_id"),
+                    decision_type=self._string(decision_item, "decision_type"),
+                    status=self._string(decision_item, "status"),
+                    po_id=self._number(decision_item, "po_id"),
+                    po_reference=self._string(decision_item, "po_reference"),
+                    write_date=self._string(decision_item, "write_date"),
+                    odoo_state=self._string(decision_item, "odoo_state"),
+                    reconciled=bool(decision_item["reconciled"]["BOOL"]),
+                )
+                if decision_item is not None
                 else None
             ),
         )

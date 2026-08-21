@@ -36,6 +36,7 @@ from procurement.ports.repositories import (
     CandidateSnapshot,
     CaseRecord,
     CaseSummary,
+    DecisionOutcomeRecord,
     DraftRecord,
     FailureRecord,
     InMemoryApplicationRepository,
@@ -60,6 +61,12 @@ class ScanStatus(StrEnum):
     FAILED = "failed"
     SKIPPED = "skipped"
     PENDING_APPROVAL = "pending_approval"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    CONFIRMING = "confirming"
+    CONFIRMED = "confirmed"
+    CANCELLED = "cancelled"
+    RECONCILIATION_REQUIRED = "reconciliation_required"
 
 
 class ScanTrigger(StrEnum):
@@ -85,6 +92,7 @@ class ScanSnapshot:
 
     scan_id: str
     case_id: str
+    revision: int
     status: ScanStatus
     trigger: ScanTrigger
     created_at: datetime
@@ -101,6 +109,7 @@ class ScanSnapshot:
     error: ScanFailure | None
     refinement_count: int
     draft: DraftRecord | None
+    decision: DecisionOutcomeRecord | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,6 +171,18 @@ class UnconfiguredScanWorkflow:
             message="The scan workflow is not configured.",
             retryable=True,
         )
+
+    async def aresume_decision(
+        self, workflow_thread_id: str, decision_id: str
+    ) -> ScanState:
+        del workflow_thread_id, decision_id
+        return {
+            "result": UnresolvedResult(
+                error_code=ErrorCode.LLM_UNAVAILABLE,
+                message="The decision workflow is not configured.",
+                retryable=True,
+            )
+        }
 
 
 class ScanService:
@@ -1046,6 +1067,7 @@ class ScanService:
         return ScanSnapshot(
             scan_id=scan_id,
             case_id=record.case_id.value,
+            revision=record.revision.value,
             status=ScanStatus(record.status),
             trigger=ScanTrigger(record.trigger),
             created_at=record.created_at.value,
@@ -1060,6 +1082,7 @@ class ScanService:
             error=error,
             refinement_count=record.refinement_count,
             draft=record.draft,
+            decision=record.decision,
         )
 
     @staticmethod

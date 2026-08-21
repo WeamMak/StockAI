@@ -100,6 +100,20 @@ class DraftRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class DecisionOutcomeRecord:
+    """Terminal or reconciliation state retained alongside recommendation evidence."""
+
+    decision_id: str
+    decision_type: str
+    status: str
+    po_id: int
+    po_reference: str
+    write_date: str
+    odoo_state: str
+    reconciled: bool
+
+
+@dataclass(frozen=True, slots=True)
 class CaseRecord:
     """Durable application view of one procurement scan/case."""
 
@@ -118,6 +132,7 @@ class CaseRecord:
     refinement_count: int = 0
     draft: DraftRecord | None = None
     workflow_thread_id: str | None = None
+    decision: DecisionOutcomeRecord | None = None
 
 
 @dataclass(frozen=True, slots=True)
