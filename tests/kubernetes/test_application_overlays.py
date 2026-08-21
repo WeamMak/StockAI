@@ -427,10 +427,13 @@ def test_services_ingress_and_network_policies_expose_only_approved_flows(
         }
     ]
 
-    for policy_name in ("allow-api", "allow-automation-egress"):
+    for policy_name in ("allow-api", "allow-mcp", "allow-automation-egress"):
         assert {
             "ports": [{"port": 80, "protocol": "TCP"}],
             "to": [{"ipBlock": {"cidr": "169.254.169.254/32"}}],
+        } in policies[policy_name]["spec"]["egress"]
+        assert {
+            "ports": [{"port": 443, "protocol": "TCP"}],
         } in policies[policy_name]["spec"]["egress"]
 
     assert not _by_kind(resources, "Secret")
