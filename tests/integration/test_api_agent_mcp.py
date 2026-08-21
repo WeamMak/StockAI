@@ -369,6 +369,14 @@ async def test_api_scan_runs_langgraph_and_real_mcp_transport() -> None:
         'tool="list_replenishment_candidates"} 1.0'
     ) in api_metrics.text
     assert (
+        'procurement_agent_mcp_calls_total{status="success",'
+        'tool="create_purchase_order_draft"} 1.0'
+    ) in api_metrics.text
+    assert (
         'procurement_mcp_tool_calls_total{status="success",'
         'tool="list_replenishment_candidates"} 1.0'
+    ) in mcp_metrics.text
+    assert (
+        'procurement_mcp_tool_calls_total{status="success",'
+        'tool="create_purchase_order_draft"} 1.0'
     ) in mcp_metrics.text

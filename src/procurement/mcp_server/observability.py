@@ -13,6 +13,7 @@ _KNOWN_MCP_TOOLS = frozenset(
         "list_replenishment_candidates",
         "get_procurement_evidence",
         "get_procurement_preferences",
+        "create_purchase_order_draft",
     }
 )
 
