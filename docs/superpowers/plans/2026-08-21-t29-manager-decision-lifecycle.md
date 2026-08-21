@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - Work only on `feature/t29-manager-decision-lifecycle`, created from the latest protected `main`; never push feature work directly to `main`.
-- Preserve the approved T28 idempotent draft and checkpoint. Resume its exact case thread; do not create a second graph or decision agent.
+- Preserve the approved T28 idempotent draft and checkpoint. Persist and resume its exact draft-owning `workflow_thread_id`; this is the case ID for the initial run and `{case_id}:refine-{n}` when refinement produced the draft. Do not create a second graph or decision agent.
 - Approval authorization expires exactly 30 minutes after `decided_at`; retention TTL is not a correctness check and must not erase the immutable audit early.
 - Rejection reasons and budget-exception justifications are trimmed, nonblank, control-character-free, and at most 280 Unicode code points.
 - Every state-changing HTTP endpoint requires an authenticated manager, CSRF, `Idempotency-Key`, and an expected case/PO revision.
@@ -21,7 +21,7 @@
 - Never blindly retry an Odoo write. Reconcile DynamoDB and Odoo after a timeout, response loss, or malformed post-write response.
 - Treat MCP output and all human text as untrusted. Do not send decision text to Bedrock or interpolate it into the system prompt.
 - Operational logs and metric labels must not contain commercial amounts, budget values, evidence hashes, manager text, user email, or secrets.
-- Do not create a request-change API, graph branch, MCP update tool, React action, or reapproval path. Remove the unused `change_requested` state from the active contract.
+- Do not create a request-change API, graph branch, MCP update tool, React action, or reapproval path. Keep the dormant `CaseState` model unwired, as T28 explicitly decided; the active `ScanStatus`/API/graph/UI contract has no request-change path.
 - Supplier contact, payment, email, EDI, real legal ordering, and autonomous approval remain excluded.
 - Use test-first red-green-refactor cycles. Do not claim Docker, live dev, or production verification unless the command actually passes.
 
@@ -42,7 +42,7 @@
 
 ### Existing modules changed at their established seams
 
-- `src/procurement/domain/states.py` and `src/procurement/domain/audit.py` — active state graph and decision audit reference.
+- `src/procurement/domain/audit.py` — decision audit reference. Leave dormant `src/procurement/domain/states.py` unchanged and unwired.
 - `src/procurement/ports/repositories.py`, `src/procurement/adapters/aws/dynamodb.py` — application records plus in-memory/DynamoDB semantics.
 - `src/procurement/ports/erp.py`, `src/procurement/adapters/odoo/client.py`, `src/procurement/adapters/odoo/draft.py` — one-shot atomic action and snapshot mapping.
 - `src/procurement/ports/mcp.py`, `src/procurement/mcp_server/schemas.py`, `src/procurement/mcp_server/server.py` — strict consumer/provider write contracts.
@@ -54,13 +54,11 @@
 
 ---
 
-### Task 1: Freeze the decision domain and remove request-change state
+### Task 1: Freeze the decision domain and its bounded active contract
 
 **Files:**
 - Create: `src/procurement/domain/decisions.py`
-- Modify: `src/procurement/domain/states.py:8-48`
 - Create: `tests/unit/domain/test_decisions.py`
-- Test: `tests/unit/domain/test_states.py`
 
 **Interfaces:**
 - Consumes: `Environment`, `CaseId`, `Revision`, `UtcTimestamp`, `DraftRecord`, and authoritative recommendation/evidence values.
@@ -83,17 +81,13 @@ def test_decision_text_rejects_blank_oversized_or_control_text(text: str) -> Non
         DecisionText(text)
 
 
-def test_active_state_graph_has_no_request_change_path() -> None:
-    assert "change_requested" not in {state.value for state in CaseState}
-    with pytest.raises(DomainValidationError):
-        transition_case(CaseState.PENDING_APPROVAL, CaseState.GATHERING_EVIDENCE)
 ```
 
 - [ ] **Step 2: Run the focused tests and verify red**
 
-Run: `uv run pytest tests/unit/domain/test_decisions.py tests/unit/domain/test_states.py -v`
+Run: `uv run pytest tests/unit/domain/test_decisions.py -v`
 
-Expected: FAIL because `procurement.domain.decisions` does not exist and `CHANGE_REQUESTED` is still serialized.
+Expected: FAIL because `procurement.domain.decisions` does not exist.
 
 - [ ] **Step 3: Implement strict immutable decision values**
 
@@ -136,18 +130,21 @@ bounded reason, idempotency key, and `decided_at` but no authorization expiry.
 Derive a bounded stable decision ID from SHA-256 of environment, case, decision
 type, PO ID, and PO `write_date`; never include the manager text in the ID.
 
-Remove `CHANGE_REQUESTED` and both transition edges from `domain/states.py`.
+Do not import or activate the dormant `domain/states.py::CaseState` model. The
+implemented lifecycle continues through `CaseRecord.status`/`ScanStatus`, as
+approved in T28. Request-change remains absent from every active service, API,
+graph, MCP, and React contract.
 
 - [ ] **Step 4: Run domain tests and typing**
 
-Run: `uv run pytest tests/unit/domain/test_decisions.py tests/unit/domain/test_states.py -v && uv run mypy src/procurement/domain`
+Run: `uv run pytest tests/unit/domain/test_decisions.py -v && uv run mypy src/procurement/domain`
 
 Expected: PASS.
 
 - [ ] **Step 5: Commit the domain boundary**
 
 ```bash
-git add src/procurement/domain/decisions.py src/procurement/domain/states.py tests/unit/domain/test_decisions.py tests/unit/domain/test_states.py
+git add src/procurement/domain/decisions.py tests/unit/domain/test_decisions.py
 git commit -m "feat(decisions): define immutable manager decisions"
 ```
 
@@ -157,12 +154,14 @@ git commit -m "feat(decisions): define immutable manager decisions"
 - Create: `src/procurement/ports/decisions.py`
 - Modify: `src/procurement/domain/audit.py:36-95`
 - Modify: `src/procurement/ports/repositories.py:179-500`
+- Modify: `src/procurement/api/services/scans.py`
 - Create: `tests/unit/ports/test_decisions.py`
 - Test: `tests/unit/domain/test_audit.py`
+- Test: `tests/unit/api/test_scans.py`
 
 **Interfaces:**
 - Consumes: Task 1 `DecisionRecord` and `DecisionId`.
-- Produces: `DecisionReader.get_decision`, `DecisionRepository.create_decision`, `DecisionCreateResult`, `ApplicationRepository.list_audit`, and in-memory atomic decision-guard semantics.
+- Produces: `DecisionReader.get_decision`, `DecisionRepository.create_decision`, `DecisionCreateResult`, `ApplicationRepository.list_audit`, `CaseRecord.workflow_thread_id`, and in-memory atomic decision-guard semantics.
 
 - [ ] **Step 1: Write failing port and in-memory repository tests**
 
@@ -185,6 +184,15 @@ async def test_audit_is_oldest_first_with_event_id_tie_breaker() -> None:
     await repository.append_audit(event(event_id="b", occurred_at=NOW), expires_at=RETENTION)
     await repository.append_audit(event(event_id="a", occurred_at=NOW), expires_at=RETENTION)
     assert [row.event_id for row in await repository.list_audit(CASE_ID, limit=20)] == ["a", "b"]
+
+
+def test_pending_case_retains_the_exact_draft_owning_thread() -> None:
+    original = pending_case(workflow_thread_id=CASE_ID.value, refinement_count=0)
+    refined = pending_case(
+        workflow_thread_id=f"{CASE_ID.value}:refine-2", refinement_count=2
+    )
+    assert original.workflow_thread_id == CASE_ID.value
+    assert refined.workflow_thread_id == f"{CASE_ID.value}:refine-2"
 ```
 
 - [ ] **Step 2: Run the tests and verify red**
@@ -217,8 +225,13 @@ class DecisionRepository(DecisionReader, Protocol):
 ```
 
 Make `ApplicationRepository` extend `DecisionRepository`. Replace the minimal
-T05 approval record in `repositories.py` with imports from the new
-domain. Add `decision_id: str | None` to `AuditEvent`; human text remains only
+T05 approval record in `repositories.py` with imports from the new domain. Add
+`workflow_thread_id: str | None = None` to `CaseRecord` and set it only when
+`ScanService` persists T28's interrupted draft: `_run_case` passes the original
+case thread, while `_run_refinement` passes the exact
+`{case_id}:refine-{n}` thread it invoked. Require a non-empty persisted thread
+before T29 can accept a pending decision; do not derive it later from mutable
+state. Add `decision_id: str | None` to `AuditEvent`; human text remains only
 in the decision record. Implement in-memory storage under one `asyncio.Lock`
 with maps for decision ID, idempotency key, and a `(case_id, po_id,
 po_write_date)` decision guard. Implement `list_audit(case_id, limit)` with
@@ -233,7 +246,7 @@ Expected: PASS with existing scan/audit behavior unchanged.
 - [ ] **Step 5: Commit the persistence interfaces**
 
 ```bash
-git add src/procurement/ports/decisions.py src/procurement/ports/repositories.py src/procurement/domain/audit.py tests/unit/ports/test_decisions.py tests/unit/domain/test_audit.py
+git add src/procurement/ports/decisions.py src/procurement/ports/repositories.py src/procurement/api/services/scans.py src/procurement/domain/audit.py tests/unit/ports/test_decisions.py tests/unit/domain/test_audit.py tests/unit/api/test_scans.py
 git commit -m "feat(persistence): add immutable decision contracts"
 ```
 
@@ -267,6 +280,7 @@ The tests must also assert:
 - `get_item` uses `ConsistentRead=True`;
 - approval expiry and retention TTL are separate attributes;
 - decimals serialize as canonical strings, never JSON floats;
+- original and refinement-specific `workflow_thread_id` values round-trip on case records;
 - `list_audit` queries only `AUDIT#{case_id}#` and reverses no data client-side.
 
 - [ ] **Step 2: Run unit tests and verify red**
@@ -496,7 +510,7 @@ git commit -m "feat(mcp): defend confirmation and cancellation"
 
 **Interfaces:**
 - Consumes: Task 5 MCP tool contracts and Task 2 `DecisionReader`.
-- Produces: `ProcurementMcpPort.confirm_purchase_order`, `cancel_draft_purchase_order`, `DecisionOutcome`, graph `load_decision`/`confirm`/`cancel` nodes, and `WalkingSkeletonWorkflow.aresume_decision`.
+- Produces: `ProcurementMcpPort.confirm_purchase_order`, `cancel_draft_purchase_order`, `DecisionOutcome`, graph `load_decision`/`confirm`/`cancel` nodes, and `WalkingSkeletonWorkflow.aresume_decision(workflow_thread_id, decision_id)`.
 
 - [ ] **Step 1: Write failing consumer parser and graph resume tests**
 
@@ -528,8 +542,12 @@ async def test_reject_resume_routes_to_cancel_once() -> None:
 
 The concrete test must also cover expired/missing decision, graph restart with
 the same checkpointer/thread ID, duplicate resume returning the terminal state,
-MCP stale error, and reconciliation-required output. Each case uses the same
-explicit arrange/act/assert structure as the approve and reject tests above.
+MCP stale error, and reconciliation-required output. Add two service-facing
+regressions: an unrefined draft resumes `case_id`, while a draft created by the
+second bounded refinement resumes `{case_id}:refine-2`; after reconstructing
+the service/repository, the persisted thread still selects the same checkpoint.
+Each case uses the same explicit arrange/act/assert structure as the approve
+and reject tests above.
 
 - [ ] **Step 2: Run consumer and graph tests and verify red**
 
@@ -563,24 +581,27 @@ reason -> create_draft -> load_decision -> confirm -> END
                                       \-> cancel  -> END
 ```
 
-`WalkingSkeletonWorkflow.aresume_decision(case_id, decision_id)` invokes:
+`WalkingSkeletonWorkflow.aresume_decision(workflow_thread_id, decision_id)` invokes:
 
 ```python
 return await self._graph.ainvoke(
     Command(resume=decision_id),
-    config={"configurable": {"thread_id": case_id}},
+    config={"configurable": {"thread_id": workflow_thread_id}},
 )
 ```
 
-Use the original T28 case ID as its thread ID. Do not resume a refinement
-thread after draft creation; T28 already makes the draft-owning thread explicit
-in the paused checkpoint and tests must lock this down.
+Use only the exact `CaseRecord.workflow_thread_id` persisted beside T28's draft.
+The original T28 case ID is correct for an initial recommendation, but bounded
+refinement deliberately invokes a fresh `{case_id}:refine-{n}` thread and T28
+can create/pause the draft there. Never reconstruct or guess the thread during
+decision handling.
 
 - [ ] **Step 4: Run graph, typing, and existing T28 regressions**
 
 Run: `uv run pytest tests/unit/ports/test_mcp.py tests/unit/agent/test_walking_skeleton.py tests/unit/api/test_scans.py tests/unit/bootstrap/test_api.py -v && uv run mypy src/procurement`
 
-Expected: PASS with one draft before and after resume.
+Expected: PASS with one draft before and after resume on both original and
+refinement-specific checkpoints.
 
 - [ ] **Step 5: Commit graph resumption**
 
@@ -678,14 +699,16 @@ IdempotencyKeyHeader = Annotated[
 `DecisionService` must:
 
 1. parse an environment-bound `CaseId` and read the current case;
-2. require `pending_approval`, T27 recommendation evidence, and a T28 draft;
+2. require `pending_approval`, T27 recommendation evidence, a T28 draft, and
+   its persisted non-empty `workflow_thread_id`;
 3. derive the authoritative selected offer and budget from stored evidence;
 4. compare every submitted field using typed decimals and exact strings;
 5. build the immutable decision with the injected clock;
 6. conditionally persist it before changing case state;
 7. transition the case to `approved` or `rejected` with optimistic revision;
 8. append a decision audit event containing only `decision_id` as its detail reference;
-9. schedule `_resume_decision` and return `202`;
+9. schedule `_resume_decision` with the persisted `workflow_thread_id` and
+   return `202`;
 10. on compatible replay, repair any missing case transition/resume rather than writing a second record.
 
 The background resume maps graph outcomes to `confirming` then `confirmed`,
@@ -693,7 +716,8 @@ The background resume maps graph outcomes to `confirming` then `confirmed`,
 alongside (not over) the original recommendation, and appends each immutable
 transition. Add these values to `ScanStatus` and the API status parser. Map
 conditional losers to `REVISION_CONFLICT`; map budget failures to
-`BUDGET_JUSTIFICATION_REQUIRED`; do not make either retryable.
+`BUDGET_JUSTIFICATION_REQUIRED`; do not make either retryable. Do not migrate
+to or wire the dormant `CaseState` model.
 
 - [ ] **Step 4: Run API, auth, scan, and typing tests**
 
@@ -883,9 +907,12 @@ procurement_purchase_order_actions_total{action="confirm|cancel",result="success
 procurement_purchase_order_reconciliation_seconds{action="confirm|cancel"}
 ```
 
-Assert forbidden label names and log fields include `case_id`, `decision_id`,
-`manager_id`, `manager_email`, `vendor_id`, `amount`, `overage`, `evidence_digest`,
-`reason`, and `justification`. Dashboard tests must find panels for pending
+Assert forbidden **metric label names** include `case_id`, `decision_id`,
+`manager_id`, `manager_email`, `vendor_id`, `amount`, `overage`,
+`evidence_digest`, `reason`, and `justification`. Structured-log tests may keep
+bounded `case_id` and `decision_id` for traceability, matching the design, but
+must redact manager identity/email, vendor/commercial values, evidence digests,
+reasons, and justifications. Dashboard tests must find panels for pending
 decisions, completion latency, action failures, and reconciliation. Alert tests
 must require sustained action failure and immediate unresolved reconciliation,
 with runbook annotations and no alert on ordinary rejection/stale input.

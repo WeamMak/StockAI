@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-21
 
-**Status:** Design approved in conversation; written specification awaiting user review
+**Status:** Revised after T27A/T27C/T28 plan-and-code audit; awaiting renewed user approval
 
 **Parent specification:** `docs/spec.md` sections 6, 7.3, 8.6, 11.3, 13, 19, 20, and 21
 
@@ -36,6 +36,13 @@ This slice includes:
 The slice does not add request-change, draft-update, reapproval, supplier
 contact, payment, legal ordering, autonomous approval, or a second LLM call.
 The existing Odoo `action_stockai_update_draft` primitive remains unwired.
+
+The project-plan numbering changed during simplification: the original T27A
+preference-model work is part of current T26, and the original T28 contextual
+recommendation work is current T27. T29 preserves the shipped T26 immutable
+preference snapshot, the T27/T27C one-case-per-product boundary, bounded
+refinement, and T28's distinction between recommendation outcome
+`approval_ready` and lifecycle status `pending_approval`.
 
 ## 2. Decisions and alternatives
 
@@ -75,6 +82,17 @@ contain no disallowed control characters, and contain at most 280 Unicode code
 points. They are untrusted audit text, never prompt input or a policy override,
 and must be escaped by normal React rendering. They are persisted for the
 authorized audit view but excluded from operational logs and metric labels.
+
+### 2.4 Active lifecycle representation
+
+T28 deliberately kept the dormant `domain/states.py::CaseState` model
+unwired and used `CaseRecord.status` with the active `ScanStatus` enum. T29
+continues that implemented seam by extending `ScanStatus` for decision and
+terminal lifecycle values. It does not migrate persisted cases to
+`CaseState`, and it does not edit the dormant `CHANGE_REQUESTED` member merely
+to make that unused model look current. The active API, graph, service, and
+React contracts contain no request-change path; the existing Odoo update
+primitive remains unwired.
 
 ## 3. Domain model and invariants
 
@@ -138,6 +156,16 @@ time plus a deterministic tie-breaker. Audit responses contain decision facts
 needed by an authorized user, but operational logs retain identifiers and safe
 codes only.
 
+`CaseRecord` also persists the exact `workflow_thread_id` whose checkpoint is
+paused at the T28 human interrupt. For an unrefined recommendation this is the
+case ID. For a draft produced by bounded refinement it is
+`{case_id}:refine-{refinement_count}`. This value is written atomically with
+the draft and `pending_approval` status, survives DynamoDB/process restart,
+and is treated as an internal bounded identifier rather than reconstructed by
+T29. A pending case without this field is an explicit reconciliation/data-
+repair condition; T29 must never guess a thread and risk resuming the wrong
+checkpoint.
+
 The MCP runtime receives a decision-reader port backed by DynamoDB in deployed
 mode. Confirmation uses a strongly consistent read. Local and test modes use
 the equivalent in-memory implementation; the MCP server never imports API or
@@ -156,7 +184,8 @@ agent modules.
    exception.
 3. A conditional write stores the immutable approval and decision guard.
 4. The service appends a sanitized `manager_approved` audit transition and
-   resumes the same LangGraph `thread_id` with only the decision record ID.
+   resumes the exact persisted `CaseRecord.workflow_thread_id` with only the
+   decision record ID.
 5. The graph reloads its checkpoint, rechecks the case/decision binding through
    the application service boundary, and calls `confirm_purchase_order` over
    real Streamable HTTP MCP.
@@ -180,7 +209,7 @@ accepted or terminal representation without resuming twice.
 The reject endpoint performs the same authentication, CSRF, idempotency,
 revision, environment, and current-draft checks, persists an immutable
 rejection plus the decision guard, appends `manager_rejected`, and resumes the
-same graph thread with the decision ID. The rejection branch calls
+same persisted draft-owning graph thread with the decision ID. The rejection branch calls
 `cancel_draft_purchase_order`; MCP verifies the rejection record and calls only
 `action_stockai_cancel_draft(expected)`. A successful or already-cancelled
 reconciliation closes the case as `cancelled` while preserving the rejection
@@ -290,7 +319,8 @@ Implementation proceeds test-first in these slices:
    fields, budget exception rules, stale/current revisions, replay, and
    approve-versus-reject races.
 3. LangGraph interrupt/resume tests for approve, reject, process restart, and
-   duplicate resume.
+   duplicate resume, covering both an original case thread and a refinement-
+   specific draft-owning thread.
 4. MCP and Odoo adapter tests for strong approval/rejection reads, exact
    binding, atomic actions, response loss, stale revision, idempotent terminal
    state, and reconciliation-required behavior.
@@ -331,4 +361,5 @@ explicit reconciliation; concurrent, stale, replayed, altered, and ambiguous
 requests cannot produce an unauthorized or duplicate write; the bounded UI and
 audit timeline work for the correct roles; and the required offline and live
 verification has actually passed. No request-change/update/reapproval product
-path exists.
+path exists, and every resumed decision uses the exact persisted T28 checkpoint
+thread, including drafts created by a bounded refinement.
