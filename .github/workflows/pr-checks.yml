@@ -256,7 +256,7 @@ jobs:
         run: |
           docker run --rm --volume "$PWD:/repo" \
             zricethezav/gitleaks:v8.28.0 \
-            git /repo --redact --no-banner
+            git /repo --config /repo/.gitleaks.toml --redact --no-banner
 
       - name: Publish secret-scan summary
         if: always()
