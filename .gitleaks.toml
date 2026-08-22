@@ -1,0 +1,14 @@
+[extend]
+useDefault = true
+
+[[rules]]
+id = "generic-api-key"
+
+  [[rules.allowlists]]
+  description = "Fictional idempotency keys used only by automated tests"
+  regexTarget = "secret"
+  regexes = [
+    '''^approve-dynamodb-001$''',
+    '''^officer-approve-e2e-001$''',
+    '''^approve-integration-001$''',
+  ]

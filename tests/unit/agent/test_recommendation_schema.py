@@ -147,8 +147,6 @@ def test_placeholder_explanations_are_normalized_to_user_facing_prose() -> None:
 
     recommendation = validate_recommendation_payload(payload, request, 1, 1)
 
-    assert recommendation.trade_offs == (
-        "No material trade-offs were identified.",
-    )
+    assert recommendation.trade_offs == ("No material trade-offs were identified.",)
     assert recommendation.uncertainty == "No material uncertainty was identified."
     assert recommendation.evidence_limitations == ()
