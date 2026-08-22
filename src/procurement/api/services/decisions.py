@@ -102,6 +102,12 @@ class DecisionService:
         self._metrics = metrics
         self._tasks: set[asyncio.Task[None]] = set()
 
+    async def drain(self) -> None:
+        """Wait until all background work accepted by this service finishes."""
+
+        while self._tasks:
+            await asyncio.gather(*tuple(self._tasks), return_exceptions=True)
+
     async def approve(
         self,
         *,

@@ -225,6 +225,12 @@ class ScanService:
         self._active_scan_id: str | None = None
         self._tasks: set[asyncio.Task[None]] = set()
 
+    async def drain(self) -> None:
+        """Wait until all background work accepted by this service finishes."""
+
+        while self._tasks:
+            await asyncio.gather(*tuple(self._tasks), return_exceptions=True)
+
     async def start_scan(self, *, trigger: ScanTrigger) -> ScanAggregateSnapshot:
         """Reserve the local scan slot and schedule bounded background work."""
 
