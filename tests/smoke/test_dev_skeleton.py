@@ -463,6 +463,8 @@ def run_exact_walking_skeleton(environment: str) -> None:
     assert {entry["outcome"]["S"] for entry in audit_items} == {
         "queued",
         "running",
+        "succeeded",
+        "creating_draft",
         "pending_approval",
     }
     assert any("preferences" in entry for entry in audit_items)
