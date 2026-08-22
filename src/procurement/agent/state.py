@@ -12,7 +12,12 @@ from procurement.domain.errors import ErrorCode
 from procurement.domain.identifiers import Environment
 from procurement.domain.policy.evidence import ProcurementEvidence
 from procurement.ports.llm import StructuredRecommendation
-from procurement.ports.mcp import PurchaseOrderDraft, ReplenishmentCandidate
+from procurement.ports.mcp import (
+    DecisionOutcome,
+    PurchaseOrderDraft,
+    PurchaseOrderDraftCommand,
+    ReplenishmentCandidate,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,6 +132,10 @@ class ScanState(TypedDict, total=False):
     evidence: Annotated[tuple[ProcurementEvidence, ...], UntrackedValue]
     recommendation: Annotated[StructuredRecommendation, UntrackedValue]
     result: ScanResult
+    draft_command: PurchaseOrderDraftCommand
     skip_reason: str
     officer_note: str
     draft: PurchaseOrderDraft
+    manager_decision_id: str
+    decision_type: str
+    decision_outcome: DecisionOutcome

@@ -22,6 +22,7 @@ EXPECTED_DASHBOARDS = {
 }
 EXPECTED_ALERTS = {
     "StockAIDependencyUnavailable",
+    "StockAIDecisionReconciliationRequired",
     "StockAIHttpErrorRateHigh",
     "StockAIHttpsCertificateExpiring",
     "StockAILlmFailures",
@@ -30,6 +31,7 @@ EXPECTED_ALERTS = {
     "StockAIPersistentVolumePressure",
     "StockAIPodCrashLooping",
     "StockAIPodUnavailable",
+    "StockAIPurchaseOrderActionFailures",
     "StockAIPublicHttpsUnavailable",
     "StockAIWorkerDiskPressure",
     "StockAIWorkerReadyMismatch",
@@ -87,12 +89,18 @@ def test_required_dashboard_panels_and_queries_are_present() -> None:
         "Requests per minute by result",
         "Request error rate",
         "Request latency p50 / p95 / p99",
+        "Pending decisions",
+        "Decision completion latency",
+        "Draft submission outcomes",
+        "Draft creation latency",
     } <= titles["agent-health.json"]
     assert {
         "LLM input tokens",
         "LLM output tokens",
         "Retries, repairs, and safe fallbacks",
         "Preference premium outcomes",
+        "Purchase order action failures",
+        "Purchase order reconciliation",
     } <= titles["llm-mcp.json"]
     assert {
         "HPA current and desired replicas",
@@ -122,6 +130,12 @@ def test_required_dashboard_panels_and_queries_are_present() -> None:
         'procurement_llm_tokens_total{direction="input"}',
         'procurement_llm_tokens_total{direction="output"}',
         "procurement_preference_offer_outcomes_total",
+        "procurement_manager_decisions_total",
+        "procurement_decision_completion_seconds_bucket",
+        "procurement_draft_submissions_total",
+        "procurement_draft_submission_seconds_bucket",
+        "procurement_purchase_order_actions_total",
+        "procurement_purchase_order_reconciliation_seconds_bucket",
         "procurement_llm_repairs_total",
         "procurement_llm_fallbacks_total",
         "kube_horizontalpodautoscaler_status_current_replicas",
@@ -135,6 +149,16 @@ def test_required_dashboard_panels_and_queries_are_present() -> None:
         assert metric in serialized
     for unsafe_label in ("request_id", "scan_id", "case_id", "product_id", "vendor_id"):
         assert unsafe_label not in serialized
+
+    pending_decisions = next(
+        panel
+        for panel in dashboards["agent-health.json"]["panels"]
+        if panel["title"] == "Pending decisions"
+    )
+    pending_query = " ".join(target["expr"] for target in pending_decisions["targets"])
+    assert "procurement_manager_decisions_total" in pending_query
+    assert "approval_ready" not in pending_query
+    assert "procurement_scan_results_total" not in pending_query
 
 
 def test_application_dashboard_queries_aggregate_replica_series() -> None:
@@ -153,6 +177,25 @@ def test_application_dashboard_queries_aggregate_replica_series() -> None:
             or "sum(rate(" in expression
             for expression in expressions
         ), path.name
+
+
+def test_draft_handoff_dashboard_is_bounded_and_keeps_pending_semantics() -> None:
+    dashboard = json.loads(
+        (OBSERVABILITY_ROOT / "dashboards" / "agent-health.json").read_text()
+    )
+    panels = {panel["title"]: panel for panel in dashboard["panels"]}
+
+    assert panels["Draft submission outcomes"]["targets"][0]["expr"] == (
+        "sum by (result) (rate(procurement_draft_submissions_total[5m]))"
+    )
+    assert panels["Draft creation latency"]["targets"][0]["expr"] == (
+        "histogram_quantile(0.95, sum by (le) "
+        "(rate(procurement_draft_submission_seconds_bucket[5m])))"
+    )
+    pending_query = panels["Pending decisions"]["targets"][0]["expr"]
+    assert "procurement_manager_decisions_total" in pending_query
+    assert "approval_ready" not in pending_query
+    assert "procurement_scan_results_total" not in pending_query
 
 
 def test_alert_rules_are_actionable_and_low_cardinality() -> None:

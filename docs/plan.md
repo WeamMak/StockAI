@@ -3029,7 +3029,7 @@ without being silently dropped or blocked by another candidate's failure,
 the scan-detail and per-case recommendation pages render that data, and
 T28/T29 can consume one case's validated recommendation exactly as before.
 
-#### T28 — Create one idempotent draft and pause for manager decision
+#### T28 — Create one idempotent draft after explicit handoff and pause for manager decision
 
 **Files**
 
@@ -3201,11 +3201,25 @@ task).
 **Requirements:** CR-02, CR-03, CR-05, CR-06, CR-12, CR-13, CR-15; spec
 sections 7 (including §7.2/§7.3 refinement additions), 9, 11, and 19.
 
-**Complete when:** A valid recommendation creates at most one evidence-bound
-draft and waits durably for a manager with ambiguous writes reconciled before
-retry, and refinement is no longer possible once that draft exists.
+**Correction approved 2026-08-21:** A valid initial or refined recommendation
+first pauses at a durable recommendation-ready checkpoint. An officer or
+manager may refine it while no draft exists, or explicitly select **Create
+draft and send to manager**. Only that submission resumes the exact latest
+checkpoint and authorizes draft creation; automatic post-reasoning draft
+creation is superseded.
+
+**Complete when:** T28 creates at most one evidence-bound draft only after an
+explicit officer-or-manager submission of the latest recommendation
+checkpoint, waits durably for a manager, reconciles ambiguous writes before
+retry, and rejects refinement once that draft exists.
 
 #### T29 — Complete the approve/confirm and reject/cancel lifecycle
+
+**Release prerequisite correction approved 2026-08-21:** Restore T28's
+pre-draft pause and explicit officer-or-manager handoff before accepting this
+task. Persist `workflow_thread_id` at recommendation readiness and retain it
+through draft creation and the manager-decision pause. Managers must inherit
+every officer action; approve and reject remain manager-only.
 
 **Files**
 
@@ -3213,6 +3227,9 @@ retry, and refinement is no longer possible once that draft exists.
   `src/procurement/mcp_server/tools/confirm.py`,
   `src/procurement/mcp_server/tools/cancel_draft.py`, and
   `src/procurement/api/routes/decisions.py`.
+- Persist the exact T28 draft-owning workflow thread ID on `CaseRecord` and in
+  DynamoDB: the case ID for an initial run or `{case_id}:refine-{attempt}` when
+  bounded refinement produced the paused draft.
 - Add approve/reject React controls, budget-exception UI, audit timeline,
   approval/confirmation/cancellation metrics, dashboards, alerts, and tests.
 - Do not create a request-change API, graph branch, or React action; retain the
@@ -3251,13 +3268,16 @@ retry, and refinement is no longer possible once that draft exists.
   audit record, and close after idempotent cancellation. Reconcile ambiguous
   cancel/confirm results before any write retry.
 - [ ] **Step 6: Expose the bounded manager UI.** Present approve, budget
-  exception, and reject only. Remove request-change states/endpoints/actions
-  from contracts and tests; show exact evidence/revision and chronological
-  immutable audit.
+  exception, and reject only. Keep request-change absent from the active
+  `ScanStatus`, API, graph, MCP, and React contracts; leave the dormant
+  `CaseState` model unchanged and unwired, as T28 explicitly decided. Show
+  exact evidence/revision and chronological immutable audit.
 - [ ] **Step 7: Run safety and real-environment verification.** Exercise happy,
   over-budget, rejection, stale, replay, role, concurrency, response-loss,
-  restart/reconcile, alert, and real Odoo paths. Confirm no supplier contact,
-  payment, legal ordering, or autonomous approval occurs.
+  restart/reconcile, alert, and real Odoo paths. Cover both the initial case
+  checkpoint and a refinement-specific checkpoint, proving the persisted
+  draft-owning thread survives restart. Confirm no supplier contact, payment,
+  legal ordering, or autonomous approval occurs.
 
 **Verification:** Run focused decision/API/UI/Odoo tests,
 `make test-integration`, `make smoke-dev`, `make smoke-prod`, audit inspection,
@@ -3270,7 +3290,9 @@ safety-alert evidence, and exact release promotion.
 
 **Complete when:** Every confirmation uses a current immutable independently
 revalidated manager approval, every rejection cancels safely, and no
-request-change/update/reapproval product path exists.
+request-change/update/reapproval product path exists. Every decision resumes
+the exact T28 checkpoint that owns its draft, including a draft produced by
+bounded refinement.
 
 ### Phase 6 — Security, resilience, acceptance, and presentation
 

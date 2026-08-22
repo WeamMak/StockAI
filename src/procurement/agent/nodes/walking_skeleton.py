@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from time import perf_counter
 
 from langgraph.types import interrupt
@@ -15,7 +17,8 @@ from procurement.agent.state import (
     ScanState,
     UnresolvedResult,
 )
-from procurement.domain.errors import ErrorCode
+from procurement.domain.decisions import ApprovalRecord, DecisionId, RejectionRecord
+from procurement.domain.errors import DomainValidationError, ErrorCode
 from procurement.domain.identifiers import Environment
 from procurement.domain.policy.evidence import (
     EvidenceStatus,
@@ -25,6 +28,7 @@ from procurement.domain.policy.evidence import (
 from procurement.domain.policy.preferences import apply_preferences
 from procurement.observability.logging import log_event
 from procurement.observability.metrics import AgentMetrics
+from procurement.ports.decisions import DecisionReader
 from procurement.ports.llm import (
     LlmOutputInvalidError,
     LlmUnavailableError,
@@ -33,6 +37,9 @@ from procurement.ports.llm import (
     StructuredLlmPort,
 )
 from procurement.ports.mcp import (
+    DecisionOutcome,
+    McpApprovalStaleError,
+    McpDecisionReconciliationRequiredError,
     McpDraftReconciliationRequiredError,
     McpReadError,
     McpTimeoutError,
@@ -79,6 +86,9 @@ class WalkingSkeletonNodes:
     metrics: AgentMetrics
     logger: logging.Logger
     company_id: str
+    decisions: DecisionReader | None = None
+    now: Callable[[], datetime] = lambda: datetime.now(tz=UTC)
+    pause_for_decision: bool = False
 
     async def discover_candidates(
         self, *, environment: Environment, scan_id: str
@@ -380,8 +390,37 @@ class WalkingSkeletonNodes:
         assert recommendation.preference_scope is not None
         assert recommendation.preference_revision is not None
         assert recommendation.premium_outcome is not None
+        evidence = next(
+            item for item in state["evidence"] if item.product_id == selected.product_id
+        )
+        offer = next(
+            (
+                item
+                for item in evidence.offers
+                if item.offer_id == recommendation.offer_id
+            ),
+            None,
+        )
+        if offer is None:
+            self.metrics.record_llm_fallback(reason="invalid")
+            return {
+                "result": self._fallback(
+                    risk_flag="LLM_OUTPUT_INVALID",
+                    limitation="The selected offer could not be matched to evidence.",
+                )
+            }
         return {
             "recommendation": recommendation,
+            "draft_command": PurchaseOrderDraftCommand(
+                origin=f"{state['scan_id']}:{selected.product_id}",
+                vendor_id=offer.vendor_id,
+                currency_code=offer.currency,
+                product_id=selected.product_id,
+                product_name=selected.product_name,
+                quantity=recommendation.quantity,
+                unit_price=recommendation.unit_price,
+                need_by_date=evidence.shortage.need_by_date,
+            ),
             "result": ApprovalReadyResult(
                 product_id=selected.product_id,
                 product_name=selected.product_name,
@@ -401,11 +440,7 @@ class WalkingSkeletonNodes:
                 preference_revision=recommendation.preference_revision,
                 priority_order=recommendation.priority_order,
                 premium_outcome=recommendation.premium_outcome,
-                evidence=next(
-                    item
-                    for item in state["evidence"]
-                    if item.product_id == selected.product_id
-                ),
+                evidence=evidence,
             ),
         }
 
@@ -422,34 +457,24 @@ class WalkingSkeletonNodes:
         result = state.get("result")
         if not isinstance(result, ApprovalReadyResult):
             return {}
-        evidence = result.evidence
-        if evidence is None:
-            return {
-                "result": UnresolvedResult(
-                    error_code=ErrorCode.LLM_OUTPUT_INVALID,
-                    message="The recommendation is missing its bound evidence.",
-                    retryable=False,
+        command = state.get("draft_command")
+        if command is None:
+            evidence = result.evidence
+            offer = (
+                next(
+                    (
+                        item
+                        for item in evidence.offers
+                        if item.offer_id == result.offer_id
+                    ),
+                    None,
                 )
-            }
-        offer = next(
-            (item for item in evidence.offers if item.offer_id == result.offer_id),
-            None,
-        )
-        if offer is None:
-            return {
-                "result": UnresolvedResult(
-                    error_code=ErrorCode.LLM_OUTPUT_INVALID,
-                    message="The recommended offer could not be matched to evidence.",
-                    retryable=False,
-                )
-            }
-        case_id = f"{state['scan_id']}:{result.product_id}"
-        started_at = perf_counter()
-        try:
-            draft = await self.mcp.create_purchase_order_draft(
-                environment=state["environment"],
-                command=PurchaseOrderDraftCommand(
-                    origin=case_id,
+                if evidence is not None
+                else None
+            )
+            if evidence is not None and offer is not None:
+                command = PurchaseOrderDraftCommand(
+                    origin=f"{state['scan_id']}:{result.product_id}",
                     vendor_id=offer.vendor_id,
                     currency_code=offer.currency,
                     product_id=result.product_id,
@@ -457,7 +482,29 @@ class WalkingSkeletonNodes:
                     quantity=result.quantity,
                     unit_price=result.unit_price,
                     need_by_date=evidence.shortage.need_by_date,
-                ),
+                )
+        if command is None:
+            return {
+                "result": UnresolvedResult(
+                    error_code=ErrorCode.LLM_OUTPUT_INVALID,
+                    message="The recommendation is missing its draft command.",
+                    retryable=False,
+                )
+            }
+        case_id = f"{state['scan_id']}:{result.product_id}"
+        if command.origin != case_id or command.product_id != result.product_id:
+            return {
+                "result": UnresolvedResult(
+                    error_code=ErrorCode.LLM_OUTPUT_INVALID,
+                    message="The recommendation draft command is stale.",
+                    retryable=False,
+                )
+            }
+        started_at = perf_counter()
+        try:
+            draft = await self.mcp.create_purchase_order_draft(
+                environment=state["environment"],
+                command=command,
             )
         except McpDraftReconciliationRequiredError as error:
             self._record_mcp_completion(
@@ -521,18 +568,182 @@ class WalkingSkeletonNodes:
             status="success",
             tool_name="create_purchase_order_draft",
         )
-        interrupt(
+        if self.decisions is None and self.pause_for_decision:
+            interrupt(
+                {
+                    "case_id": case_id,
+                    "po_id": draft.po_id,
+                    "write_date": draft.write_date,
+                    "state": draft.state,
+                    "partner_id": draft.partner_id,
+                    "currency_id": draft.currency_id,
+                    "amount_total": format(draft.amount_total, "f"),
+                }
+            )
+        return {"draft": draft}
+
+    async def await_draft_submission(self, state: ScanState) -> dict[str, object]:
+        """Pause a valid recommendation before any purchase-order write."""
+
+        result = state.get("result")
+        if not isinstance(result, ApprovalReadyResult):
+            return {}
+        action = interrupt(
             {
-                "case_id": case_id,
-                "po_id": draft.po_id,
-                "write_date": draft.write_date,
-                "state": draft.state,
-                "partner_id": draft.partner_id,
-                "currency_id": draft.currency_id,
-                "amount_total": format(draft.amount_total, "f"),
+                "phase": "recommendation_ready",
+                "case_id": f"{state['scan_id']}:{result.product_id}",
             }
         )
-        return {"draft": draft}
+        if action != "create_draft":
+            return {
+                "result": UnresolvedResult(
+                    error_code=ErrorCode.VALIDATION_FAILED,
+                    message="The draft submission command was invalid.",
+                    retryable=False,
+                )
+            }
+        return {}
+
+    async def load_decision(self, state: ScanState) -> dict[str, object]:
+        """Load the immutable decision selected only by the resumed ID."""
+
+        raw_decision_id = state.get("manager_decision_id")
+        if raw_decision_id is None:
+            draft = state.get("draft")
+            result = state.get("result")
+            if draft is None or not isinstance(result, ApprovalReadyResult):
+                return {
+                    "result": UnresolvedResult(
+                        error_code=ErrorCode.APPROVAL_STALE,
+                        message="The pending draft checkpoint is incomplete.",
+                        retryable=False,
+                    )
+                }
+            raw_decision_id = interrupt(
+                {
+                    "case_id": f"{state['scan_id']}:{result.product_id}",
+                    "po_id": draft.po_id,
+                    "write_date": draft.write_date,
+                    "state": draft.state,
+                    "partner_id": draft.partner_id,
+                    "currency_id": draft.currency_id,
+                    "amount_total": format(draft.amount_total, "f"),
+                }
+            )
+        environment = state["environment"]
+        try:
+            decision_id = DecisionId(environment, raw_decision_id)
+            decision = (
+                await self.decisions.get_decision(decision_id)
+                if self.decisions is not None
+                else None
+            )
+        except (DomainValidationError, TypeError, ValueError):
+            decision = None
+        if decision is None or (
+            isinstance(decision, ApprovalRecord)
+            and self.now() >= decision.expires_at.value
+        ):
+            return {
+                "result": UnresolvedResult(
+                    error_code=ErrorCode.APPROVAL_STALE,
+                    message="The manager decision is missing, expired, or stale.",
+                    retryable=False,
+                )
+            }
+        return {
+            "manager_decision_id": decision.decision_id.value,
+            "decision_type": decision.decision_type.value,
+        }
+
+    async def confirm(self, state: ScanState) -> dict[str, object]:
+        decision = await self._read_loaded_decision(state)
+        if not isinstance(decision, ApprovalRecord):
+            return self._stale_decision_result()
+        return await self._apply_terminal_decision(
+            state=state, decision=decision, confirm=True
+        )
+
+    async def cancel(self, state: ScanState) -> dict[str, object]:
+        decision = await self._read_loaded_decision(state)
+        if not isinstance(decision, RejectionRecord):
+            return self._stale_decision_result()
+        return await self._apply_terminal_decision(
+            state=state, decision=decision, confirm=False
+        )
+
+    async def _apply_terminal_decision(
+        self,
+        *,
+        state: ScanState,
+        decision: ApprovalRecord | RejectionRecord,
+        confirm: bool,
+    ) -> dict[str, object]:
+        try:
+            if confirm:
+                outcome = await self.mcp.confirm_purchase_order(
+                    environment=state["environment"],
+                    decision_id=decision.decision_id.value,
+                    idempotency_key=decision.idempotency_key,
+                )
+            else:
+                outcome = await self.mcp.cancel_draft_purchase_order(
+                    environment=state["environment"],
+                    decision_id=decision.decision_id.value,
+                    idempotency_key=decision.idempotency_key,
+                )
+        except McpApprovalStaleError:
+            return {
+                "result": UnresolvedResult(
+                    error_code=ErrorCode.APPROVAL_STALE,
+                    message="The approved purchase-order revision is stale.",
+                    retryable=False,
+                )
+            }
+        except McpDecisionReconciliationRequiredError:
+            return {
+                "decision_outcome": DecisionOutcome(
+                    decision_id=decision.decision_id.value,
+                    decision_type=decision.decision_type,
+                    outcome="reconciliation_required",
+                    po_id=decision.po_id,
+                    po_reference=str(decision.po_id),
+                    write_date=decision.po_write_date,
+                    odoo_state=decision.po_state,
+                    reconciled=False,
+                )
+            }
+        except McpReadError as error:
+            return {
+                "result": UnresolvedResult(
+                    error_code=ErrorCode.ODOO_UNAVAILABLE,
+                    message=error.safe_message,
+                    retryable=True,
+                    retry_count=error.retry_count,
+                )
+            }
+        return {"decision_outcome": outcome}
+
+    async def _read_loaded_decision(
+        self, state: ScanState
+    ) -> ApprovalRecord | RejectionRecord | None:
+        if self.decisions is None:
+            return None
+        try:
+            decision_id = DecisionId(state["environment"], state["manager_decision_id"])
+            return await self.decisions.get_decision(decision_id)
+        except (DomainValidationError, KeyError, TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _stale_decision_result() -> dict[str, object]:
+        return {
+            "result": UnresolvedResult(
+                error_code=ErrorCode.APPROVAL_STALE,
+                message="The manager decision is missing, expired, or stale.",
+                retryable=False,
+            )
+        }
 
     @staticmethod
     def _fallback(*, risk_flag: str, limitation: str) -> ManualReviewResult:

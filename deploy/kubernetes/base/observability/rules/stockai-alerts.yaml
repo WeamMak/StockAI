@@ -32,6 +32,26 @@ groups:
           description: At least three MCP failures or timeouts occurred in fifteen minutes.
           evidence: Compare agent-side and server-side MCP panels, then correlate sanitized logs by tool and error code.
           runbook_url: docs/runbooks/alerts.md#stockaimcpfailures
+      - alert: StockAIPurchaseOrderActionFailures
+        expr: sum(rate(procurement_purchase_order_actions_total{result="error"}[5m])) > 0
+        for: 10m
+        labels:
+          severity: warning
+          owner: stockai-operator
+        annotations:
+          description: Purchase-order confirmation or cancellation has failed continuously for ten minutes.
+          evidence: Inspect the purchase-order action panels and correlate sanitized MCP logs by action result.
+          runbook_url: docs/runbooks/alerts.md#stockaipurchaseorderactionfailures
+      - alert: StockAIDecisionReconciliationRequired
+        expr: sum(increase(procurement_purchase_order_actions_total{result="reconciliation_required"}[5m])) > 0
+        for: 0m
+        labels:
+          severity: critical
+          owner: stockai-operator
+        annotations:
+          description: A purchase-order action has an unresolved ambiguous outcome requiring operator reconciliation.
+          evidence: Read the bound purchase order and decision audit before taking any corrective action.
+          runbook_url: docs/runbooks/alerts.md#stockaidecisionreconciliationrequired
 
   - name: stockai-kubernetes
     interval: 30s

@@ -272,6 +272,30 @@ class PurchaseOrderDraftOutput(BaseModel):
     )
 
 
+class ApplyDecisionInput(BaseModel):
+    """Opaque immutable decision authorization for one terminal ERP action."""
+
+    model_config = _STRICT_MODEL_CONFIG
+
+    environment: EnvironmentValue
+    decision_id: str = Field(min_length=1, max_length=128, pattern=_IDENTIFIER_PATTERN)
+    idempotency_key: str = Field(
+        min_length=1, max_length=128, pattern=_IDENTIFIER_PATTERN
+    )
+
+
+class PurchaseOrderActionOutput(BaseModel):
+    """Bounded terminal purchase-order result exposed over MCP."""
+
+    model_config = _STRICT_MODEL_CONFIG
+
+    po_id: int = Field(strict=True, gt=0)
+    po_reference: str = Field(min_length=1, max_length=128)
+    state: Literal["purchase", "cancel"]
+    write_date: str = Field(min_length=1, max_length=32)
+    reconciled: bool
+
+
 class GetProcurementPreferencesInput(BaseModel):
     """Identifiers required to resolve one environment-bound profile."""
 

@@ -64,18 +64,31 @@ async def _running_server() -> AsyncIterator[str]:
             app=mcp.streamable_http_app(),
             log_level="critical",
             access_log=False,
+            timeout_graceful_shutdown=1,
         )
     )
-
     async with anyio.create_task_group() as task_group:
         task_group.start_soon(server.serve, [listener])
         with anyio.fail_after(5):
             while not server.started:
                 await anyio.sleep(0.01)
+        base_url = f"http://127.0.0.1:{port}"
+        async with httpx.AsyncClient(timeout=0.5) as readiness_client:
+            with anyio.fail_after(5):
+                while True:
+                    try:
+                        readiness = await readiness_client.get(f"{base_url}/metrics")
+                        if readiness.status_code == 200:
+                            break
+                    except httpx.HTTPError:
+                        pass
+                    await anyio.sleep(0.01)
         try:
-            yield f"http://127.0.0.1:{port}/mcp"
+            yield f"{base_url}/mcp"
         finally:
             server.should_exit = True
+            server.force_exit = True
+            task_group.cancel_scope.cancel()
 
 
 def _initialize_payload() -> dict[str, object]:
@@ -157,6 +170,8 @@ async def test_real_client_discovers_and_calls_the_tool_over_streamable_http() -
         "get_procurement_evidence",
         "get_procurement_preferences",
         "create_purchase_order_draft",
+        "confirm_purchase_order",
+        "cancel_draft_purchase_order",
     ]
     assert listed.tools[0].inputSchema["additionalProperties"] is False
     assert listed.tools[0].outputSchema is not None

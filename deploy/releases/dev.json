@@ -1,55 +1,40 @@
 {
-  "applicationIdentity": "sha256:9d5514d2e1c23201f0137eaa695626b1d8418d5e73fad00aeb93e8cd8c642d65",
+  "applicationIdentity": "sha256:cbbc125d1f43ce5a4a097b6ccf1645571492dafc36d64abdb38d7a3f72f1cc66",
   "buildInputs": {
-    "api": "sha256:24f5f7df3ae723ae3f68c60e5be4e0edba7458d7ec169b0c5b142eebf3d10eff",
-    "frontend": "sha256:34953f4b40e15ba2d633a8e20b29548eeab98a74ef46d20e0cf83c6fd782f275",
-    "mcp": "sha256:5bfec9494748b8c3144902f8232fcc4d7223addbc45cecf765599c7b90f6b5de",
-    "odoo": "sha256:d7d3b94a06be1dc7a47d8085d57226c66e0280d7fe3e1ca6f2f67442048b721c"
+    "api": "sha256:db361702f8b2c61ddf4bd524d14b9c2bc4e18575f4098d21fac658f6cd2aa140",
+    "frontend": "sha256:b321f4d8232773f3a3e174e569a9780dc862cb2bef8f4dd9d7ee3fce3f318db4",
+    "mcp": "sha256:1a4651ec1ac638a23f9e96eea8ea2624eae7eff45f34e0884b057225b33246f6",
+    "odoo": "sha256:26df5ff848c2c4715e6aeb4cf8812476ceb6e1a5f9ac18bf344f313dd0eadef1"
   },
-  "createdAt": "2026-08-17T17:20:03Z",
+  "createdAt": "2026-08-22T08:50:44Z",
   "devValidation": {
-    "attempts": [
-      {
-        "argoRevision": "c3f0dd8a01d8dc687437bf69c0a4db04f31a4b11",
-        "evidenceDigest": "sha256:400f143f68ccd650da4e9a0e5260311ad8f5ed5d563d536a4332ebb6389c5913",
-        "images": {
-          "api": "sha256:7dd46f67ec9b68d30c3e0275828c9fc26266f15c66dab64556d460fdde77d045",
-          "frontend": "sha256:c1d8d006afd4b25d72609fa7d08efd6b244c31c5138750aa2d3770b7dfc22934",
-          "mcp": "sha256:c729e00e31ad3b53e2d73f9a39dbd9f18a8d4d49fcfc22d248bbb3874c1992cd",
-          "odoo": "sha256:61050671c7ae00a86029206314f805204f71e09dcc6a007b6e60ac4b5d341b3c"
-        },
-        "releaseId": "sha256:9f0c26d944dd3ff04019b994700310109965f70503815109b5f80f6d562fc53f",
-        "result": "passed",
-        "smokeRunId": "dev-smoke-20260817T172657Z",
-        "timestamp": "2026-08-17T17:27:30Z"
-      }
-    ],
-    "status": "passed"
+    "attempts": [],
+    "status": "pending"
   },
   "images": {
-    "api": "sha256:7dd46f67ec9b68d30c3e0275828c9fc26266f15c66dab64556d460fdde77d045",
-    "frontend": "sha256:c1d8d006afd4b25d72609fa7d08efd6b244c31c5138750aa2d3770b7dfc22934",
-    "mcp": "sha256:c729e00e31ad3b53e2d73f9a39dbd9f18a8d4d49fcfc22d248bbb3874c1992cd",
-    "odoo": "sha256:61050671c7ae00a86029206314f805204f71e09dcc6a007b6e60ac4b5d341b3c"
+    "api": "sha256:f25c0b18fc53649a7e13810093cd3a93a887e5d0e7901e924d70f9d8db41b082",
+    "frontend": "sha256:9e800037d598c8044684901251304a13f950bebeafc840be20838c8259f8509a",
+    "mcp": "sha256:4fba2edf91d3c10e0e15137c448c8a943542c176e30d67ae208f260bd116bb2f",
+    "odoo": "sha256:663e1d6387598ac79aee5b7655caa4fd0b7bf2e057090ad7c90e560aee8a1cd9"
   },
   "integrity": {
     "algorithm": "sha256",
-    "digest": "sha256:c7e21d0feda4379f1b47033c7682ea5a57371308630eb49349fd278065910eb5"
+    "digest": "sha256:a7173bddd853796dcf43fe710052f762d3c3ddce9950a5d3ee1545b9a6d59191"
   },
   "provenance": {
-    "api": "sha256:93b088cc81cb3f33b8140b67fafef1f44c0bc365bad1f50b293af678c4922e91",
-    "frontend": "sha256:62bac355366e7b1cb72cdf810304ec289ee05c1ab454f5145251019996c88f58",
-    "mcp": "sha256:5a99a5ce9a050b61a9e373b27aa7296d23c7e954f70cae5467a0237614709df7",
-    "odoo": "sha256:cadfdff0e276c0a4fb48e8e9758a3573dbe80b0b885072c516cb034e85279fd5"
+    "api": "sha256:caeac18f04020ebf90e6230dba7c02f765738317856d89e5670fad752ea21f2c",
+    "frontend": "sha256:f2ddde6a4e5b9904096f06d87a386d4a251b5b71bf518ba4d64b1f711edb1d53",
+    "mcp": "sha256:bd3f374766259dfdedd8513a41e825f0f4ec86ff6b9c2ccc5801c44c9adc24ae",
+    "odoo": "sha256:7317fc6312a20f0b76ee63ed5f5cf0dba9949ef24b515e1ba3d20cbeb9465ff0"
   },
-  "releaseId": "sha256:9f0c26d944dd3ff04019b994700310109965f70503815109b5f80f6d562fc53f",
+  "releaseId": "sha256:303c4306eb44cf097ea3d0897f7f3e07dec8edbb86ce2cc28efb57176b773763",
   "schemaVersion": 1,
   "scout": {
-    "reportDigest": "sha256:6e69b577af33a0538e4b0d6c40867193fc62537f603612851b589b8c32ca0469",
+    "reportDigest": "sha256:2afebd3b158dc92a8ef11a44792c3e760e38f8dfe157c458a7eb686750096dd2",
     "status": "findings"
   },
   "source": {
-    "commit": "7c5ae12ca733422736c4ca0c80b3687e094ea18c",
-    "tree": "7da9d4dc6365147d8b7c884fd746d6835c15b4a0"
+    "commit": "7b0877487d6872feca53c068e02fb7dca1a3e0fa",
+    "tree": "d405e16d0e92fc52ab9bcb9babdd3dbae6e7fae5"
   }
 }

@@ -261,6 +261,48 @@ Bit pod reached `1/1 Running` with zero restarts, and the `stockai-dev`
 Application reported `Synced` and `Healthy`. This completes T22. T23 and T24
 have not started.
 
+## T29 local implementation — 2026-08-21
+
+The manager decision lifecycle is implemented locally on
+`feature/t29-manager-decision-lifecycle`. A successful scan now stops with a
+recommendation and no Odoo draft, so the signed-in officer or manager may use
+the existing bounded refinement loop. Either role can then select the explicit
+"Create draft and send to manager" action. The revision-bound, idempotent
+submission resumes the exact durable LangGraph thread, creates one fictional
+Odoo draft, and closes refinement only after the case reaches
+`pending_approval`. Managers inherit the officer's scan, recommendation,
+refinement, and draft-submission capabilities; only managers can approve or
+reject. Approval and rejection remain immutable and revision-bound, resume the
+same graph thread, independently validate the real MCP confirm/cancel action,
+and project terminal case and audit state.
+
+The React decision section is the final section on the recommendation page and
+does not repeat vendor, quantity, amount, evidence, or budget cards already
+shown above it. It initially presents modern Approve and Reject actions;
+selecting one progressively reveals only the required over-budget exception or
+rejection-reason form, with a cancel path. Draft-submission and decision
+outcome/latency metrics have bounded labels, and the Grafana dashboard includes
+submission outcomes and creation latency without counting recommendation-ready
+cases as pending manager decisions.
+
+Actual verification on the corrected branch: `make check` passed lock and
+format checks, Ruff, strict mypy over 210 source files, ESLint, five
+architecture tests, `actionlint`, 519 Python unit tests, and 70 React tests
+(77% Python and 78.34% React statement coverage). `make test-integration`
+passed all 16 real-transport tests in 205.72 seconds, including refinement,
+explicit submission, idempotent replay, both manager decisions, DynamoDB Local
+restart recovery, and exact-checkpoint resume. `make test-e2e` passed all six
+Compose scenarios in 159.78 seconds; the harness now retries only Docker
+Desktop's exact transient `/forwards/expose` startup failure and still fails
+immediately for application, health, or assertion errors. `make odoo-contract`
+passed all 24 image, add-on, JSON-2, bootstrap, real-Odoo, and MCP tests in
+185.29 seconds. `make compose-validate` rendered all three Compose
+configurations. `make kubernetes-validate` passed all 60 tests; each
+88-resource dev/prod overlay produced 81 valid, 0 invalid, 0-error resources
+with seven expected CRD skips. `git diff --check` is clean. No dev release,
+Argo reconciliation, live smoke, production promotion, or external deployment
+has been performed.
+
 ## Evidence policy
 
 Only commands actually run successfully are recorded as passing. Generated

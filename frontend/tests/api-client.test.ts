@@ -9,6 +9,8 @@ import {
   listRecentCases,
   listScans,
   refineCase,
+  submitCaseForDraft,
+  type CaseDetail,
 } from "../src/api/client";
 
 const QUEUED_SCAN_PAYLOAD = {
@@ -35,9 +37,10 @@ const QUEUED_SCAN_AGGREGATE = {
   error: null,
 };
 
-const CASE_DETAIL_PAYLOAD = {
+const CASE_DETAIL_PAYLOAD: CaseDetail = {
   scan_id: "scan-queued",
   case_id: "scan-queued:product-101",
+  revision: 3,
   status: "queued",
   trigger: "manual",
   created_at: "2026-08-05T10:00:00Z",
@@ -267,6 +270,33 @@ describe("scan API client", () => {
           "X-CSRF-Token": "opaque-csrf-token",
           "Content-Type": "application/json",
         }),
+      }),
+    );
+  });
+
+  it("submits only the exact case revision with a stable draft key", async () => {
+    document.cookie = "stockai_csrf=opaque-csrf-token; path=/";
+    const accepted = {
+      case_id: "scan-queued:product-101",
+      status: "creating_draft",
+      created: true,
+    };
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(accepted, 202));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      submitCaseForDraft(CASE_DETAIL_PAYLOAD, "draft-submit-001"),
+    ).resolves.toEqual(accepted);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/scans/scan-queued/cases/scan-queued%3Aproduct-101/draft",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          "Content-Type": "application/json",
+          "Idempotency-Key": "draft-submit-001",
+          "X-CSRF-Token": "opaque-csrf-token",
+        }),
+        body: JSON.stringify({ case_revision: 3 }),
       }),
     );
   });

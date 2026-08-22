@@ -246,7 +246,7 @@ approval gates before implementation deviates.
 | Role | Classification | Allowed actions |
 |---|---|---|
 | Procurement officer | `[Project decision]` | Sign in, trigger a scan, view cases and evidence, inspect exceptions, and view the audit trail. |
-| Procurement manager | `[Project decision]` | All officer read actions plus approve, approve a budget exception, and reject. |
+| Procurement manager | `[Project decision]` | All procurement-officer actions, plus approve, approve a budget exception, and reject. |
 | Procurement configuration administrator | `[Project decision]` | Sign in to Odoo, manage monthly category budgets, maintain the typed current company/category/product recommendation preferences, and inspect their Odoo-tracked changes. This role alone grants no case-approval permission. |
 | Kubernetes CronJob | `[Project decision]` | Start the daily scan through one internal, narrowly scoped HTTP credential. |
 | Odoo integration user | `[Project decision]` | Read required procurement records and perform only the PO operations exposed by the MCP allowlist. |
@@ -297,8 +297,10 @@ stateDiagram-v2
     Detected --> Skipped: ineligible or covered
     Detected --> GatheringEvidence: replenishment required
     GatheringEvidence --> ManualReview: no valid offer / evidence or dependency failure
-    GatheringEvidence --> GatheringEvidence: manager-requested refinement (bounded officer note, capped at 3, only before a draft exists)
-    GatheringEvidence --> PendingApproval: valid recommendation and draft PO
+    GatheringEvidence --> RecommendationReady: valid recommendation
+    RecommendationReady --> GatheringEvidence: officer-or-manager refinement (bounded note, capped at 3)
+    RecommendationReady --> CreatingDraft: officer or manager submits
+    CreatingDraft --> PendingApproval: one verified draft
     PendingApproval --> Rejected: manager rejects
     Rejected --> Cancelled: draft cancellation succeeds
     Rejected --> ReconciliationRequired: cancellation result is ambiguous
@@ -313,18 +315,20 @@ stateDiagram-v2
 
 [Project decision] Every state transition creates an immutable audit event with actor, time, correlation identifiers, source revision, and sanitized outcome.
 
-[Project decision] A manager may request at most 3 refinements of a case
+[Project decision] A procurement officer or manager may request at most 3 refinements of a case
 that has a current `approval_ready` recommendation, each supplying a bounded
 free-text note that is threaded to the LLM as untrusted business data
 alongside the original evidence. Refinement re-runs deterministic evidence
 gathering and LLM reasoning for that one candidate only, may change the
 outcome (including back to `no_valid_offer` or `manual_review`), and is a
-self-loop on `GatheringEvidence`: it is only permitted before T28 draft
-creation moves the case to `PendingApproval`. Once a draft exists, further
-refinement is rejected — draft creation is what closes the refinement
-window, so `T28` must reject a refinement request for a case whose draft
-already exists (or whose state is no longer eligible), not merely rely on
-the outcome/status check refinement already performs.
+self-loop from `RecommendationReady` through `GatheringEvidence`. Every
+successful initial or refined recommendation pauses durably before any Odoo
+write and becomes the latest selectable checkpoint. An officer or manager
+closes the refinement window explicitly by selecting **Create draft and send
+to manager**. Draft submission resumes that exact checkpoint, transitions
+through `CreatingDraft`, and creates at most one evidence-bound draft before
+entering `PendingApproval`. Once a draft exists, further refinement is
+rejected.
 
 ### 7.3 Manager decisions
 
@@ -333,7 +337,7 @@ the outcome/status check refinement already performs.
 | Approve | `[Project decision]` | Immutably persist approval bound to the exact case, vendor, quantity, amount, budget status, evidence hash, and PO revision; then resume the graph and request confirmation. |
 | Approve budget exception | `[Project decision]` | Require an explicit exception flag and non-empty manager justification before confirmation. |
 | Reject | `[Project decision]` | Preserve the decision and evidence, cancel the Odoo draft through MCP, and close the case. |
-| Refine | `[Project decision]` | Before a draft exists, accept a bounded officer note (at most 3 times per case), clear the stale result, and re-run evidence gathering and LLM reasoning for that one candidate; reject the request once a draft exists or the case is otherwise no longer eligible. |
+| Refine | `[Project decision]` | Before a draft exists, accept a bounded officer-or-manager note (at most 3 times per case), clear the stale result, and re-run evidence gathering and LLM reasoning for that one candidate; reject the request once a draft exists or the case is otherwise no longer eligible. |
 
 [Project decision] The MVP exposes no manager request-change, draft-update, or
 reapproval workflow. The already implemented revision-aware Odoo draft-update
@@ -550,7 +554,14 @@ justifications, and other business text never become prompt instructions.
 
 [Tutorial-supported approach] LangGraph checkpoints use the course-supported DynamoDB checkpointer so a workflow survives pod restart and human waiting.
 
-[Project decision] The graph thread identifier is the immutable procurement case identifier.
+[Project decision] The initial graph run uses the immutable procurement case
+identifier as its thread ID. Each bounded refinement uses its own immutable
+`{case_id}:refine-{attempt}` thread so completed checkpoints are never reused.
+When either run reaches an approval-ready recommendation, the application
+persists that exact thread ID on the case. Explicit draft submission resumes
+the same checkpoint, and the thread ID remains bound to the case through draft
+creation and the later manager-decision pause; it is never guessed or
+reconstructed after restart.
 
 [Project decision] Durable vendor, product, offer, budget, and purchase history remains in Odoo and is reread when needed. The MVP does not duplicate it into a vector store or maintain free-form LLM memory that could become stale.
 
@@ -648,11 +659,12 @@ ownership, release schedules, incompatible dependencies, or external consumers.
 4. `[Project decision]` MCP reads Odoo through JSON-2 and returns typed, bounded procurement data and the effective revisioned preference profile.
 5. `[Project decision]` Deterministic graph nodes validate the profile and calculate eligibility, deadlines, valid quantities, costs, duplicate coverage, performance metrics, budget impact, and any hard premium exclusion.
 6. `[Project decision]` Bedrock applies the effective advisory priorities, selects or declines to select among the remaining eligible offers, and returns a structured explanation.
-7. `[Project decision]` The graph validates the response and asks MCP to create one idempotent draft PO.
-8. `[Project decision]` The graph checkpoints and interrupts for manager input.
-9. `[Project decision]` FastAPI records the manager’s authenticated decision and resumes the same graph thread.
-10. `[Project decision]` MCP independently validates the matching approval before confirming or canceling the Odoo PO.
-11. `[Project decision]` The UI polls the API for status, while metrics, sanitized logs, preference-revision evidence, and audit records capture the interaction.
+7. `[Project decision]` The graph checkpoints before any draft write and exposes the approval-ready recommendation for optional bounded refinement.
+8. `[Project decision]` An authenticated officer or manager explicitly submits the latest case revision; FastAPI resumes the exact persisted recommendation-ready thread and the graph asks MCP to create one idempotent draft PO.
+9. `[Project decision]` The graph checkpoints again and interrupts for manager input.
+10. `[Project decision]` FastAPI records the manager’s authenticated decision and resumes the same persisted draft-owning graph thread.
+11. `[Project decision]` MCP independently validates the matching approval before confirming or canceling the Odoo PO.
+12. `[Project decision]` The UI polls the API for status, while metrics, sanitized logs, preference-revision evidence, and audit records capture the interaction.
 
 ## 11. Procurement MCP server
 
@@ -846,6 +858,7 @@ worker operation has no Secrets Manager write permission.
 | `GET /api/v1/scans/{scan_id}` | `[Project decision]` | Officer or manager | Scan progress, counts, and errors |
 | `GET /api/v1/cases` | `[Project decision]` | Officer or manager | Filtered recommendation and exception list |
 | `GET /api/v1/cases/{case_id}` | `[Project decision]` | Officer or manager | Evidence, alternatives, rationale, applied preference snapshot, draft, budget, revisions, and status |
+| `POST /api/v1/scans/{scan_id}/cases/{case_id}/draft` | `[Project decision]` | Officer or manager | With CSRF, idempotency key, and expected case revision, resume the latest recommendation-ready checkpoint to create one draft and send it for manager decision |
 | `POST /api/v1/cases/{case_id}/approve` | `[Project decision]` | Manager | Approve exact current revision; require exception fields when over budget |
 | `POST /api/v1/cases/{case_id}/reject` | `[Project decision]` | Manager | Record reason and cancel draft |
 | `GET /api/v1/cases/{case_id}/audit` | `[Project decision]` | Officer or manager | Immutable chronological audit events |
@@ -875,7 +888,8 @@ worker operation has no Secrets Manager write permission.
 | Scan detail | `[Project decision]` | Progress, processed/skipped/pending counts, duration, and safe errors |
 | Case queue | `[Project decision]` | Filter by pending approval, manual review, confirmed, rejected, and cancelled |
 | Recommendation detail | `[Project decision]` | Forecast timeline, need-by date, vendor comparison, order-history count and limited-history status, quantity, budget impact, applied preference source/revision, premium comparison, LLM rationale, and Odoo draft link |
-| Manager decision panel | `[Project decision]` | Approve, explicit budget exception, or reject |
+| Recommendation-ready actions | `[Project decision]` | At the bottom of the page, officer and manager can submit a bounded refinement or select **Create draft and send to manager** |
+| Manager decision panel | `[Project decision]` | For a pending draft, show the chronological audit before a compact bottom action card with approve, progressive budget exception, and progressive reject-reason controls; do not repeat details already shown elsewhere on the page |
 | Audit timeline | `[Project decision]` | Actors, revisions, MCP operations, approval binding, and final outcome |
 
 [Project decision] Vendor, budget, contract, product, reorder, and user administration remain in Odoo or Cognito and are not duplicated in the dashboard.

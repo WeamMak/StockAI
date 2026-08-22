@@ -36,6 +36,7 @@ from procurement.ports.repositories import (
     CandidateSnapshot,
     CaseRecord,
     CaseSummary,
+    DecisionOutcomeRecord,
     DraftRecord,
     FailureRecord,
     InMemoryApplicationRepository,
@@ -60,6 +61,13 @@ class ScanStatus(StrEnum):
     FAILED = "failed"
     SKIPPED = "skipped"
     PENDING_APPROVAL = "pending_approval"
+    CREATING_DRAFT = "creating_draft"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    CONFIRMING = "confirming"
+    CONFIRMED = "confirmed"
+    CANCELLED = "cancelled"
+    RECONCILIATION_REQUIRED = "reconciliation_required"
 
 
 class ScanTrigger(StrEnum):
@@ -85,6 +93,7 @@ class ScanSnapshot:
 
     scan_id: str
     case_id: str
+    revision: int
     status: ScanStatus
     trigger: ScanTrigger
     created_at: datetime
@@ -101,6 +110,7 @@ class ScanSnapshot:
     error: ScanFailure | None
     refinement_count: int
     draft: DraftRecord | None
+    decision: DecisionOutcomeRecord | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -163,6 +173,28 @@ class UnconfiguredScanWorkflow:
             retryable=True,
         )
 
+    async def aresume_decision(
+        self, workflow_thread_id: str, decision_id: str
+    ) -> ScanState:
+        del workflow_thread_id, decision_id
+        return {
+            "result": UnresolvedResult(
+                error_code=ErrorCode.LLM_UNAVAILABLE,
+                message="The decision workflow is not configured.",
+                retryable=True,
+            )
+        }
+
+    async def aensure_draft(self, workflow_thread_id: str) -> ScanState:
+        del workflow_thread_id
+        return {
+            "result": UnresolvedResult(
+                error_code=ErrorCode.LLM_UNAVAILABLE,
+                message="The draft workflow is not configured.",
+                retryable=True,
+            )
+        }
+
 
 class ScanService:
     """Start short API requests while one local scan continues in a task."""
@@ -192,6 +224,12 @@ class ScanService:
         self._guard = asyncio.Lock()
         self._active_scan_id: str | None = None
         self._tasks: set[asyncio.Task[None]] = set()
+
+    async def drain(self) -> None:
+        """Wait until all background work accepted by this service finishes."""
+
+        while self._tasks:
+            await asyncio.gather(*tuple(self._tasks), return_exceptions=True)
 
     async def start_scan(self, *, trigger: ScanTrigger) -> ScanAggregateSnapshot:
         """Reserve the local scan slot and schedule bounded background work."""
@@ -397,6 +435,7 @@ class ScanService:
             started_at=running_at,
             updated_at=running_at,
             result=None,
+            workflow_thread_id=None,
         )
         try:
             running = await self._repository.update_case(
@@ -446,12 +485,23 @@ class ScanService:
                     },
                     config={"configurable": {"thread_id": thread_id}},
                 )
-            draft = self._interrupted_draft(state)
-            terminal = (
-                self._apply_pending_draft(running, state, draft)
-                if draft is not None
-                else self._apply_result(running, state)
-            )
+            interrupt_payload = self._interrupt_payload(state)
+            if self._is_recommendation_ready_pause(
+                interrupt_payload, case_id=running.case_id.value
+            ):
+                terminal = replace(
+                    self._apply_result(running, state),
+                    workflow_thread_id=thread_id,
+                )
+            elif interrupt_payload is not None:
+                terminal = self._apply_pending_draft(
+                    running,
+                    state,
+                    self._draft_from_interrupt_payload(interrupt_payload),
+                    workflow_thread_id=thread_id,
+                )
+            else:
+                terminal = self._apply_result(running, state)
         except TimeoutError:
             terminal = self._fail(
                 running,
@@ -655,9 +705,21 @@ class ScanService:
                     },
                     config={"configurable": {"thread_id": case_id_value}},
                 )
-            draft = self._interrupted_draft(state)
-            if draft is not None:
-                terminal = self._apply_pending_draft(running, state, draft)
+            interrupt_payload = self._interrupt_payload(state)
+            if self._is_recommendation_ready_pause(
+                interrupt_payload, case_id=case_id_value
+            ):
+                terminal = replace(
+                    self._apply_result(running, state),
+                    workflow_thread_id=case_id_value,
+                )
+            elif interrupt_payload is not None:
+                terminal = self._apply_pending_draft(
+                    running,
+                    state,
+                    self._draft_from_interrupt_payload(interrupt_payload),
+                    workflow_thread_id=case_id_value,
+                )
             elif state.get("skip_reason") is not None:
                 terminal = replace(running, status=ScanStatus.SKIPPED.value)
             else:
@@ -791,6 +853,8 @@ class ScanService:
         record: CaseRecord,
         state: ScanState,
         draft: DraftRecord,
+        *,
+        workflow_thread_id: str,
     ) -> CaseRecord:
         """Persist the paused case: a bound draft awaiting a manager decision.
 
@@ -808,22 +872,52 @@ class ScanService:
             status=ScanStatus.PENDING_APPROVAL.value,
             evidence=state.get("evidence", ()),
             draft=draft,
+            workflow_thread_id=workflow_thread_id,
             result=self._recommendation_record(result),
         )
 
     @staticmethod
-    def _interrupted_draft(state: ScanState) -> DraftRecord | None:
-        """Extract the draft snapshot surfaced by the graph's `interrupt()`.
-
-        LangGraph does not merge a paused node's return value into state, so
-        the draft cannot be read from `state["draft"]` at pause time -- it is
-        read from the interrupt payload itself instead.
-        """
+    def _interrupt_payload(state: ScanState) -> Mapping[str, object] | None:
+        """Return one validated mapping payload from a graph interrupt."""
 
         interrupts = cast(Mapping[str, object], state).get("__interrupt__")
         if not interrupts:
             return None
         payload = cast(Any, interrupts)[0].value
+        if not isinstance(payload, Mapping):
+            raise ValueError("the workflow interrupt payload is invalid")
+        return cast(Mapping[str, object], payload)
+
+    @staticmethod
+    def _is_recommendation_ready_pause(
+        payload: Mapping[str, object] | None, *, case_id: str
+    ) -> bool:
+        if payload is None:
+            return False
+        phase = payload.get("phase")
+        if phase != "recommendation_ready":
+            return False
+        if payload.get("case_id") != case_id or set(payload) != {"phase", "case_id"}:
+            raise ValueError("the recommendation checkpoint binding is invalid")
+        return True
+
+    @staticmethod
+    def _draft_from_interrupt_payload(
+        payload: Mapping[str, object],
+    ) -> DraftRecord:
+        """Extract the legacy paused draft snapshot from its strict payload."""
+
+        required = {
+            "case_id",
+            "po_id",
+            "write_date",
+            "state",
+            "partner_id",
+            "currency_id",
+            "amount_total",
+        }
+        if set(payload) != required:
+            raise ValueError("the draft checkpoint payload is invalid")
         return DraftRecord(
             po_id=int(cast(int, payload["po_id"])),
             write_date=str(payload["write_date"]),
@@ -1039,6 +1133,7 @@ class ScanService:
         return ScanSnapshot(
             scan_id=scan_id,
             case_id=record.case_id.value,
+            revision=record.revision.value,
             status=ScanStatus(record.status),
             trigger=ScanTrigger(record.trigger),
             created_at=record.created_at.value,
@@ -1053,6 +1148,7 @@ class ScanService:
             error=error,
             refinement_count=record.refinement_count,
             draft=record.draft,
+            decision=record.decision,
         )
 
     @staticmethod

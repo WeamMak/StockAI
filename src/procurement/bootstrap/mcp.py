@@ -19,6 +19,7 @@ from procurement.adapters.odoo.client import (
     OdooJson2Client,
     create_odoo_metrics,
 )
+from procurement.bootstrap.decision_store import create_decision_reader
 from procurement.domain.identifiers import Environment
 from procurement.domain.policy.budget import calculate_budget
 from procurement.domain.policy.coverage import apply_coverage
@@ -45,6 +46,8 @@ from procurement.ports.erp import (
     ErpUnavailableError,
     ProcurementEvidenceQuery,
     ProcurementPreferenceQuery,
+    PurchaseOrderAction,
+    PurchaseOrderActionResult,
     PurchaseOrderDraft,
     PurchaseOrderDraftCommand,
     ReplenishmentCandidateRecord,
@@ -70,6 +73,9 @@ class LocalMcpSettings:
     odoo_database: str | None = None
     odoo_api_key: str | None = field(default=None, repr=False)
     odoo_company_id: int | None = None
+    aws_region: str = "us-east-1"
+    dynamodb_application_table: str = "stockai-dev-application"
+    dynamodb_endpoint_url: str | None = None
 
     def __post_init__(self) -> None:
         if self.erp_mode not in _SUPPORTED_MODES:
@@ -92,6 +98,14 @@ class LocalMcpSettings:
             raise ValueError(
                 "PROCUREMENT_MCP_RETRY_DELAY_SECONDS must be between 0 and 10"
             )
+        if not self.aws_region.strip() or not self.dynamodb_application_table.strip():
+            raise ValueError("MCP DynamoDB region and application table are required")
+        if self.dynamodb_endpoint_url is not None:
+            endpoint = httpx.URL(self.dynamodb_endpoint_url)
+            if endpoint.scheme not in {"http", "https"} or endpoint.host is None:
+                raise ValueError(
+                    "PROCUREMENT_DYNAMODB_ENDPOINT_URL must be an absolute HTTP URL"
+                )
         if self.erp_mode == "odoo":
             if (
                 self.odoo_url is None
@@ -166,6 +180,12 @@ class LocalMcpSettings:
             odoo_company_id=(
                 int(raw_odoo_company_id) if raw_odoo_company_id is not None else None
             ),
+            aws_region=os.environ.get("PROCUREMENT_AWS_REGION", "us-east-1"),
+            dynamodb_application_table=os.environ.get(
+                "PROCUREMENT_DYNAMODB_APPLICATION_TABLE",
+                f"stockai-{environment.value}-application",
+            ),
+            dynamodb_endpoint_url=os.environ.get("PROCUREMENT_DYNAMODB_ENDPOINT_URL"),
         )
 
 
@@ -174,6 +194,12 @@ class LocalFictionalErp(ErpPort):
     """One bounded fictional ERP read used only by the local skeleton."""
 
     mode: str
+    _purchase_orders: dict[int, PurchaseOrderActionResult] = field(
+        default_factory=dict, init=False, repr=False, compare=False
+    )
+    _draft_origins: dict[str, int] = field(
+        default_factory=dict, init=False, repr=False, compare=False
+    )
 
     async def list_replenishment_candidates(
         self,
@@ -227,19 +253,72 @@ class LocalFictionalErp(ErpPort):
     async def find_purchase_order_draft(
         self, *, origin: str
     ) -> PurchaseOrderDraft | None:
-        del origin
-        return None
+        po_id = self._draft_origins.get(origin)
+        order = self._purchase_orders.get(po_id) if po_id is not None else None
+        if order is None or order.state != "draft":
+            return None
+        return PurchaseOrderDraft(
+            po_id=order.po_id,
+            write_date=order.write_date,
+            state=order.state,
+            partner_id=order.partner_id,
+            currency_id=order.currency_id,
+            amount_total=order.amount_total,
+        )
 
     async def create_purchase_order_draft(
         self, command: PurchaseOrderDraftCommand
     ) -> PurchaseOrderDraft:
-        """Return one fixed fictional draft; local mode has no real Odoo to
-        write to and no idempotency store, so this never persists anything
-        or returns an existing draft for a repeated call."""
+        """Create one in-process fictional draft for local lifecycle tests."""
 
         if self.mode == "timeout":
             await asyncio.sleep(3_600)
-        return _fictional_draft(command)
+        draft = _fictional_draft(command)
+        self._purchase_orders[draft.po_id] = PurchaseOrderActionResult(
+            po_id=draft.po_id,
+            po_reference=f"P{draft.po_id:05d}",
+            write_date=draft.write_date,
+            state=draft.state,
+            partner_id=draft.partner_id,
+            currency_id=draft.currency_id,
+            amount_total=draft.amount_total,
+        )
+        self._draft_origins[command.origin] = draft.po_id
+        return draft
+
+    async def read_purchase_order(self, *, po_id: int) -> PurchaseOrderActionResult:
+        try:
+            return self._purchase_orders[po_id]
+        except KeyError:
+            raise ErpUnavailableError("unknown fictional purchase order") from None
+
+    async def apply_purchase_order_action_once(
+        self,
+        *,
+        po_id: int,
+        expected: PurchaseOrderDraft,
+        action: PurchaseOrderAction,
+    ) -> PurchaseOrderActionResult:
+        current = await self.read_purchase_order(po_id=po_id)
+        if (
+            current.write_date != expected.write_date
+            or current.state != expected.state
+            or current.partner_id != expected.partner_id
+            or current.currency_id != expected.currency_id
+            or current.amount_total != expected.amount_total
+        ):
+            raise ErpUnavailableError("stale fictional purchase order")
+        result = PurchaseOrderActionResult(
+            po_id=po_id,
+            po_reference=f"P{po_id:05d}",
+            write_date="2026-01-01 00:00:01",
+            state="purchase" if action is PurchaseOrderAction.CONFIRM else "cancel",
+            partner_id=expected.partner_id,
+            currency_id=expected.currency_id,
+            amount_total=expected.amount_total,
+        )
+        self._purchase_orders[po_id] = result
+        return result
 
 
 def _fictional_draft(command: PurchaseOrderDraftCommand) -> PurchaseOrderDraft:
@@ -249,7 +328,9 @@ def _fictional_draft(command: PurchaseOrderDraftCommand) -> PurchaseOrderDraft:
         state="draft",
         partner_id=1,
         currency_id=1,
-        amount_total=command.quantity * command.unit_price,
+        amount_total=(command.quantity * command.unit_price).quantize(
+            Decimal("0.000001")
+        ),
     )
 
 
@@ -312,6 +393,12 @@ class LocalHttpFictionalErp(ErpPort):
 
     base_url: str
     timeout_seconds: float
+    _purchase_orders: dict[int, PurchaseOrderActionResult] = field(
+        default_factory=dict, init=False, repr=False, compare=False
+    )
+    _draft_origins: dict[str, int] = field(
+        default_factory=dict, init=False, repr=False, compare=False
+    )
 
     async def list_replenishment_candidates(
         self,
@@ -387,16 +474,70 @@ class LocalHttpFictionalErp(ErpPort):
     async def find_purchase_order_draft(
         self, *, origin: str
     ) -> PurchaseOrderDraft | None:
-        del origin
-        return None
+        po_id = self._draft_origins.get(origin)
+        order = self._purchase_orders.get(po_id) if po_id is not None else None
+        if order is None or order.state != "draft":
+            return None
+        return PurchaseOrderDraft(
+            po_id=order.po_id,
+            write_date=order.write_date,
+            state=order.state,
+            partner_id=order.partner_id,
+            currency_id=order.currency_id,
+            amount_total=order.amount_total,
+        )
 
     async def create_purchase_order_draft(
         self, command: PurchaseOrderDraftCommand
     ) -> PurchaseOrderDraft:
-        """Return one fixed fictional draft; the fake Compose Odoo service
-        does not yet expose a draft-creation endpoint to call."""
+        """Create one in-process fictional draft beside the read-only fake."""
 
-        return _fictional_draft(command)
+        draft = _fictional_draft(command)
+        self._purchase_orders[draft.po_id] = PurchaseOrderActionResult(
+            po_id=draft.po_id,
+            po_reference=f"P{draft.po_id:05d}",
+            write_date=draft.write_date,
+            state=draft.state,
+            partner_id=draft.partner_id,
+            currency_id=draft.currency_id,
+            amount_total=draft.amount_total,
+        )
+        self._draft_origins[command.origin] = draft.po_id
+        return draft
+
+    async def read_purchase_order(self, *, po_id: int) -> PurchaseOrderActionResult:
+        try:
+            return self._purchase_orders[po_id]
+        except KeyError:
+            raise ErpUnavailableError("unknown fictional purchase order") from None
+
+    async def apply_purchase_order_action_once(
+        self,
+        *,
+        po_id: int,
+        expected: PurchaseOrderDraft,
+        action: PurchaseOrderAction,
+    ) -> PurchaseOrderActionResult:
+        current = await self.read_purchase_order(po_id=po_id)
+        if (
+            current.write_date != expected.write_date
+            or current.state != expected.state
+            or current.partner_id != expected.partner_id
+            or current.currency_id != expected.currency_id
+            or current.amount_total != expected.amount_total
+        ):
+            raise ErpUnavailableError("stale fictional purchase order")
+        result = PurchaseOrderActionResult(
+            po_id=po_id,
+            po_reference=f"P{po_id:05d}",
+            write_date="2026-01-01 00:00:01",
+            state="purchase" if action is PurchaseOrderAction.CONFIRM else "cancel",
+            partner_id=expected.partner_id,
+            currency_id=expected.currency_id,
+            amount_total=expected.amount_total,
+        )
+        self._purchase_orders[po_id] = result
+        return result
 
 
 def _fictional_preference(query: ProcurementPreferenceQuery) -> ProcurementPreference:
@@ -507,6 +648,15 @@ def create_local_mcp_app(
         level=resolved.log_level,
     )
     metrics = create_mcp_metrics()
+    decisions = create_decision_reader(
+        environment=resolved.environment,
+        aws_region=resolved.aws_region,
+        application_table=resolved.dynamodb_application_table,
+        dynamodb_endpoint_url=resolved.dynamodb_endpoint_url,
+        use_dynamodb=(
+            resolved.erp_mode == "odoo" or resolved.dynamodb_endpoint_url is not None
+        ),
+    )
     if resolved.erp_mode == "odoo":
         if (
             resolved.odoo_url is None
@@ -540,6 +690,7 @@ def create_local_mcp_app(
         tool_max_retries = resolved.max_retries
     server = create_mcp_server(
         erp=erp,
+        decisions=decisions,
         environment=resolved.environment,
         bearer_token=resolved.bearer_token,
         host="0.0.0.0",  # noqa: S104 - accept the private container-network host

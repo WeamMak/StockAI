@@ -109,4 +109,10 @@ prose, Markdown, or tool calls outside the JSON object.
 
 Provide a concise rationale, key trade-offs, uncertainty, evidence limitations,
 and bounded risk flags. Do not request, reveal, or expose hidden chain-of-thought;
-return only the brief explanation required by the schema.
+return only the brief explanation required by the schema. Explanation fields
+must contain user-facing prose, never output-schema field names or lists of
+field names. Use an empty array when there is no evidence limitation to report.
+When there is no material trade-off, state that in one brief user-facing
+sentence.
+Never use placeholder values such as `None`, `N/A`, or `Not applicable` in an
+explanation field.

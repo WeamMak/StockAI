@@ -10,9 +10,15 @@ from decimal import Decimal
 from typing import Protocol
 
 from procurement.domain.audit import AuditEvent
+from procurement.domain.decisions import DecisionId, DecisionRecord
 from procurement.domain.identifiers import CaseId, Environment, Revision, ScanId
 from procurement.domain.models import UtcTimestamp
 from procurement.domain.policy.evidence import ProcurementEvidence
+from procurement.ports.decisions import (
+    DecisionConflictError,
+    DecisionCreateResult,
+    DecisionRepository,
+)
 
 
 class RepositoryConflictError(Exception):
@@ -94,6 +100,20 @@ class DraftRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class DecisionOutcomeRecord:
+    """Terminal or reconciliation state retained alongside recommendation evidence."""
+
+    decision_id: str
+    decision_type: str
+    status: str
+    po_id: int
+    po_reference: str
+    write_date: str
+    odoo_state: str
+    reconciled: bool
+
+
+@dataclass(frozen=True, slots=True)
 class CaseRecord:
     """Durable application view of one procurement scan/case."""
 
@@ -111,6 +131,9 @@ class CaseRecord:
     candidate_snapshot: CandidateSnapshot | None = None
     refinement_count: int = 0
     draft: DraftRecord | None = None
+    workflow_thread_id: str | None = None
+    draft_request_idempotency_key: str | None = None
+    decision: DecisionOutcomeRecord | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -211,7 +234,7 @@ class SessionRecord:
     expires_at: UtcTimestamp
 
 
-class ApplicationRepository(Protocol):
+class ApplicationRepository(DecisionRepository, Protocol):
     """Application persistence operations independent of DynamoDB."""
 
     async def create_case(
@@ -284,6 +307,14 @@ class ApplicationRepository(Protocol):
     ) -> None:
         """Append one immutable audit event."""
 
+    async def list_audit(
+        self,
+        case_id: CaseId,
+        *,
+        limit: int,
+    ) -> tuple[AuditEvent, ...]:
+        """Return a bounded deterministic oldest-first case timeline."""
+
     async def put_login_transaction(self, record: LoginTransactionRecord) -> None:
         """Persist a one-use OAuth login transaction."""
 
@@ -315,6 +346,9 @@ class InMemoryApplicationRepository(ApplicationRepository):
         self._scans: dict[str, ScanRecord] = {}
         self._scan_idempotency: dict[str, tuple[str, ScanRecord]] = {}
         self._approvals: dict[str, ApprovalRecord] = {}
+        self._decisions: dict[str, DecisionRecord] = {}
+        self._decision_idempotency: dict[str, str] = {}
+        self._decision_guards: dict[tuple[str, int, str], str] = {}
         self._audit: dict[str, AuditEvent] = {}
         self._login_transactions: dict[str, LoginTransactionRecord] = {}
         self._sessions: dict[str, SessionRecord] = {}
@@ -485,6 +519,40 @@ class InMemoryApplicationRepository(ApplicationRepository):
         self._validate_case_id(case_id)
         return self._approvals.get(case_id.value)
 
+    async def create_decision(
+        self,
+        record: DecisionRecord,
+        *,
+        retention_expires_at: UtcTimestamp,
+    ) -> DecisionCreateResult:
+        self._validate_decision(record)
+        self._validate_expiry(retention_expires_at)
+        async with self._guard:
+            existing = self._decisions.get(record.decision_id.value)
+            if existing is not None:
+                if existing != record:
+                    raise DecisionConflictError("The decision already differs.")
+                return DecisionCreateResult(record=existing, created=False)
+            idempotent_id = self._decision_idempotency.get(record.idempotency_key)
+            guard = (record.case_id.value, record.po_id, record.po_write_date)
+            guarded_id = self._decision_guards.get(guard)
+            if idempotent_id is not None or guarded_id is not None:
+                raise DecisionConflictError("Another decision already won.")
+            self._decisions[record.decision_id.value] = record
+            self._decision_idempotency[record.idempotency_key] = (
+                record.decision_id.value
+            )
+            self._decision_guards[guard] = record.decision_id.value
+            return DecisionCreateResult(record=record, created=True)
+
+    async def get_decision(self, decision_id: DecisionId) -> DecisionRecord | None:
+        if (
+            not isinstance(decision_id, DecisionId)
+            or decision_id.environment is not self._environment
+        ):
+            raise ValueError("decision belongs to another environment")
+        return self._decisions.get(decision_id.value)
+
     async def append_audit(
         self,
         event: AuditEvent,
@@ -498,6 +566,21 @@ class InMemoryApplicationRepository(ApplicationRepository):
             if event.event_id in self._audit:
                 raise ImmutableRecordError("The audit event already exists.")
             self._audit[event.event_id] = event
+
+    async def list_audit(
+        self,
+        case_id: CaseId,
+        *,
+        limit: int,
+    ) -> tuple[AuditEvent, ...]:
+        self._validate_case_id(case_id)
+        if type(limit) is not int or not 1 <= limit <= 100:
+            raise ValueError("audit limit must be between 1 and 100")
+        rows = sorted(
+            (event for event in self._audit.values() if event.case_id == case_id),
+            key=lambda event: (event.occurred_at.value, event.event_id),
+        )
+        return tuple(rows[:limit])
 
     async def put_login_transaction(self, record: LoginTransactionRecord) -> None:
         async with self._guard:
@@ -541,6 +624,10 @@ class InMemoryApplicationRepository(ApplicationRepository):
         if not isinstance(record, ScanRecord):
             raise ValueError("record must be a ScanRecord")
         self._validate_scan_id(record.scan_id)
+
+    def _validate_decision(self, record: DecisionRecord) -> None:
+        if record.case_id.environment is not self._environment:
+            raise ValueError("decision belongs to another environment")
 
     def _validate_scan_id(self, scan_id: ScanId) -> None:
         if (

@@ -120,3 +120,33 @@ def test_oversized_recommendation_text_is_rejected() -> None:
 
     with pytest.raises(LlmOutputInvalidError):
         validate_recommendation_payload(payload, request, 1, 1)
+
+
+def test_schema_field_dump_is_rejected_as_explanatory_text() -> None:
+    request = t27_request()
+    payload = t27_payload(request)
+    payload["trade_offs"] = [
+        "budget_status",
+        "decision",
+        "evidence_digest",
+        "normalized_cost','offer_id','priority_order','rationale",
+    ]
+    payload["uncertainty"] = "budget_status"
+    payload["evidence_limitations"] = ["decision", "evidence_id"]
+
+    with pytest.raises(LlmOutputInvalidError):
+        validate_recommendation_payload(payload, request, 1, 1)
+
+
+def test_placeholder_explanations_are_normalized_to_user_facing_prose() -> None:
+    request = t27_request()
+    payload = t27_payload(request)
+    payload["trade_offs"] = ["None"]
+    payload["uncertainty"] = "None"
+    payload["evidence_limitations"] = ["N/A"]
+
+    recommendation = validate_recommendation_payload(payload, request, 1, 1)
+
+    assert recommendation.trade_offs == ("No material trade-offs were identified.",)
+    assert recommendation.uncertainty == "No material uncertainty was identified."
+    assert recommendation.evidence_limitations == ()

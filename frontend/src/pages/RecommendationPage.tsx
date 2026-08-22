@@ -7,7 +7,11 @@ import {
   type CaseDetail,
   type ProcurementEvidence as ProcurementEvidenceRecord,
   type ScanFailure,
+  type Session,
 } from "../api/client";
+import { AuditTimeline } from "../components/AuditTimeline";
+import { DraftSubmissionPanel } from "../components/DraftSubmissionPanel";
+import { ManagerDecisionPanel } from "../components/ManagerDecisionPanel";
 import { ProcurementEvidence } from "../components/ProcurementEvidence";
 import { RecommendationHeader } from "../components/RecommendationHeader";
 import { RefinementPanel } from "../components/RefinementPanel";
@@ -20,6 +24,7 @@ const DEFAULT_MAX_POLL_ATTEMPTS = 130;
 interface RecommendationPageProps {
   scanId: string;
   caseId: string;
+  session?: Session;
   onBack: () => void;
   pollIntervalMs?: number;
   maxPollAttempts?: number;
@@ -210,6 +215,7 @@ function RecommendationSummary({
 export function RecommendationPage({
   scanId,
   caseId,
+  session = { user_id: "unknown", email: "", role: "officer" },
   onBack,
   pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
   maxPollAttempts = DEFAULT_MAX_POLL_ATTEMPTS,
@@ -217,12 +223,30 @@ export function RecommendationPage({
   const [scan, setScan] = useState<CaseDetail | null>(null);
   const [requestError, setRequestError] = useState<UiError | null>(null);
   const [refinementNonce, setRefinementNonce] = useState(0);
+  const [draftSubmissionRevision, setDraftSubmissionRevision] = useState<number | null>(
+    null,
+  );
 
   function handleRefined(nextScan: CaseDetail) {
     setScan(nextScan);
     setRequestError(null);
     setRefinementNonce((value) => value + 1);
   }
+
+  useEffect(() => {
+    if (
+      scan === null ||
+      draftSubmissionRevision === null ||
+      !["pending_approval", "failed", "reconciliation_required"].includes(
+        scan.status,
+      )
+    ) {
+      return;
+    }
+    sessionStorage.removeItem(
+      `stockai:draft:${caseId}:${draftSubmissionRevision}`,
+    );
+  }, [caseId, draftSubmissionRevision, scan]);
 
   useEffect(() => {
     let active = true;
@@ -242,7 +266,7 @@ export function RecommendationPage({
         }
         setScan(nextScan);
         setRequestError(null);
-        if (nextScan.status === "queued" || nextScan.status === "running") {
+        if (["queued", "running", "creating_draft", "approved", "rejected", "confirming"].includes(nextScan.status)) {
           if (attempts >= maxPollAttempts) {
             setRequestError({
               code: "POLL_LIMIT_REACHED",
@@ -324,7 +348,22 @@ export function RecommendationPage({
               </p>
               <p>
                 Draft PO #{scan.draft.po_id} ·{" "}
+                Revision {scan.draft.write_date} ·{" "}
                 {formatCurrency(scan.draft.amount_total, "USD")}
+              </p>
+            </section>
+          ) : null}
+          {scan.status === "creating_draft" ? (
+            <section className="notice notice--review" role="status">
+              <h2>Creating draft</h2>
+              <p>The recommendation is locked while the fictional Odoo draft is created.</p>
+            </section>
+          ) : null}
+          {scan.decision ? (
+            <section className="notice notice--review" role="status">
+              <h2>{scan.decision.status.replaceAll("_", " ")}</h2>
+              <p>
+                Fictional Odoo PO {scan.decision.po_reference} is {scan.decision.odoo_state}.
               </p>
             </section>
           ) : null}
@@ -340,14 +379,31 @@ export function RecommendationPage({
             />
           ) : null}
           {scan.result.outcome === "approval_ready" &&
-          scan.status !== "pending_approval" ? (
-            <RefinementPanel
-              scanId={scanId}
-              caseId={caseId}
-              refinementCount={scan.refinement_count}
-              onRefined={handleRefined}
-            />
+          scan.status === "succeeded" ? (
+            <section className="pre-draft-actions" aria-label="Recommendation actions">
+              <RefinementPanel
+                scanId={scanId}
+                caseId={caseId}
+                refinementCount={scan.refinement_count}
+                onRefined={handleRefined}
+              />
+              <DraftSubmissionPanel
+                caseDetail={scan}
+                onSubmitted={() => {
+                  setDraftSubmissionRevision(scan.revision);
+                  setRefinementNonce((value) => value + 1);
+                }}
+              />
+            </section>
           ) : null}
+          {scan.status !== "succeeded" ? (
+            <AuditTimeline caseId={caseId} refreshKey={refinementNonce} />
+          ) : null}
+          <ManagerDecisionPanel
+            session={session}
+            caseDetail={scan}
+            onAccepted={() => setRefinementNonce((value) => value + 1)}
+          />
         </>
       ) : (
         <ErrorState

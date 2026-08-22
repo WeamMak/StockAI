@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from collections.abc import Mapping
 from decimal import Decimal
 from importlib.resources import files
@@ -41,6 +42,10 @@ _REQUIRED_FIELDS = {
     "priority_order",
     "premium_outcome",
 }
+_SCHEMA_TOKEN = re.compile(r"[a-z][a-z0-9_]*")
+_EXPLANATION_PLACEHOLDERS = frozenset({"none", "n/a", "not applicable"})
+_NO_MATERIAL_TRADE_OFFS = "No material trade-offs were identified."
+_NO_MATERIAL_UNCERTAINTY = "No material uncertainty was identified."
 _IDENTIFIER = {
     "type": ["string", "null"],
     "minLength": 1,
@@ -152,6 +157,22 @@ def _normal_text_list(value: object, *, field: str) -> tuple[str, ...]:
     return tuple(value)
 
 
+def _looks_like_schema_field_dump(value: str) -> bool:
+    normalized = value.strip().lower()
+    if normalized in _REQUIRED_FIELDS:
+        return True
+    schema_tokens = [
+        token
+        for token in _SCHEMA_TOKEN.findall(normalized)
+        if token in _REQUIRED_FIELDS
+    ]
+    return len(schema_tokens) >= 2
+
+
+def _is_explanation_placeholder(value: str) -> bool:
+    return value.strip().lower().removesuffix(".") in _EXPLANATION_PLACEHOLDERS
+
+
 def validate_recommendation_payload(
     payload: Mapping[str, object],
     request: RecommendationRequest,
@@ -179,6 +200,21 @@ def validate_recommendation_payload(
         limitations = _normal_text_list(
             payload["evidence_limitations"], field="evidence_limitations"
         )
+        if _is_explanation_placeholder(rationale):
+            raise ValueError("recommendation rationale is a placeholder")
+        trade_offs = tuple(
+            value for value in trade_offs if not _is_explanation_placeholder(value)
+        ) or (_NO_MATERIAL_TRADE_OFFS,)
+        if _is_explanation_placeholder(uncertainty):
+            uncertainty = _NO_MATERIAL_UNCERTAINTY
+        limitations = tuple(
+            value for value in limitations if not _is_explanation_placeholder(value)
+        )
+        if any(
+            _looks_like_schema_field_dump(value)
+            for value in (rationale, uncertainty, *trade_offs, *limitations)
+        ):
+            raise ValueError("recommendation explanation is not user-facing prose")
 
         if decision is RecommendationDecision.MANUAL_REVIEW:
             selected_fields = (

@@ -26,6 +26,26 @@ def _poll_scan(
     raise AssertionError("The local scan did not reach a terminal state.")
 
 
+def _poll_case(
+    client: httpx.Client,
+    location: str,
+    *,
+    headers: dict[str, str],
+    expected: str,
+) -> httpx.Response:
+    deadline = monotonic() + 5
+    response: httpx.Response | None = None
+    while monotonic() < deadline:
+        response = client.get(location, headers=headers)
+        if response.json()["status"] == expected:
+            return response
+        sleep(0.01)
+    raise AssertionError(
+        f"The local case did not reach {expected}: "
+        f"{response.json() if response is not None else 'no response'}"
+    )
+
+
 def test_local_processes_run_langgraph_over_real_mcp_transport(
     tmp_path: Path,
 ) -> None:
@@ -113,15 +133,15 @@ def test_local_scan_evaluates_multiple_candidates_as_isolated_cases(
     body = detail.json()
     assert body["status"] == "succeeded"
     assert len(body["results"]) == 2
-    assert body["outcome_counts"] == {"pending_approval": 1, "no_valid_offer": 1}
-    assert cases["product-101"]["status"] == "pending_approval"
+    assert body["outcome_counts"] == {"approval_ready": 1, "no_valid_offer": 1}
+    assert cases["product-101"]["status"] == "succeeded"
     assert cases["product-101"]["result"]["outcome"] == "approval_ready"
-    assert cases["product-101"]["draft"]["state"] == "draft"
+    assert cases["product-101"]["draft"] is None
     assert cases["product-102"]["result"]["outcome"] == "no_valid_offer"
     assert cases["product-102"]["result"]["product_id"] == "product-102"
 
 
-def test_local_pending_draft_cannot_be_refined(
+def test_explicit_local_draft_submission_closes_refinement(
     tmp_path: Path,
 ) -> None:
     with run_local_skeleton(tmp_path) as skeleton:
@@ -135,20 +155,47 @@ def test_local_pending_draft_cannot_be_refined(
             )
             scan_id = detail.json()["scan_id"]
             case_id = detail.json()["results"][0]["case_id"]
+            case_location = f"/api/v1/scans/{scan_id}/cases/{case_id}"
 
             refined = client.post(
-                f"/api/v1/scans/{scan_id}/cases/{case_id}/refine",
+                f"{case_location}/refine",
                 headers=auth_headers,
                 json={"note": "Prioritize delivery speed this time."},
             )
-            unchanged = client.get(
-                f"/api/v1/scans/{scan_id}/cases/{case_id}", headers=auth_headers
+            assert refined.status_code == 202
+            ready = _poll_case(
+                client,
+                case_location,
+                headers=auth_headers,
+                expected="succeeded",
+            ).json()
+            submitted = client.post(
+                f"{case_location}/draft",
+                headers={
+                    **auth_headers,
+                    "Idempotency-Key": "draft-submit-local-integration-001",
+                },
+                json={"case_revision": ready["revision"]},
             )
+            assert submitted.status_code == 202
+            pending = _poll_case(
+                client,
+                case_location,
+                headers=auth_headers,
+                expected="pending_approval",
+            )
+            closed = client.post(
+                f"{case_location}/refine",
+                headers=auth_headers,
+                json={"note": "Try one more time."},
+            )
+            unchanged = client.get(case_location, headers=auth_headers)
 
-    assert refined.status_code == 422
-    assert refined.json()["error_code"] == "VALIDATION_FAILED"
+    assert pending.status_code == 200
+    assert closed.status_code == 422
+    assert closed.json()["error_code"] == "VALIDATION_FAILED"
     assert unchanged.status_code == 200
     assert unchanged.json()["status"] == "pending_approval"
-    assert unchanged.json()["refinement_count"] == 0
+    assert unchanged.json()["refinement_count"] == 1
     assert unchanged.json()["result"]["outcome"] == "approval_ready"
     assert unchanged.json()["draft"]["state"] == "draft"

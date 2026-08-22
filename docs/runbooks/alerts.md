@@ -31,6 +31,23 @@ MCP readiness, Service endpoints, NetworkPolicy, and Odoo reachability. Do not
 retry a write with an ambiguous outcome; reconcile it first. Verify one
 read-only real-transport tool call succeeds.
 
+## StockAIPurchaseOrderActionFailures
+
+Open **StockAI LLM and MCP** and inspect the bounded confirm/cancel result and
+latency series. Correlate sanitized MCP logs, then verify Odoo reachability and
+the exact draft state with a read. Never resend an ambiguous write. Correct the
+dependency or configuration cause and verify the sustained error rate returns
+to zero.
+
+## StockAIDecisionReconciliationRequired
+
+Treat this as an immediate procurement-safety incident. Read the immutable
+decision and current fictional Odoo purchase order, compare their bound PO
+identity and commercial snapshot, and preserve the audit trail. Do not confirm
+or cancel again until an operator has established whether the first action
+committed. Resolve the case through the reviewed reconciliation workflow and
+verify no unresolved reconciliation remains.
+
 ## StockAIPodUnavailable
 
 Inspect the Deployment conditions, unavailable pod events, readiness probe,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import date
 from decimal import Decimal
@@ -14,9 +15,13 @@ from procurement.adapters.odoo.client import OdooErpAdapter, OdooJson2Client
 from procurement.adapters.odoo.draft import OdooDraftMappingError
 from procurement.adapters.odoo.mappers import OdooMappingError
 from procurement.ports.erp import (
+    ApprovalStaleError,
     DraftWriteAmbiguousError,
+    PurchaseOrderAction,
+    PurchaseOrderActionResult,
     PurchaseOrderDraft,
     PurchaseOrderDraftCommand,
+    PurchaseOrderWriteAmbiguousError,
 )
 
 
@@ -258,3 +263,165 @@ async def test_create_purchase_order_draft_confirmation_read_failure_is_ambiguou
 
     with pytest.raises(DraftWriteAmbiguousError):
         await adapter.create_purchase_order_draft(_command())
+
+
+def _draft() -> PurchaseOrderDraft:
+    return PurchaseOrderDraft(
+        po_id=41,
+        write_date="2026-08-21 09:30:00",
+        state="draft",
+        partner_id=7,
+        currency_id=2,
+        amount_total=Decimal("125.000000"),
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("action", "method", "terminal_state"),
+    [
+        (PurchaseOrderAction.CONFIRM, "action_stockai_confirm", "purchase"),
+        (PurchaseOrderAction.CANCEL, "action_stockai_cancel_draft", "cancel"),
+    ],
+)
+async def test_action_calls_only_allowlisted_atomic_method_once(
+    action: PurchaseOrderAction,
+    method: str,
+    terminal_state: str,
+) -> None:
+    requests: list[httpx.Request] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "id": 41,
+                "write_date": "2026-08-21 09:31:00",
+                "state": terminal_state,
+                "partner_id": 7,
+                "currency_id": 2,
+                "amount_total": 125.0,
+            },
+        )
+
+    adapter = OdooErpAdapter(client=_client(httpx.MockTransport(respond)), company_id=7)
+
+    result = await adapter.apply_purchase_order_action_once(
+        po_id=41, expected=_draft(), action=action
+    )
+
+    assert result == PurchaseOrderActionResult(
+        po_id=41,
+        po_reference=None,
+        write_date="2026-08-21 09:31:00",
+        state=terminal_state,
+        partner_id=7,
+        currency_id=2,
+        amount_total=Decimal("125.0"),
+    )
+    assert len(requests) == 1
+    assert requests[0].url.path == f"/json/2/purchase.order/{method}"
+    assert json.loads(requests[0].content) == {
+        "ids": [41],
+        "expected": {
+            "write_date": "2026-08-21 09:30:00",
+            "state": "draft",
+            "partner_id": 7,
+            "currency_id": 2,
+            "amount_total": "125.000000",
+        },
+    }
+
+
+@pytest.mark.anyio
+async def test_action_maps_odoo_422_to_permanent_stale_error() -> None:
+    calls = 0
+
+    def respond(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(422, json={"error": "private stale detail"})
+
+    adapter = OdooErpAdapter(client=_client(httpx.MockTransport(respond)), company_id=7)
+
+    with pytest.raises(ApprovalStaleError) as raised:
+        await adapter.apply_purchase_order_action_once(
+            po_id=41,
+            expected=_draft(),
+            action=PurchaseOrderAction.CONFIRM,
+        )
+
+    assert calls == 1
+    assert "private stale detail" not in str(raised.value)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "respond",
+    [
+        lambda _request: httpx.Response(503, json={"error": "unavailable"}),
+        lambda _request: httpx.Response(200, content=b'{"incomplete":'),
+        lambda _request: httpx.Response(200, content=b"x" * 65),
+    ],
+)
+async def test_action_uncertain_response_is_ambiguous_and_never_retried(
+    respond: Callable[[httpx.Request], httpx.Response],
+) -> None:
+    calls = 0
+
+    def counted(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return respond(request)
+
+    client = OdooJson2Client(
+        base_url="https://odoo.example.invalid",
+        database="stockai_dev",
+        api_key="private-odoo-key",
+        max_response_bytes=64,
+        transport=httpx.MockTransport(counted),
+    )
+    adapter = OdooErpAdapter(client=client, company_id=7)
+
+    with pytest.raises(PurchaseOrderWriteAmbiguousError):
+        await adapter.apply_purchase_order_action_once(
+            po_id=41,
+            expected=_draft(),
+            action=PurchaseOrderAction.CANCEL,
+        )
+
+    assert calls == 1
+
+
+@pytest.mark.anyio
+async def test_read_purchase_order_maps_supported_lifecycle_states() -> None:
+    states = iter(("draft", "sent", "purchase", "cancel"))
+
+    def respond(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "id": 41,
+                    "name": "P00041",
+                    "write_date": "2026-08-21 09:31:00",
+                    "state": next(states),
+                    "partner_id": [7, "Fictional Vendor"],
+                    "currency_id": [2, "USD"],
+                    "amount_total": 125.0,
+                }
+            ],
+        )
+
+    adapter = OdooErpAdapter(client=_client(httpx.MockTransport(respond)), company_id=7)
+
+    results = [await adapter.read_purchase_order(po_id=41) for _ in range(4)]
+
+    assert [result.state for result in results] == [
+        "draft",
+        "sent",
+        "purchase",
+        "cancel",
+    ]
+    assert all(result.po_reference == "P00041" for result in results)

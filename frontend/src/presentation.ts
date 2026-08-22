@@ -83,12 +83,20 @@ export function formatRatioPercent(value: string | null): string {
 }
 
 export const OUTCOME_LABEL: Record<string, string> = {
+  queued: "Pending",
+  running: "Scanning",
   approval_ready: "Approval ready",
   manual_review: "Manual review",
   no_valid_offer: "No valid offer",
   confirmed: "Confirmed",
   error: "Error",
   pending_approval: "Pending approval",
+  creating_draft: "Creating draft",
+  approved: "Approved",
+  rejected: "Rejected",
+  confirming: "Confirming",
+  cancelled: "Cancelled",
+  reconciliation_required: "Reconciliation required",
 };
 
 export const OUTCOME_COLOR: Record<string, string> = {
@@ -98,4 +106,10 @@ export const OUTCOME_COLOR: Record<string, string> = {
   confirmed: "#2f9e58",
   error: "#c0392b",
   pending_approval: "#b4780a",
+  creating_draft: "#3157c8",
+  approved: "#3157c8",
+  rejected: "#c0392b",
+  confirming: "#3157c8",
+  cancelled: "#60708a",
+  reconciliation_required: "#c0392b",
 };

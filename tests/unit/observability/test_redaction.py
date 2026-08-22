@@ -6,16 +6,27 @@ from io import StringIO
 
 import pytest
 from httpx2 import ASGITransport, AsyncClient
+from prometheus_client import CollectorRegistry, generate_latest
 
 from procurement.api.app import create_app
 from procurement.api.config import ApiSettings
 from procurement.domain.identifiers import Environment
+from procurement.mcp_server.observability import create_mcp_metrics
 from procurement.observability.logging import (
     REDACTED,
     configure_json_logging,
     log_event,
     sanitize_log_fields,
 )
+from procurement.observability.metrics import create_agent_metrics
+
+
+def _sample_value(
+    registry: CollectorRegistry,
+    name: str,
+    labels: dict[str, str] | None = None,
+) -> float | None:
+    return registry.get_sample_value(name, labels or {})
 
 
 def test_sensitive_log_fields_are_recursively_redacted() -> None:
@@ -55,6 +66,94 @@ def test_sensitive_log_fields_are_recursively_redacted() -> None:
     assert "confidential manager note" not in serialized
     assert "database password leaked" not in serialized
     assert "odoo-secret-key" not in serialized
+
+
+def test_manager_and_purchase_order_metrics_use_only_bounded_labels() -> None:
+    agent = create_agent_metrics()
+    agent.observe_manager_decision(
+        decision="approve", result="accepted", duration_seconds=0.25
+    )
+    mcp = create_mcp_metrics()
+    mcp.observe_purchase_order_action(
+        action="confirm",
+        result="reconciliation_required",
+        duration_seconds=0.5,
+    )
+
+    agent_text = generate_latest(agent.registry).decode()
+    mcp_text = generate_latest(mcp.registry).decode()
+    assert (
+        'procurement_manager_decisions_total{decision="approve",result="accepted"}'
+        in agent_text
+    )
+    assert (
+        'procurement_decision_completion_seconds_count{decision="approve"}'
+        in agent_text
+    )
+    assert (
+        'procurement_purchase_order_actions_total{action="confirm",result="reconciliation_required"}'
+        in mcp_text
+    )
+    assert (
+        'procurement_purchase_order_reconciliation_seconds_count{action="confirm"}'
+        in mcp_text
+    )
+    for forbidden in (
+        "case_id",
+        "decision_id",
+        "manager_id",
+        "vendor_id",
+        "amount",
+        "evidence_digest",
+        "reason",
+        "justification",
+    ):
+        assert f'{forbidden}="' not in agent_text + mcp_text
+
+
+def test_draft_submission_metrics_bound_results_and_successful_latency() -> None:
+    registry = CollectorRegistry(auto_describe=True)
+    metrics = create_agent_metrics(registry)
+
+    metrics.observe_draft_submission(result="accepted", duration_seconds=0.2)
+    metrics.observe_draft_submission(result="replay", duration_seconds=0.1)
+    metrics.observe_draft_submission(result="conflict", duration_seconds=0.3)
+    metrics.observe_draft_submission(result="untrusted-value", duration_seconds=0.4)
+
+    assert _sample_value(
+        registry,
+        "procurement_draft_submissions_total",
+        {"result": "accepted"},
+    ) == pytest.approx(1)
+    assert _sample_value(
+        registry,
+        "procurement_draft_submissions_total",
+        {"result": "replay"},
+    ) == pytest.approx(1)
+    assert _sample_value(
+        registry,
+        "procurement_draft_submissions_total",
+        {"result": "conflict"},
+    ) == pytest.approx(1)
+    assert _sample_value(
+        registry,
+        "procurement_draft_submissions_total",
+        {"result": "error"},
+    ) == pytest.approx(1)
+    assert _sample_value(
+        registry,
+        "procurement_draft_submission_seconds_count",
+    ) == pytest.approx(2)
+
+    metric_text = generate_latest(registry).decode()
+    for forbidden in (
+        "case_id",
+        "actor_subject",
+        "environment",
+        "vendor_id",
+        "reason",
+    ):
+        assert f'{forbidden}="' not in metric_text
 
 
 def test_log_event_emits_the_required_json_fields() -> None:

@@ -9,6 +9,7 @@ services:
       PROCUREMENT_MCP_CLIENT_TIMEOUT_SECONDS: "1"
       PROCUREMENT_PERSISTENCE_MODE: ${PROCUREMENT_PERSISTENCE_MODE:-memory}
       PROCUREMENT_AUTHENTICATION_MODE: disabled
+      PROCUREMENT_TEST_USER_ROLE: ${PROCUREMENT_TEST_USER_ROLE:-officer}
     entrypoint: ["python", "-m", "uvicorn"]
     command:
       - tests.support.authenticated_api:app
@@ -59,6 +60,10 @@ services:
     stop_grace_period: 10s
 
   mcp:
+    depends_on:
+      dynamodb-local:
+        condition: service_healthy
+        required: false
     environment:
       PROCUREMENT_LOG_LEVEL: ERROR
       PROCUREMENT_MCP_READ_TIMEOUT_SECONDS: "0.2"

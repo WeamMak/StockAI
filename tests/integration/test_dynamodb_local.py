@@ -168,6 +168,25 @@ def _poll_scan(
     raise AssertionError("DynamoDB-backed scan did not finish")
 
 
+def _poll_case(
+    client: httpx.Client,
+    location: str,
+    *,
+    headers: dict[str, str],
+    expected: str,
+) -> dict[str, Any]:
+    deadline = monotonic() + 15
+    payload: dict[str, Any] = {}
+    while monotonic() < deadline:
+        response = client.get(location, headers=headers)
+        response.raise_for_status()
+        payload = cast(dict[str, Any], response.json())
+        if payload["status"] == expected:
+            return payload
+        sleep(0.05)
+    raise AssertionError(f"DynamoDB-backed case did not reach {expected}: {payload}")
+
+
 def test_scan_and_graph_state_survive_api_process_restart(
     tmp_path: Path,
 ) -> None:
@@ -178,6 +197,7 @@ def test_scan_and_graph_state_survive_api_process_restart(
             dynamodb_endpoint_url=endpoint_url,
             dynamodb_application_table=APPLICATION_TABLE,
             dynamodb_checkpoint_table=CHECKPOINT_TABLE,
+            user_role="manager",
         ) as skeleton:
             with httpx.Client(base_url=skeleton.api_url, timeout=5) as api:
                 auth_headers = sign_in_sync(api)
@@ -188,27 +208,37 @@ def test_scan_and_graph_state_survive_api_process_restart(
             scan_id = str(finished["scan_id"])
             results = cast(list[dict[str, object]], finished["results"])
             case_id = str(results[0]["case_id"])
+            case_location = f"{location}/cases/{case_id}"
+            with httpx.Client(base_url=skeleton.api_url, timeout=5) as api:
+                initial = _poll_case(
+                    api,
+                    case_location,
+                    headers=auth_headers,
+                    expected="succeeded",
+                )
+                assert initial["draft"] is None
+                refined = api.post(
+                    f"{case_location}/refine",
+                    headers=auth_headers,
+                    json={"note": "Prioritize delivery for this run."},
+                )
+                refined.raise_for_status()
+                ready = _poll_case(
+                    api,
+                    case_location,
+                    headers=auth_headers,
+                    expected="succeeded",
+                )
+
+            thread_id = f"{case_id}:refine-1"
             checkpoint_items = client.query(
                 TableName=CHECKPOINT_TABLE,
                 KeyConditionExpression="PK = :pk",
                 ExpressionAttributeValues={
-                    ":pk": {"S": f"CHECKPOINT_{case_id}"},
+                    ":pk": {"S": f"CHECKPOINT_{thread_id}"},
                 },
             )["Items"]
             assert checkpoint_items
-            audit_items = client.query(
-                TableName=APPLICATION_TABLE,
-                KeyConditionExpression="PK = :pk AND begins_with(SK, :prefix)",
-                ExpressionAttributeValues={
-                    ":pk": {"S": "ENV#dev"},
-                    ":prefix": {"S": f"AUDIT#{case_id}#"},
-                },
-            )["Items"]
-            assert {item["outcome"]["S"] for item in audit_items} == {
-                "queued",
-                "running",
-                "pending_approval",
-            }
             session_items = client.query(
                 TableName=APPLICATION_TABLE,
                 KeyConditionExpression="PK = :pk AND begins_with(SK, :prefix)",
@@ -223,13 +253,89 @@ def test_scan_and_graph_state_survive_api_process_restart(
 
             skeleton.restart_api()
             with httpx.Client(base_url=skeleton.api_url, timeout=5) as restarted_api:
-                restored = restarted_api.get(location, headers=auth_headers)
-                listed = restarted_api.get("/api/v1/scans", headers=auth_headers)
+                restored = restarted_api.get(case_location, headers=auth_headers)
+                assert restored.json()["status"] == "succeeded"
+                lost_response = restarted_api.post(
+                    f"{case_location}/draft",
+                    headers={
+                        **auth_headers,
+                        "Idempotency-Key": "draft-submit-dynamodb-001",
+                    },
+                    json={"case_revision": ready["revision"]},
+                )
+                assert lost_response.status_code == 202
+
+            skeleton.restart_api()
+            with httpx.Client(base_url=skeleton.api_url, timeout=5) as recovered_api:
+                replay = recovered_api.post(
+                    f"{case_location}/draft",
+                    headers={
+                        **auth_headers,
+                        "Idempotency-Key": "draft-submit-dynamodb-001",
+                    },
+                    json={"case_revision": ready["revision"]},
+                )
+                replay.raise_for_status()
+                pending = _poll_case(
+                    recovered_api,
+                    case_location,
+                    headers=auth_headers,
+                    expected="pending_approval",
+                )
+
+            assert pending["draft"] is not None
+            assert replay.json()["created"] is False
+
+            skeleton.restart_api()
+            with httpx.Client(base_url=skeleton.api_url, timeout=5) as decision_api:
+                result = cast(dict[str, Any], pending["result"])
+                evidence_items = cast(list[dict[str, Any]], pending["evidence"])
+                evidence = next(
+                    item
+                    for item in evidence_items
+                    if item["product_id"] == result["product_id"]
+                )
+                offer = next(
+                    item
+                    for item in evidence["offers"]
+                    if item["offer_id"] == result["offer_id"]
+                )
+                draft = cast(dict[str, Any], pending["draft"])
+                approved = decision_api.post(
+                    f"/api/v1/cases/{case_id}/approve",
+                    headers={
+                        **auth_headers,
+                        "Idempotency-Key": "approve-dynamodb-001",
+                    },
+                    json={
+                        "environment": "dev",
+                        "case_revision": pending["revision"],
+                        "po_id": draft["po_id"],
+                        "po_revision": draft["write_date"],
+                        "vendor_id": offer["vendor_id"],
+                        "quantity": result["quantity"],
+                        "amount": result["normalized_cost"],
+                        "currency": offer["currency"],
+                        "budget_status": result["budget_status"],
+                        "overage": evidence["budget"]["overage"],
+                        "evidence_digest": result["evidence_digest"],
+                        "budget_exception": False,
+                        "justification": None,
+                    },
+                )
+                approved.raise_for_status()
+                terminal = _poll_case(
+                    decision_api,
+                    case_location,
+                    headers=auth_headers,
+                    expected="confirmed",
+                )
+                listed = decision_api.get("/api/v1/scans", headers=auth_headers)
 
             assert accepted.status_code == 202
             assert finished["status"] == "succeeded"
-            assert restored.status_code == 200
-            assert restored.json() == finished
+            assert refined.status_code == 202
+            assert terminal["decision"]["status"] == "confirmed"
             assert listed.json()["scans"][0]["scan_id"] == scan_id
 
             previous_access_key = os.environ.get("AWS_ACCESS_KEY_ID")
@@ -245,7 +351,7 @@ def test_scan_and_graph_state_survive_api_process_restart(
                         endpoint_url=endpoint_url,
                     )
                 )
-                config: RunnableConfig = {"configurable": {"thread_id": case_id}}
+                config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
                 checkpoint = saver.get_tuple(config)
             finally:
                 if previous_access_key is None:

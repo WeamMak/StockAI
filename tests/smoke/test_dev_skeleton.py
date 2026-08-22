@@ -139,6 +139,28 @@ def _poll_scan(
     raise AssertionError(f"the live {environment} scan did not reach a terminal state")
 
 
+def _poll_case(
+    client: httpx.Client,
+    location: str,
+    *,
+    expected: str,
+    environment: str,
+) -> dict[str, Any]:
+    deadline = time.monotonic() + 90
+    payload: dict[str, Any] = {}
+    while time.monotonic() < deadline:
+        response = client.get(location)
+        response.raise_for_status()
+        payload = response.json()
+        assert isinstance(payload, dict)
+        if payload.get("status") == expected:
+            return payload
+        time.sleep(2)
+    raise AssertionError(
+        f"the live {environment} case did not reach {expected}: {payload}"
+    )
+
+
 def _approval_ready_case_summary(completed: dict[str, Any]) -> dict[str, Any]:
     """Return one approval-ready case summary from a terminal scan aggregate."""
 
@@ -340,14 +362,32 @@ def run_exact_walking_skeleton(environment: str) -> None:
         completed = _poll_scan(client, location, environment=environment)
         assert completed["status"] == "succeeded", completed.get("error")
         approval_summary = _approval_ready_case_summary(completed)
-        assert approval_summary["status"] == "pending_approval"
+        assert approval_summary["status"] == "succeeded"
         case_id = str(approval_summary["case_id"])
-        case_response = client.get(f"{location}/cases/{case_id}")
+        case_location = f"{location}/cases/{case_id}"
+        case_response = client.get(case_location)
         case_response.raise_for_status()
         case_detail = case_response.json()
         assert isinstance(case_detail, dict)
-        assert case_detail["status"] == "pending_approval", case_detail.get("error")
+        assert case_detail["status"] == "succeeded", case_detail.get("error")
         assert case_detail["case_id"] == case_id
+        assert case_detail["draft"] is None
+        submitted = client.post(
+            f"{case_location}/draft",
+            headers={
+                "X-CSRF-Token": csrf_token,
+                "X-Request-ID": smoke_run_id,
+                "Idempotency-Key": f"{smoke_run_id}-draft",
+            },
+            json={"case_revision": case_detail["revision"]},
+        )
+        assert submitted.status_code == 202, submitted.text
+        case_detail = _poll_case(
+            client,
+            case_location,
+            expected="pending_approval",
+            environment=environment,
+        )
         listed = client.get("/api/v1/scans")
         listed.raise_for_status()
         assert any(
@@ -423,6 +463,8 @@ def run_exact_walking_skeleton(environment: str) -> None:
     assert {entry["outcome"]["S"] for entry in audit_items} == {
         "queued",
         "running",
+        "succeeded",
+        "creating_draft",
         "pending_approval",
     }
     assert any("preferences" in entry for entry in audit_items)

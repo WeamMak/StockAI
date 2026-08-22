@@ -9,11 +9,14 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.types import Command
 
 from procurement.agent.nodes.walking_skeleton import WalkingSkeletonNodes
 from procurement.agent.state import ApprovalReadyResult, ScanState, UnresolvedResult
+from procurement.domain.decisions import DecisionType
 from procurement.domain.identifiers import Environment
 from procurement.observability.metrics import AgentMetrics, create_agent_metrics
+from procurement.ports.decisions import DecisionReader
 from procurement.ports.llm import StructuredLlmPort
 from procurement.ports.mcp import ProcurementMcpPort, ReplenishmentCandidate
 
@@ -25,6 +28,8 @@ def _build_nodes(
     metrics: AgentMetrics | None,
     logger: logging.Logger | None,
     company_id: str,
+    decisions: DecisionReader | None,
+    pause_for_decision: bool,
 ) -> WalkingSkeletonNodes:
     return WalkingSkeletonNodes(
         mcp=mcp,
@@ -32,6 +37,8 @@ def _build_nodes(
         metrics=metrics or create_agent_metrics(),
         logger=logger or logging.getLogger(__name__),
         company_id=company_id,
+        decisions=decisions,
+        pause_for_decision=pause_for_decision,
     )
 
 
@@ -43,6 +50,7 @@ def build_walking_skeleton_graph(
     metrics: AgentMetrics | None = None,
     logger: logging.Logger | None = None,
     company_id: str = "1",
+    decisions: DecisionReader | None = None,
 ) -> CompiledStateGraph[ScanState, None, ScanState, ScanState]:
     """Compile the smallest explicit MCP-to-LLM procurement workflow.
 
@@ -51,26 +59,59 @@ def build_walking_skeleton_graph(
     """
 
     nodes = _build_nodes(
-        mcp=mcp, llm=llm, metrics=metrics, logger=logger, company_id=company_id
+        mcp=mcp,
+        llm=llm,
+        metrics=metrics,
+        logger=logger,
+        company_id=company_id,
+        decisions=decisions,
+        pause_for_decision=checkpointer is not None,
     )
     builder = StateGraph(ScanState)
     builder.add_node("gather_evidence", nodes.gather_evidence)
     builder.add_node("resolve_preferences", nodes.resolve_preferences)
     builder.add_node("reason", nodes.reason_about_candidate)
-    builder.add_node("create_draft", nodes.create_draft)
     builder.add_edge(START, "gather_evidence")
     builder.add_edge("gather_evidence", "resolve_preferences")
     builder.add_edge("resolve_preferences", "reason")
-    builder.add_conditional_edges("reason", _route_after_reason, ["create_draft", END])
-    builder.add_edge("create_draft", END)
+    if checkpointer is None:
+        builder.add_edge("reason", END)
+    else:
+        builder.add_node("await_draft_submission", nodes.await_draft_submission)
+        builder.add_node("create_draft", nodes.create_draft)
+        builder.add_conditional_edges(
+            "reason", _route_after_reason, ["await_draft_submission", END]
+        )
+        builder.add_edge("await_draft_submission", "create_draft")
+    if checkpointer is not None and decisions is None:
+        builder.add_edge("create_draft", END)
+    elif checkpointer is not None:
+        builder.add_node("load_decision", nodes.load_decision)
+        builder.add_node("confirm", nodes.confirm)
+        builder.add_node("cancel", nodes.cancel)
+        builder.add_edge("create_draft", "load_decision")
+        builder.add_conditional_edges(
+            "load_decision", _route_decision, ["confirm", "cancel", END]
+        )
+        builder.add_edge("confirm", END)
+        builder.add_edge("cancel", END)
     return builder.compile(checkpointer=checkpointer)
 
 
-def _route_after_reason(state: ScanState) -> str:
-    """Only a validated approval-ready recommendation may create a draft."""
+async def _route_after_reason(state: ScanState) -> str:
+    """Only a validated recommendation may reach the pre-draft checkpoint."""
 
     if isinstance(state.get("result"), ApprovalReadyResult):
-        return "create_draft"
+        return "await_draft_submission"
+    return END
+
+
+async def _route_decision(state: ScanState) -> str:
+    decision_type = state.get("decision_type")
+    if decision_type == DecisionType.APPROVE.value:
+        return "confirm"
+    if decision_type == DecisionType.REJECT.value:
+        return "cancel"
     return END
 
 
@@ -96,6 +137,41 @@ class WalkingSkeletonWorkflow:
             environment=environment, scan_id=scan_id
         )
 
+    async def aresume_decision(
+        self, workflow_thread_id: str, decision_id: str
+    ) -> ScanState:
+        result = await self._graph.ainvoke(
+            Command(resume=decision_id),
+            config=self._thread_config(workflow_thread_id),
+        )
+        return cast(ScanState, result)
+
+    async def aensure_draft(self, workflow_thread_id: str) -> ScanState:
+        """Create or return the draft owned by one validated checkpoint."""
+
+        config = self._thread_config(workflow_thread_id)
+        snapshot = await self._graph.aget_state(config)
+        values = cast(ScanState, snapshot.values)
+        if values.get("draft") is not None:
+            return values
+        if tuple(snapshot.next) != ("await_draft_submission",):
+            raise DraftCheckpointError("workflow is not awaiting draft submission")
+        result = await self._graph.ainvoke(
+            Command(resume="create_draft"),
+            config=config,
+        )
+        return cast(ScanState, result)
+
+    @staticmethod
+    def _thread_config(workflow_thread_id: str) -> RunnableConfig:
+        if not workflow_thread_id:
+            raise DraftCheckpointError("workflow thread ID is missing")
+        return {"configurable": {"thread_id": workflow_thread_id}}
+
+
+class DraftCheckpointError(RuntimeError):
+    """The requested workflow is not at a safe draft checkpoint."""
+
 
 def build_walking_skeleton_workflow(
     *,
@@ -105,12 +181,19 @@ def build_walking_skeleton_workflow(
     metrics: AgentMetrics | None = None,
     logger: logging.Logger | None = None,
     company_id: str = "1",
+    decisions: DecisionReader | None = None,
 ) -> WalkingSkeletonWorkflow:
     """Build the full discovery-plus-per-candidate-graph workflow for
     ScanService, satisfying its ScanWorkflow protocol."""
 
     nodes = _build_nodes(
-        mcp=mcp, llm=llm, metrics=metrics, logger=logger, company_id=company_id
+        mcp=mcp,
+        llm=llm,
+        metrics=metrics,
+        logger=logger,
+        company_id=company_id,
+        decisions=decisions,
+        pause_for_decision=False,
     )
     graph = build_walking_skeleton_graph(
         mcp=mcp,
@@ -119,5 +202,6 @@ def build_walking_skeleton_workflow(
         metrics=metrics,
         logger=logger,
         company_id=company_id,
+        decisions=decisions,
     )
     return WalkingSkeletonWorkflow(_graph=graph, _nodes=nodes)

@@ -251,7 +251,7 @@ export function OverviewPage({
   ) : (
     <ul className="scan-list" aria-label="Recent procurement recommendations">
       {recentCases.map((row) => {
-        const badge = row.status === "pending_approval" ? "pending_approval" : row.outcome;
+        const badge = row.status === "succeeded" ? row.outcome : row.status;
         return (
           <li key={row.case_id}>
             <button
