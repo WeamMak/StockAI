@@ -42,9 +42,13 @@ deployed project image ends in the corresponding promoted digest.
 
 Authenticate through the fictional prod Cognito account, keep the fresh
 session and CSRF values out of shell history and chat, and run
-`make smoke-prod`. Preserve only the sanitized evidence file and its SHA-256
-digest. A failed smoke is a release failure; diagnose it without changing live
-desired state manually.
+`make smoke-prod`. The repeatable production smoke is non-mutating: it accepts
+any valid terminal Procurement Case outcome and proves the public API,
+LangGraph, Bedrock, MCP/Odoo reads, DynamoDB persistence, metrics, and logs
+without creating a draft purchase order. The write path remains part of dev
+validation and deterministic integration coverage. Preserve only the sanitized
+evidence file and its SHA-256 digest. A failed smoke is a release failure;
+diagnose it without changing live desired state manually.
 
 ## Rollback
 
