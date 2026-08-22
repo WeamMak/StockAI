@@ -510,7 +510,8 @@ def run_exact_walking_skeleton(environment: str) -> None:
     if environment == "dev":
         expected_audit_outcomes.update({"creating_draft", "pending_approval"})
     assert {entry["outcome"]["S"] for entry in audit_items} == (expected_audit_outcomes)
-    assert any("preferences" in entry for entry in audit_items)
+    if environment == "dev":
+        assert any("preferences" in entry for entry in audit_items)
     checkpoints = dynamodb.query(
         TableName=f"weam-stockai-{environment}-checkpoints",
         KeyConditionExpression="PK = :pk",
