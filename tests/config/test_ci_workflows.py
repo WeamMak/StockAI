@@ -316,6 +316,7 @@ def test_main_promotion_verifies_observes_and_smokes_without_rebuild() -> None:
     source = (WORKFLOWS / "main-promote.yml").read_text(encoding="utf-8")
 
     assert workflow["on"]["push"]["branches"] == ["main"]
+    assert "tests/smoke/test_dev_skeleton.py" in workflow["on"]["push"]["paths"]
     assert workflow["permissions"] == {"contents": "read", "id-token": "write"}
     assert workflow["jobs"]["promote"]["environment"] == "prod"
     assert "--promoted-from" in source
