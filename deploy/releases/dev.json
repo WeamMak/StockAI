@@ -8,8 +8,23 @@
   },
   "createdAt": "2026-08-22T10:00:00Z",
   "devValidation": {
-    "attempts": [],
-    "status": "pending"
+    "attempts": [
+      {
+        "argoRevision": "ef75b1cd029a3c2c6a65e3229f9bc1c04e69ec55",
+        "evidenceDigest": "sha256:11169f606235d7bb6a4376a560c8c5c6f08d42f9d124a66499a33e7d588914e4",
+        "images": {
+          "api": "sha256:f25c0b18fc53649a7e13810093cd3a93a887e5d0e7901e924d70f9d8db41b082",
+          "frontend": "sha256:9e800037d598c8044684901251304a13f950bebeafc840be20838c8259f8509a",
+          "mcp": "sha256:4fba2edf91d3c10e0e15137c448c8a943542c176e30d67ae208f260bd116bb2f",
+          "odoo": "sha256:663e1d6387598ac79aee5b7655caa4fd0b7bf2e057090ad7c90e560aee8a1cd9"
+        },
+        "releaseId": "sha256:2cd2a286e81f0fa726b6641ce087429ca98a952a71abb6aabbdd75febc157c4a",
+        "result": "passed",
+        "smokeRunId": "dev-smoke-20260822T115444Z",
+        "timestamp": "2026-08-22T11:55:44Z"
+      }
+    ],
+    "status": "passed"
   },
   "images": {
     "api": "sha256:f25c0b18fc53649a7e13810093cd3a93a887e5d0e7901e924d70f9d8db41b082",
@@ -19,7 +34,7 @@
   },
   "integrity": {
     "algorithm": "sha256",
-    "digest": "sha256:d7584ff84b16470621448a4f8f48337f2007af6e23171b2bb22e825b2ced78e9"
+    "digest": "sha256:fdaaa0f0a7a98f8c16f8540e4ad1b5b1ce922a7f19ffd1d0b03a6c26191fe531"
   },
   "provenance": {
     "api": "sha256:caeac18f04020ebf90e6230dba7c02f765738317856d89e5670fad752ea21f2c",
