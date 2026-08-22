@@ -44,6 +44,8 @@ _REQUIRED_FIELDS = {
 }
 _SCHEMA_TOKEN = re.compile(r"[a-z][a-z0-9_]*")
 _EXPLANATION_PLACEHOLDERS = frozenset({"none", "n/a", "not applicable"})
+_NO_MATERIAL_TRADE_OFFS = "No material trade-offs were identified."
+_NO_MATERIAL_UNCERTAINTY = "No material uncertainty was identified."
 _IDENTIFIER = {
     "type": ["string", "null"],
     "minLength": 1,
@@ -198,8 +200,18 @@ def validate_recommendation_payload(
         limitations = _normal_text_list(
             payload["evidence_limitations"], field="evidence_limitations"
         )
+        if _is_explanation_placeholder(rationale):
+            raise ValueError("recommendation rationale is a placeholder")
+        trade_offs = tuple(
+            value for value in trade_offs if not _is_explanation_placeholder(value)
+        ) or (_NO_MATERIAL_TRADE_OFFS,)
+        if _is_explanation_placeholder(uncertainty):
+            uncertainty = _NO_MATERIAL_UNCERTAINTY
+        limitations = tuple(
+            value for value in limitations if not _is_explanation_placeholder(value)
+        )
         if any(
-            _looks_like_schema_field_dump(value) or _is_explanation_placeholder(value)
+            _looks_like_schema_field_dump(value)
             for value in (rationale, uncertainty, *trade_offs, *limitations)
         ):
             raise ValueError("recommendation explanation is not user-facing prose")

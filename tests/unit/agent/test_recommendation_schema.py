@@ -138,11 +138,17 @@ def test_schema_field_dump_is_rejected_as_explanatory_text() -> None:
         validate_recommendation_payload(payload, request, 1, 1)
 
 
-def test_placeholder_explanations_are_rejected() -> None:
+def test_placeholder_explanations_are_normalized_to_user_facing_prose() -> None:
     request = t27_request()
     payload = t27_payload(request)
     payload["trade_offs"] = ["None"]
     payload["uncertainty"] = "None"
+    payload["evidence_limitations"] = ["N/A"]
 
-    with pytest.raises(LlmOutputInvalidError):
-        validate_recommendation_payload(payload, request, 1, 1)
+    recommendation = validate_recommendation_payload(payload, request, 1, 1)
+
+    assert recommendation.trade_offs == (
+        "No material trade-offs were identified.",
+    )
+    assert recommendation.uncertainty == "No material uncertainty was identified."
+    assert recommendation.evidence_limitations == ()
