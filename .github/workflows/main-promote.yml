@@ -11,6 +11,7 @@ on:
       - scripts/smoke/prod.sh
       - scripts/smoke/authenticated_prod.py
       - src/procurement/bootstrap/cognito.py
+      - tests/smoke/test_dev_skeleton.py
       - tests/smoke/test_prod_skeleton.py
       - .github/workflows/main-promote.yml
 
