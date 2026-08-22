@@ -72,6 +72,8 @@ def test_prod_metric_proof_excludes_mutating_draft_operations() -> None:
 
     assert prod_queries
     assert all("create_purchase_order" not in query for query in prod_queries)
+    assert all("procurement_llm_calls_total" not in query for query in prod_queries)
+    assert all("get_procurement_preferences" not in query for query in prod_queries)
     assert len(_metric_queries_for("dev")) > len(prod_queries)
 
 
@@ -84,7 +86,9 @@ def test_target_health_requires_both_jobs_and_every_target_up() -> None:
 
 
 def test_metric_delta_wait_times_out_with_missing_query_names() -> None:
-    query = METRIC_QUERIES[0]
+    query = next(
+        query for query in METRIC_QUERIES if "procurement_llm_calls_total" in query
+    )
 
     with pytest.raises(AssertionError, match="procurement_llm_calls_total"):
         _wait_for_metric_deltas(
