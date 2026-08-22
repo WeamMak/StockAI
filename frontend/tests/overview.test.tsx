@@ -258,14 +258,16 @@ describe("OverviewPage", () => {
   });
 
   it("shows terminal lifecycle status instead of the original recommendation outcome", async () => {
+    let resolveRecentCases: ((response: Response) => void) | undefined;
+    const recentCasesRequest = new Promise<Response>((resolve) => {
+      resolveRecentCases = resolve;
+    });
     vi.stubGlobal(
       "fetch",
       vi.fn().mockImplementation((url: string) =>
-        Promise.resolve(
-          url.startsWith("/api/v1/cases")
-            ? jsonResponse({ cases: [CONFIRMED_RECENT_CASE] })
-            : jsonResponse({ scans: [] }),
-        ),
+        url.startsWith("/api/v1/cases")
+          ? recentCasesRequest
+          : Promise.resolve(jsonResponse({ scans: [] })),
       ),
     );
 
@@ -274,7 +276,8 @@ describe("OverviewPage", () => {
     const panel = await screen.findByRole("region", {
       name: "Recent recommendations",
     });
-    expect(within(panel).getByText("Confirmed")).toBeInTheDocument();
+    resolveRecentCases?.(jsonResponse({ cases: [CONFIRMED_RECENT_CASE] }));
+    expect(await within(panel).findByText("Confirmed")).toBeInTheDocument();
     expect(within(panel).queryByText("Approval ready")).not.toBeInTheDocument();
   });
 
