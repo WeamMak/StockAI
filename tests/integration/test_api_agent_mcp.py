@@ -101,19 +101,31 @@ async def _running_mcp_server(
             app=mcp.streamable_http_app(),
             log_level="critical",
             access_log=False,
+            timeout_graceful_shutdown=1,
         )
     )
-
     async with anyio.create_task_group() as task_group:
         task_group.start_soon(server.serve, [listener])
         with anyio.fail_after(5):
             while not server.started:
                 await anyio.sleep(0.01)
+        base_url = f"http://127.0.0.1:{port}"
+        async with httpx.AsyncClient(timeout=0.5) as readiness_client:
+            with anyio.fail_after(5):
+                while True:
+                    try:
+                        readiness = await readiness_client.get(f"{base_url}/metrics")
+                        if readiness.status_code == 200:
+                            break
+                    except httpx.HTTPError:
+                        pass
+                    await anyio.sleep(0.01)
         try:
-            base_url = f"http://127.0.0.1:{port}"
             yield f"{base_url}/mcp", f"{base_url}/metrics", fake_odoo
         finally:
             server.should_exit = True
+            server.force_exit = True
+            task_group.cancel_scope.cancel()
 
 
 class RealTransportMcpClient(ProcurementMcpPort):

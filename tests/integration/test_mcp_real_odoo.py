@@ -78,7 +78,12 @@ async def _running_real_odoo_mcp(
     listener.setblocking(False)
     port = listener.getsockname()[1]
     server = uvicorn.Server(
-        uvicorn.Config(app=application, log_level="critical", access_log=False)
+        uvicorn.Config(
+            app=application,
+            log_level="critical",
+            access_log=False,
+            timeout_graceful_shutdown=1,
+        )
     )
 
     async with anyio.create_task_group() as task_group:
@@ -86,11 +91,23 @@ async def _running_real_odoo_mcp(
         with anyio.fail_after(5):
             while not server.started:
                 await anyio.sleep(0.01)
+        base_url = f"http://127.0.0.1:{port}"
+        async with httpx.AsyncClient(timeout=0.5) as readiness_client:
+            with anyio.fail_after(5):
+                while True:
+                    try:
+                        readiness = await readiness_client.get(f"{base_url}/metrics")
+                        if readiness.status_code == 200:
+                            break
+                    except httpx.HTTPError:
+                        pass
+                    await anyio.sleep(0.01)
         try:
-            base_url = f"http://127.0.0.1:{port}"
             yield f"{base_url}/mcp", f"{base_url}/metrics"
         finally:
             server.should_exit = True
+            server.force_exit = True
+            task_group.cancel_scope.cancel()
 
 
 async def _call_candidate_tool(url: str) -> Mapping[str, object]:
