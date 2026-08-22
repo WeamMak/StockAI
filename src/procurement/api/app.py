@@ -93,7 +93,14 @@ def create_app(
     )
     application = FastAPI(
         title="StockAI Procurement API",
-        lifespan=lifespan_for(lifecycle),
+        lifespan=lifespan_for(
+            lifecycle,
+            background_services=(
+                scan_service,
+                draft_submission_service,
+                decision_service,
+            ),
+        ),
     )
     application.state.settings = resolved_settings
     application.state.logger = resolved_logger

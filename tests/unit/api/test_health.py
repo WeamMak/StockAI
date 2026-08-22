@@ -1,5 +1,7 @@
 """Public health-endpoint behavior for the procurement API."""
 
+from unittest.mock import AsyncMock
+
 import pytest
 from httpx2 import ASGITransport, AsyncClient
 from tests.support.local_identity import LocalIdentityProvider, sign_in
@@ -25,6 +27,21 @@ async def test_liveness_reports_that_the_process_is_alive() -> None:
 @pytest.mark.anyio
 async def test_readiness_tracks_the_application_lifecycle() -> None:
     application = create_app()
+    lifecycle = application.state.lifecycle
+    services = (
+        application.state.scan_service,
+        application.state.draft_submission_service,
+        application.state.decision_service,
+    )
+    readiness_while_draining: list[bool] = []
+    drain_mocks = [
+        AsyncMock(
+            side_effect=lambda: readiness_while_draining.append(lifecycle.is_ready)
+        )
+        for _ in services
+    ]
+    for service, drain_mock in zip(services, drain_mocks, strict=True):
+        service.drain = drain_mock
     transport = ASGITransport(app=application)
     async with AsyncClient(
         transport=transport,
@@ -43,6 +60,9 @@ async def test_readiness_tracks_the_application_lifecycle() -> None:
     assert while_running.json() == {"status": "ready"}
     assert after_shutdown.status_code == 503
     assert after_shutdown.json() == {"status": "not_ready"}
+    assert readiness_while_draining == [False, False, False]
+    for drain_mock in drain_mocks:
+        drain_mock.assert_awaited_once_with()
 
 
 @pytest.mark.anyio
