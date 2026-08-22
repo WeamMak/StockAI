@@ -10,6 +10,8 @@ from tests.smoke import test_dev_skeleton as smoke
 from tests.smoke.test_dev_skeleton import (
     METRIC_QUERIES,
     _approval_ready_case_summary,
+    _case_summary_for_environment,
+    _metric_queries_for,
     _metric_total,
     _targets_are_up,
     _wait_for_metric_deltas,
@@ -51,6 +53,26 @@ def test_approval_ready_case_summary_uses_scan_aggregate_contract() -> None:
     }
 
     assert _approval_ready_case_summary(completed) is approval_ready
+
+
+def test_prod_case_summary_accepts_a_non_mutating_terminal_outcome() -> None:
+    no_valid_offer = {
+        "case_id": "scan-1:product-2",
+        "outcome": "no_valid_offer",
+    }
+    completed = {"results": [no_valid_offer]}
+
+    assert _case_summary_for_environment(completed, "prod") is no_valid_offer
+    with pytest.raises(AssertionError, match="no approval-ready case"):
+        _case_summary_for_environment(completed, "dev")
+
+
+def test_prod_metric_proof_excludes_mutating_draft_operations() -> None:
+    prod_queries = _metric_queries_for("prod")
+
+    assert prod_queries
+    assert all("create_purchase_order" not in query for query in prod_queries)
+    assert len(_metric_queries_for("dev")) > len(prod_queries)
 
 
 def test_target_health_requires_both_jobs_and_every_target_up() -> None:
