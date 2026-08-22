@@ -16,19 +16,21 @@ from scripts.release.verify_manifest import IMAGE_NAMES, load_manifest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 TERMINAL_STATUSES = {"succeeded", "failed"}
-READ_METRIC_QUERIES = (
-    'sum(procurement_llm_calls_total{status="success"})',
+CORE_METRIC_QUERIES = (
     'sum(procurement_agent_mcp_calls_total{status="success"})',
-    'sum(procurement_agent_mcp_calls_total{tool="get_procurement_preferences",status="success"})',
     'sum(procurement_mcp_tool_calls_total{status="success"})',
     'sum(procurement_odoo_calls_total{status="success"})',
+)
+REASONING_METRIC_QUERIES = (
+    'sum(procurement_llm_calls_total{status="success"})',
+    'sum(procurement_agent_mcp_calls_total{tool="get_procurement_preferences",status="success"})',
 )
 WRITE_METRIC_QUERIES = (
     'sum(procurement_agent_mcp_calls_total{tool="create_purchase_order_draft",status="success"})',
     'sum(procurement_mcp_tool_calls_total{tool="create_purchase_order_draft",status="success"})',
     'sum(procurement_odoo_calls_total{operation="create_purchase_order",status="success"})',
 )
-METRIC_QUERIES = READ_METRIC_QUERIES + WRITE_METRIC_QUERIES
+METRIC_QUERIES = CORE_METRIC_QUERIES + REASONING_METRIC_QUERIES + WRITE_METRIC_QUERIES
 EXPECTED_METRIC_JOBS = {"stockai-agent-api", "stockai-procurement-mcp"}
 TARGET_HEALTH_QUERY = (
     'min by (job) (up{job=~"stockai-agent-api|stockai-procurement-mcp"})'
@@ -208,7 +210,7 @@ def _metric_queries_for(environment: str) -> tuple[str, ...]:
 
     assert environment in {"dev", "prod"}
     if environment == "prod":
-        return READ_METRIC_QUERIES
+        return CORE_METRIC_QUERIES
     return METRIC_QUERIES
 
 
@@ -553,7 +555,7 @@ def run_exact_walking_skeleton(environment: str) -> None:
         "https": True,
         "cognitoSession": True,
         "frontendPolling": True,
-        "fastApiLangGraphBedrock": True,
+        "fastApiLangGraph": True,
         "mcpOdooRead": True,
         "dynamoDbPersistence": True,
         "prometheusMetrics": True,
@@ -561,6 +563,8 @@ def run_exact_walking_skeleton(environment: str) -> None:
         "lokiS3Objects": True,
     }
     if environment == "dev":
+        evidence_checks["bedrockReasoning"] = True
+        evidence_checks["mcpPreferenceRead"] = True
         evidence_checks["mcpOdooDraftCreate"] = True
     else:
         evidence_checks["nonMutatingProdScan"] = True
